@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🏓 Tenis de Mesa — Dina Huapi & Bariloche</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏓%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <!-- inline logo: paddle + ball -->
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="44" cy="20" r="7" fill="#ff7a1a"/>
+        <g transform="rotate(35 30 36)">
+          <ellipse cx="30" cy="30" rx="17" ry="20" fill="#c1121f"/>
+          <ellipse cx="30" cy="30" rx="13" ry="16" fill="#7a0c16"/>
+          <rect x="26" y="46" width="8" height="18" rx="3" fill="#5a3a1a"/>
+        </g>
+      </svg>
+      <div class="brand-text">
+        <strong>Tenis de Mesa</strong>
+        <span>Dina Huapi &amp; Bariloche</span>
+      </div>
+    </div>
+    <nav class="nav" id="nav" hidden>
+      <button data-view="ranking" class="nav-btn active">🏆 Ranking</button>
+      <button data-view="torneos" class="nav-btn">📅 Torneos</button>
+      <button data-view="historial" class="nav-btn">📊 Historial</button>
+      <button data-view="perfil" class="nav-btn profile-only">👤 Perfil</button>
+      <button data-view="jugadores" class="nav-btn admin-only">👥 Jugadores</button>
+      <button data-view="gimnasios" class="nav-btn admin-only">🏟️ Gimnasios</button>
+    </nav>
+    <div class="user-area" id="userArea"></div>
+  </header>
+
+  <main id="app"></main>
+
+  <footer class="footer">
+    <span>🏓 MVP — Club de Tenis de Mesa Dina Huapi &amp; Bariloche</span>
+    <span class="muted" id="storeInfo"></span>
+  </footer>
+
+  <!-- modal host -->
+  <div class="modal-overlay" id="modal" hidden>
+    <div class="modal-card" id="modalCard"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
