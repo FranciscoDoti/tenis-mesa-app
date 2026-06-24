@@ -287,9 +287,12 @@ function renderChrome() {
   document.querySelectorAll('.admin-only').forEach(el => el.hidden = !isAdmin());
   document.querySelectorAll('.profile-only').forEach(el => el.hidden = !(u && u.playerId)); // Perfil solo para cuentas de jugador
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
+  const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
+  if (altas) { const n = DB.players.filter(p => p.pending).length; altas.innerHTML = `🙋 Altas${n ? ` <span class="navcount">${n}</span>` : ''}`; }
   $('#userArea').innerHTML = u ? `<span class="chip ${u.role === 'admin' ? 'admin' : ''}">${u.role === 'admin' ? '🛠️ ' : '🎾 '}${esc(u.name)}</span>
      <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>` : '';
-  $('#storeInfo').textContent = `${DB.players.length} jugadores · ${DB.tournaments.length} torneos`;
+  const approved = DB.players.filter(p => !p.pending).length;
+  $('#storeInfo').textContent = `${approved} jugadores · ${DB.tournaments.length} torneos`;
 }
 function render() {
   renderChrome();
@@ -299,6 +302,7 @@ function render() {
   if (view === 'jugadores') return isAdmin() ? renderPlayers(app) : renderRanking(app);
   if (view === 'gimnasios') return isAdmin() ? renderGyms(app) : renderRanking(app);
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
+  if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
   if (view === 'torneos') return renderTournaments(app);
@@ -366,7 +370,7 @@ function doRegister() {
   if ((DB.users || []).some(u => (u.username || '').toLowerCase() === user)) return fail('Ese usuario ya existe, probá con otro.');
   if (!pw1) return fail('Escribí una contraseña.');
   if (pw1 !== pw2) return fail('Las contraseñas no coinciden.');
-  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city: $('#r_city').value, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo: (window.__rphoto ? window.__rphoto() : null) };
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city: $('#r_city').value, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo: (window.__rphoto ? window.__rphoto() : null), pending: true };
   DB.players.push(player);
   DB.users.push({ username: user, password: pw1, role: 'player', name: fullName(player), playerId: player.id });
   save(DB);
@@ -380,7 +384,7 @@ function renderRanking(app) {
   let html = `<div class="page-title"><h1>🏆 Ranking</h1></div><p class="page-sub">Tocá una categoría para ver u ocultar su ranking.</p><div class="rank-tiles">`;
   CATS.forEach(cat => {
     const open = rankOpen.has(cat);
-    const list = DB.players.filter(p => p.category === cat).sort((a, b) => b.points - a.points);
+    const list = DB.players.filter(p => p.category === cat && !p.pending).sort((a, b) => b.points - a.points);
     html += `<div class="rank-tile${open ? ' open' : ''}">
       <button class="rank-tilehdr" onclick="rankToggle('${cat}')">
         <span class="cat-badge ${catClass(cat)}">${cat}</span>
@@ -435,7 +439,7 @@ function headToHead(aId, bId) {
 }
 function histPickerHtml(side, sel) {
   const p = sel ? playerById(sel) : null, open = histOpen === side;
-  const list = DB.players.slice().sort((a, b) => fullName(a).localeCompare(fullName(b)))
+  const list = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)))
     .map(pl => `<li class="hist-opt" data-name="${esc(fullName(pl)).toLowerCase()}" onclick="histPick('${side}','${pl.id}')">${esc(fullName(pl))} <span class="muted">· ${pl.category} · ${pl.points} pts</span></li>`).join('');
   return `<div class="hist-picker">
     <button class="hist-box ${p ? 'sel' : ''}" onclick="histToggle('${side}')"><span>${p ? esc(fullName(p)) : 'Elegí jugador'}</span><span>▾</span></button>
@@ -477,6 +481,7 @@ function renderProfile(app) {
   const note = profileNote; profileNote = '';
   app.innerHTML = `<div class="page-title"><h1>👤 Mi perfil</h1></div>
     <p class="page-sub">Editá tus datos personales, tu foto y tu contraseña.</p>
+    ${p.pending ? `<div class="banner" style="max-width:560px">⏳ <b>Tu cuenta está pendiente de aprobación.</b> Cuando el admin te apruebe vas a aparecer en el ranking y vas a poder anotarte a los torneos.</div>` : ''}
     ${note ? `<div class="banner ok" style="max-width:560px">${esc(note)}</div>` : ''}
     <div class="card" style="max-width:560px">
       <div class="row" style="gap:16px;margin-bottom:8px">${avatar(p, 'avatar')}
@@ -525,15 +530,17 @@ function changePassword() {
 
 /* ---------- jugadores (admin) ---------- */
 function renderPlayers(app) {
-  const rows = DB.players.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
+  const active = DB.players.filter(p => !p.pending);
+  const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
     <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username)}` : ''}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
     <button class="btn btn-ghost btn-sm" onclick="delPlayer('${p.id}')">🗑️</button></div>`; }).join('');
+  const pend = DB.players.filter(p => p.pending).length;
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>👥 Jugadores</h1></div>
     <button class="btn btn-primary" onclick="playerForm()">➕ Inscribir jugador</button></div>
-    <p class="page-sub">${DB.players.length} jugadores.</p>${rows || '<div class="empty">Sin jugadores.</div>'}`;
+    <p class="page-sub">${active.length} jugadores.${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores.</div>'}`;
 }
 function playerForm(id) {
   const p = id ? playerById(id) : { firstName: '', lastName: '', dob: '', city: CITIES[0], category: '4ta', points: NEW_PLAYER_POINTS, photo: null };
@@ -569,6 +576,26 @@ function delPlayer(id) {
   DB.players = DB.players.filter(x => x.id !== id);
   DB.users = (DB.users || []).filter(u => u.playerId !== id); // borrar su cuenta
   DB.tournaments.forEach(t => t.categorias.forEach(c => { c.entrants = c.entrants.filter(e => !e.players.includes(id)); c.groups = null; c.matches = null; c.bracket = null; c.thirdPlace = null; }));
+  save(DB); render();
+}
+
+/* ---------- altas / aprobaciones (admin) ---------- */
+// Jugadores que se autorregistraron y esperan aprobación del admin.
+function renderApprovals(app) {
+  const pend = DB.players.filter(p => p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  const rows = pend.map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
+    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username)}` : ''}</div></div>
+    <button class="btn btn-primary btn-sm" onclick="approvePlayer('${p.id}')">✅ Aprobar</button>
+    <button class="btn btn-ghost btn-sm" onclick="rejectPlayer('${p.id}')">🗑️ Rechazar</button></div>`; }).join('');
+  app.innerHTML = `<div class="page-title"><h1>🙋 Altas de jugadores</h1></div>
+    <p class="page-sub">Jugadores que se registraron por su cuenta y esperan tu aprobación para aparecer en el ranking y poder competir.</p>
+    ${rows || '<div class="empty">No hay solicitudes pendientes. 🎉</div>'}`;
+}
+function approvePlayer(id) { const p = playerById(id); if (!p) return; delete p.pending; syncCategory(p); save(DB); render(); }
+function rejectPlayer(id) {
+  const p = playerById(id); if (!p || !confirm(`¿Rechazar la solicitud de ${fullName(p)}? Se elimina el jugador y su cuenta.`)) return;
+  DB.players = DB.players.filter(x => x.id !== id);
+  DB.users = (DB.users || []).filter(u => u.playerId !== id);
   save(DB); render();
 }
 
@@ -934,7 +961,7 @@ function toggleEnroll(tid, cid) {
 function enrollModal(tid, cid) {
   const cat = getCat(tid, cid);
   if (cat.format === 'double') return enrollDoubles(tid, cid);
-  const opts = DB.players.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => {
+  const opts = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => {
     const checked = cat.entrants.some(e => e.players[0] === p.id);
     const el = eligible(cat, p), age = ageFromDob(p.dob);
     return `<label class="enrow ${el.ok ? '' : 'no'}" style="display:flex;align-items:center;gap:10px;font-weight:500;margin:6px 0">
@@ -962,7 +989,7 @@ function enrollDoubles(tid, cid) {
 }
 function renderDoublesModal(tid, cid) {
   const teams = window.__teams || [];
-  const optList = DB.players.slice().sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  const optList = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const sel = id => `<select id="${id}"><option value="">— jugador —</option>${optList.map(p => `<option value="${p.id}">${esc(fullName(p))}</option>`).join('')}</select>`;
   const list = teams.map((e, i) => `<div class="bmatch"><span>${esc(playerById(e.players[0]) ? fullName(playerById(e.players[0])) : '?')} / ${esc(playerById(e.players[1]) ? fullName(playerById(e.players[1])) : '?')}</span>
     <button class="btn btn-ghost btn-sm" onclick="rmTeam(${i},'${tid}','${cid}')">🗑️</button></div>`).join('');
@@ -993,8 +1020,9 @@ function selfEnrollModal(tid, cid) {
   const cat = getCat(tid, cid);
   if (!enrollmentOpen(cat)) { alert('La inscripción no está abierta.'); return; }
   const u = currentUser(), me = u && u.playerId ? playerById(u.playerId) : null;
+  if (me && me.pending) { openModal(`<h3>Anotarme — ${esc(cat.name)}</h3><div class="banner">⏳ Tu cuenta está pendiente de aprobación por el admin. Cuando te aprueben vas a poder anotarte.</div><div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`); return; }
   const enrolledIds = new Set(cat.entrants.flatMap(e => e.players));
-  const availFor = exclude => DB.players.slice().sort((a, b) => fullName(a).localeCompare(fullName(b)))
+  const availFor = exclude => DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)))
     .filter(p => !enrolledIds.has(p.id) && p.id !== exclude && eligible(cat, p).ok);
   const sel = (id, list) => `<select id="${id}"><option value="">— elegí —</option>${list.map(p => `<option value="${p.id}">${esc(fullName(p))} · ${p.category}</option>`).join('')}</select>`;
   const close = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
@@ -1212,7 +1240,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer });
 
 migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
 migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)

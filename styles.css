@@ -40,6 +40,7 @@ body{
 }
 .nav-btn:hover{background:rgba(255,255,255,.24)}
 .nav-btn.active{background:var(--ball); color:#3a1a00}
+.navcount{display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#e5484d; color:#fff; font-size:11px; font-weight:800; margin-left:2px}
 .user-area{margin-left:auto; display:flex; align-items:center; gap:10px; font-size:14px}
 .chip{background:rgba(255,255,255,.15); padding:5px 12px; border-radius:999px; font-weight:600}
 .chip.admin{background:var(--ball); color:#3a1a00}
@@ -236,7 +237,7 @@ ul.awarded li:last-child{border-bottom:0}
 .gym-head .sub{font-size:12px; color:var(--muted)}
 .gym-map{width:100%; height:180px; border:1px solid var(--line); border-radius:12px; display:block}
 .gym-map-empty{display:flex; align-items:center; justify-content:center; text-align:center; padding:0 16px; color:var(--muted); font-size:13px; background:#f7f9fb}
-.maplink{color:var(--table-dark); font-weight:700; text-decoration:none; white-space:nowrap; margin-left:6px}
+.maplink{color:var(--table-dark); font-weight:700; text-decoration:none; white-space:nowrap; margin-left:6px; cursor:pointer}
 .maplink:hover{text-decoration:underline}
 
 /* ---------- torneos destacados ---------- */
