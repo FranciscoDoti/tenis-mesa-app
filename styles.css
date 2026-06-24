@@ -247,7 +247,21 @@ ul.awarded li:last-child{border-bottom:0}
 .t-badges{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px}
 .t-badge{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; letter-spacing:.3px}
 .t-badge.live{background:#e5484d; color:#fff}
+.t-badge.draft{background:#fef3c7; color:#92560a}
 .tag-live{background:#fde8e8; color:#b42318}
+.tourn-draft{border-style:dashed; border-color:#d6a93a}
+
+/* ---------- picker de colaboradores (buscador + chips) ---------- */
+.collab-picker{margin-bottom:6px}
+.collab-search{margin-bottom:8px}
+.collab-results{list-style:none; margin:0 0 10px; padding:4px; max-height:170px; overflow:auto; border:1px solid var(--line); border-radius:10px; background:#fff}
+.collab-opt{padding:8px 10px; border-radius:8px; cursor:pointer; font-size:14px}
+.collab-opt:hover{background:var(--table); color:#fff}
+.collab-opt:hover .muted{color:#e7f0ea}
+.collab-chips{display:flex; flex-wrap:wrap; gap:8px}
+.collab-chip{display:inline-flex; align-items:center; gap:6px; background:#eef4f0; color:var(--table-dark); border-radius:999px; padding:5px 6px 5px 12px; font-size:13px; font-weight:700}
+.chip-x{border:0; background:#e5484d; color:#fff; width:20px; height:20px; border-radius:50%; cursor:pointer; font-size:11px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; line-height:1; padding:0}
+.chip-x:hover{filter:brightness(1.1)}
 
 /* ---------- buscador + torneos antiguos (cards horizontales) ---------- */
 .tourn-search{max-width:440px; margin:0 0 14px}

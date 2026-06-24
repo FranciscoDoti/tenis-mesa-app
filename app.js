@@ -213,6 +213,7 @@ DB.tournaments.forEach(t => { if (t.tableCount == null) t.tableCount = 4; });
 DB.tournaments.forEach(t => {
   if (!Array.isArray(t.collaborators)) t.collaborators = [];
   if (typeof t.enrollClosed !== 'boolean') t.enrollClosed = false;
+  if (typeof t.published !== 'boolean') t.published = true; // torneos existentes ya estaban "publicados"
   t.categorias.forEach(c => {
     if (c.enrollOverride === undefined) c.enrollOverride = (c.enrollClosed === true) ? 'closed' : null;
     delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
@@ -613,9 +614,7 @@ function rejectPlayer(id) {
 }
 
 /* ---------- gimnasios (admin) ---------- */
-// Link a Google Maps (busca la dirección). En el celular abre la app de Maps.
-const mapsSearchUrl = q => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
-// Link de "cómo llegar" (direcciones hacia la dirección). En el celular abre la navegación.
+// Link de "cómo llegar" (direcciones hacia la dirección). En el celular abre la navegación de Maps.
 const mapsDirUrl = q => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(q)}`;
 // Mapa embebido sin API key (q = dirección). Devuelve el iframe o un placeholder si no hay dirección.
 function mapEmbed(address) {
@@ -629,8 +628,7 @@ function renderGyms(app) {
       <div class="meta"><div class="name">${esc(g.name)}</div><div class="sub">📍 ${esc(g.address || '—')}</div></div></div>
     ${mapEmbed(g.address)}
     <div class="row" style="margin-top:12px">
-      ${g.address ? `<a class="btn btn-accent btn-sm" href="${mapsDirUrl(g.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>
-      <a class="btn btn-ghost btn-sm" href="${mapsSearchUrl(g.address)}" target="_blank" rel="noopener">🗺️ Ver en Maps</a>` : ''}
+      ${g.address ? `<a class="btn btn-accent btn-sm" href="${mapsDirUrl(g.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>` : ''}
       ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="gymForm('${g.id}')">✏️ Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="delGym('${g.id}')">🗑️</button>` : ''}
     </div></div>`).join('');
@@ -737,15 +735,16 @@ function podiumHtml(t) {
   }).filter(Boolean).join('');
 }
 function upcomingCardHtml(t) {
-  const live = isLiveTournament(t), gym = gymById(t.gymId), pod = podiumHtml(t);
-  return `<div class="card tourn-card${live ? ' tourn-live' : ''}">
-    ${live ? `<div class="t-badges"><span class="t-badge live">🔴 En vivo</span></div>` : ''}
+  const live = isLiveTournament(t), gym = gymById(t.gymId), pod = podiumHtml(t), draft = !t.published;
+  return `<div class="card tourn-card${draft ? ' tourn-draft' : live ? ' tourn-live' : ''}">
+    ${(draft || live) ? `<div class="t-badges">${draft ? '<span class="t-badge draft">📝 Borrador</span>' : ''}${live ? '<span class="t-badge live">🔴 En vivo</span>' : ''}</div>` : ''}
     <h3 style="margin:0">${esc(t.name)}</h3>
     <div class="when">📅 ${dateRangeLabel(t)}</div>
     ${gym ? `<div class="when">📍 ${esc(gym.name)}</div>` : ''}
     <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span>${live ? `<span class="tag tag-live">${liveMatchesOf(t).length} en juego</span>` : ''}</div>
     ${pod}
-    <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ Ver</button>
+    <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ ${draft ? 'Editar' : 'Ver'}</button>
+      ${draft && isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar</button>` : ''}
       ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function pastCardHtml(t) {
@@ -760,7 +759,8 @@ function pastCardHtml(t) {
       ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function renderTournaments(app) {
-  const all = DB.tournaments.slice().sort(byDateDesc);
+  // los borradores (no publicados) solo los ve el admin
+  const all = DB.tournaments.filter(t => t.published || isAdmin()).slice().sort(byDateDesc);
   const upcoming = all.filter(t => !isPastTournament(t));
   const past = all.filter(t => isPastTournament(t));
   const upCards = upcoming.map(upcomingCardHtml).join('');
@@ -780,13 +780,35 @@ function tournFilter(inp) {
   const q = inp.value.toLowerCase();
   document.querySelectorAll('.tourn-old-card').forEach(c => { c.style.display = c.dataset.search.includes(q) ? '' : 'none'; });
 }
-function collaboratorChecksHtml(selected) {
-  const set = new Set(selected || []);
+// Selector de colaboradores con buscador + chips. El estado vive en window.__collabSel.
+function collabPickerHtml(initial) {
+  window.__collabSel = [...(initial || [])];
   const list = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
-  if (!list.length) return '<div class="empty">No hay jugadores.</div>';
-  return list.map(p => `<label class="catchk"><input type="checkbox" class="collab-chk" value="${p.id}" ${set.has(p.id) ? 'checked' : ''}/>
-    <span>${esc(fullName(p))}</span><small class="muted">${p.category}</small></label>`).join('');
+  const results = list.length
+    ? list.map(p => `<li class="collab-opt" data-id="${p.id}" data-name="${esc(fullName(p)).toLowerCase()}" onclick="collabAdd('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('')
+    : '<li class="muted" style="padding:8px 10px">No hay jugadores.</li>';
+  return `<div class="collab-picker">
+    <input class="collab-search" placeholder="🔍 Buscar jugador para agregar…" oninput="collabFilter(this)"/>
+    <ul class="collab-results" id="collab-results">${results}</ul>
+    <div class="collab-chips" id="collab-chips"></div>
+  </div>`;
 }
+function collabFilter(inp) {
+  const q = (inp && inp.value || '').toLowerCase();
+  document.querySelectorAll('#collab-results .collab-opt').forEach(li => {
+    const selected = window.__collabSel.includes(li.dataset.id);
+    li.style.display = (!selected && li.dataset.name.includes(q)) ? '' : 'none';
+  });
+}
+function renderCollabChips() {
+  const box = document.querySelector('#collab-chips'); if (!box) return;
+  box.innerHTML = window.__collabSel.length
+    ? window.__collabSel.map(id => { const p = playerById(id); return `<span class="collab-chip">${esc(p ? fullName(p) : '?')}<button type="button" class="chip-x" onclick="collabRemove('${id}')" title="Quitar">✕</button></span>`; }).join('')
+    : '<span class="muted" style="font-size:13px">Todavía no agregaste colaboradores.</span>';
+}
+function refreshCollab() { renderCollabChips(); collabFilter(document.querySelector('.collab-search')); }
+function collabAdd(id) { if (!window.__collabSel.includes(id)) window.__collabSel.push(id); refreshCollab(); }
+function collabRemove(id) { window.__collabSel = window.__collabSel.filter(x => x !== id); refreshCollab(); }
 function tournamentForm() {
   const checks = CATALOG.map(c => `<label class="catchk"><input type="checkbox" class="cat-chk" value="${c.name}"/>
     <span>${c.name}</span><small class="muted">${ruleLabel(c.rule)}</small></label>`).join('');
@@ -807,11 +829,13 @@ function tournamentForm() {
     <p class="hint" style="margin-top:0">Marcá las que se jueguen. Por defecto se crean en singles, al mejor de 5, 100 pts — editás formato/puntos por categoría después.</p>
     <div class="catgrid">${checks}</div>
     <label>Colaboradores <span class="muted">(opcional)</span></label>
-    <p class="hint" style="margin-top:0">Jugadores que van a poder ayudar a gestionar este torneo (inscribir, cargar resultados, abrir/cerrar inscripciones).</p>
-    <div class="catgrid" style="max-height:30vh;overflow:auto">${collaboratorChecksHtml([])}</div>
+    <p class="hint" style="margin-top:0">Buscá y agregá jugadores que van a poder ayudar a gestionar este torneo (inscribir, cargar resultados, abrir/cerrar inscripciones).</p>
+    ${collabPickerHtml([])}
     <div id="terr" class="banner" hidden></div>
-    <div class="row spread" style="margin-top:18px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveTournament()">Crear</button></div>`);
+    <p class="hint" style="margin-top:0">El torneo se crea como <b>borrador</b> (solo lo ves vos) hasta que lo publiques.</p>
+    <div class="row spread" style="margin-top:12px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveTournament()">Crear borrador</button></div>`);
+  refreshCollab();
 }
 function saveTournament() {
   const name = $('#t_name').value.trim(), date = $('#t_date').value, dateEnd = $('#t_dateEnd').value || date, e = $('#terr');
@@ -821,9 +845,10 @@ function saveTournament() {
   if (!picked.length) { e.hidden = false; e.textContent = 'Elegí al menos una categoría.'; return; }
   const categorias = picked.map(nm => ({ id: uid('c_'), name: nm, format: 'single', rule: catalogRule(nm), rules: { sets: 5, groupMin: 3, groupMax: 4 }, championPoints: 100, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null }));
   const tableCount = Math.max(1, parseInt($('#t_tables').value, 10) || 1);
-  const collaborators = [...$('#modalCard').querySelectorAll('.collab-chk:checked')].map(c => c.value);
-  DB.tournaments.push({ id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, enrollClosed: false, categorias });
-  save(DB); closeModal(); view = 'torneos'; render();
+  const collaborators = [...(window.__collabSel || [])];
+  const tnew = { id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, enrollClosed: false, published: false, categorias };
+  DB.tournaments.push(tnew);
+  save(DB); closeModal(); view = 'torneo:' + tnew.id; render(); // abre el borrador para seguir editándolo
 }
 function delTournament(id) { if (confirm('¿Eliminar torneo?')) { DB.tournaments = DB.tournaments.filter(t => t.id !== id); save(DB); render(); } }
 
@@ -832,13 +857,14 @@ function collaboratorsModal(tid) {
   const t = tById(tid); if (!t) return;
   openModal(`<h3>Colaboradores — ${esc(t.name)}</h3>
     <p class="hint" style="margin-top:0">Pueden editar este torneo: inscribir jugadores, cargar resultados, abrir/cerrar inscripciones, armar grupos y la llave.</p>
-    <div class="catgrid" style="max-height:50vh;overflow:auto">${collaboratorChecksHtml(t.collaborators)}</div>
+    ${collabPickerHtml(t.collaborators)}
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveCollaborators('${tid}')">Guardar</button></div>`);
+  refreshCollab();
 }
 function saveCollaborators(tid) {
   const t = tById(tid); if (!t) return;
-  t.collaborators = [...$('#modalCard').querySelectorAll('.collab-chk:checked')].map(c => c.value);
+  t.collaborators = [...(window.__collabSel || [])];
   save(DB); closeModal(); render();
 }
 
@@ -846,6 +872,13 @@ function saveCollaborators(tid) {
 function toggleTournamentEnroll(tid) {
   const t = tById(tid); if (!t || !canEditT(t)) return;
   t.enrollClosed = !t.enrollClosed; save(DB); render();
+}
+
+/* ----- publicar torneo (borrador → visible para todos) ----- */
+function publishTournament(tid) {
+  const t = tById(tid); if (!t || !isAdmin()) return;
+  if (!confirm('¿Publicar este torneo? Una vez publicado, todos los jugadores van a poder verlo y no se puede volver a borrador.')) return;
+  t.published = true; save(DB); render();
 }
 
 /* ----- mesas del torneo (editable incluso en juego) ----- */
@@ -863,6 +896,30 @@ function saveTables(tid) {
   const n = parseInt($('#tt_count').value, 10);
   if (!n || n < 1) { e.hidden = false; e.textContent = 'Tiene que haber al menos 1 mesa.'; return; }
   t.tableCount = n; save(DB); closeModal(); render();
+}
+
+/* ----- editar datos del torneo (nombre, fechas, lugar) ----- */
+function editTournamentModal(tid) {
+  const t = tById(tid); if (!t || !isAdmin()) return;
+  openModal(`<h3>Editar datos del torneo</h3>
+    <label>Nombre</label><input id="et_name" value="${esc(t.name)}"/>
+    <div class="grid2">
+      <div><label>Fecha inicio</label><input id="et_date" type="date" value="${t.date || ''}"/></div>
+      <div><label>Fecha fin <span class="muted">(opcional)</span></label><input id="et_dateEnd" type="date" value="${t.dateEnd || ''}"/></div>
+    </div>
+    <label>Lugar (gimnasio)</label>
+    <select id="et_gym"><option value="">— sin gimnasio —</option>${(DB.gyms || []).map(g => `<option value="${g.id}" ${g.id === t.gymId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
+    <div id="eterr" class="banner" hidden></div>
+    <div class="row spread" style="margin-top:18px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveTournamentEdit('${tid}')">Guardar</button></div>`);
+}
+function saveTournamentEdit(tid) {
+  const t = tById(tid), e = $('#eterr');
+  const name = $('#et_name').value.trim(), date = $('#et_date').value, dateEnd = $('#et_dateEnd').value || date;
+  if (!name || !date) { e.hidden = false; e.textContent = 'Nombre y fecha de inicio obligatorios.'; return; }
+  if (dateEnd < date) { e.hidden = false; e.textContent = 'La fecha de fin no puede ser anterior al inicio.'; return; }
+  t.name = name; t.date = date; t.dateEnd = dateEnd; t.gymId = $('#et_gym').value || null;
+  save(DB); closeModal(); render();
 }
 // Selector/insignia de mesa para un partido. Admin: <select>; jugador: insignia si hay mesa asignada.
 function tableControl(cat, kind, gidx, r, m, mm) {
@@ -885,6 +942,7 @@ function setMatchTable(tid, cid, kind, gidx, r, m, val) {
 /* ---------- torneo: lista de categorías ---------- */
 function renderTournament(app, tid) {
   const t = tById(tid); if (!t) { app.innerHTML = '<div class="empty">No encontrado.</div>'; return; }
+  if (!t.published && !isAdmin()) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
   const cards = t.categorias.map(c => {
     c._tid = t.id;
     const champ = c.bracket ? brWinner(c, c.bracket.length - 1, 0) : null;
@@ -897,6 +955,7 @@ function renderTournament(app, tid) {
         <span class="tag">${st}</span></div>
       ${champ && champ !== 'BYE' ? `<div class="champ" style="margin-top:10px">🏆 ${esc(entName(c, champ))}</div>` : ''}
       <div class="row" style="margin-top:12px"><button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
+        ${isAdmin() && !c.groups ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
         ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delCategoria('${t.id}','${c.id}')">🗑️</button>` : ''}</div></div>`;
   }).join('');
   const gym = gymById(t.gymId);
@@ -911,11 +970,16 @@ function renderTournament(app, tid) {
   const tEnrollOpen = tournamentEnrollOpen(t);
   const collabNames = (t.collaborators || []).map(id => { const p = playerById(id); return p ? fullName(p) : null; }).filter(Boolean);
   const collabBanner = (!isAdmin() && isCollaboratorOf(t)) ? `<div class="banner ok" style="margin:8px 0 0">🤝 Sos colaborador de este torneo: podés inscribir jugadores, cargar resultados y abrir/cerrar inscripciones.</div>` : '';
+  const draftBanner = !t.published ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>📝 <b>Borrador</b> — solo vos lo ves. Configurá las reglas y, cuando esté listo, publicalo.</span>
+      ${isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar torneo</button>` : ''}</div>` : '';
   app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(t.name)}</h1></div>
-    <div class="tags"><span class="tag">📅 ${dateRangeLabel(t)}</span>${gym ? `<span class="tag">🏟️ ${esc(gym.name)}</span>` : ''}
+    ${draftBanner}
+    <div class="tags" style="margin-top:8px"><span class="tag">📅 ${dateRangeLabel(t)}</span>${gym ? `<span class="tag">🏟️ ${esc(gym.name)}</span>` : ''}
       <span class="tag">🏓 ${tableCountOf(t)} mesa${tableCountOf(t) === 1 ? '' : 's'}</span>
-      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">✏️ Editar mesas</button>` : ''}</div>
+      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Editar datos</button>
+      <button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">✏️ Editar mesas</button>` : ''}</div>
     ${gym ? `<p class="page-sub" style="margin:8px 0 0">📍 ${esc(gym.address)} ${gym.address ? `<a class="maplink" href="${mapsDirUrl(gym.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>` : ''}</p>` : ''}
     ${collabBanner}
     <div class="tags" style="margin-top:12px"><span class="tag ${tEnrollOpen ? 'tag-open' : 'tag-closed'}">${tEnrollOpen ? '🟢 Inscripción del torneo abierta' : '🔴 Inscripción del torneo cerrada'}</span>
@@ -925,28 +989,39 @@ function renderTournament(app, tid) {
     <div class="section-head"><h2>Categorías (sub-torneos)</h2>${isAdmin() ? `<button class="btn btn-primary" onclick="categoriaForm('${t.id}')">➕ Crear categoría</button>` : ''}</div>
     <div class="cards">${cards || '<div class="empty">Sin categorías. Creá una.</div>'}</div>`;
 }
-function categoriaForm(tid) {
-  const names = CATALOG.map(c => `<option value="${c.name}">${c.name} — ${ruleLabel(c.rule)}</option>`).join('');
-  openModal(`<h3>Crear categoría (sub-torneo)</h3>
+function categoriaForm(tid, cid) {
+  const cat = cid ? getCat(tid, cid) : null; // editar reglas de una categoría existente
+  const sel = (v, opt) => v === opt ? 'selected' : '';
+  const names = CATALOG.map(c => `<option value="${c.name}" ${cat && cat.name === c.name ? 'selected' : ''}>${c.name} — ${ruleLabel(c.rule)}</option>`).join('');
+  const r = cat ? cat.rules : { sets: 5, groupMin: 3, groupMax: 4 };
+  openModal(`<h3>${cat ? 'Editar' : 'Crear'} categoría (sub-torneo)</h3>
     <label>Categoría</label><select id="c_name">${names}</select>
     <div class="grid2">
-      <div><label>Formato</label><select id="c_fmt"><option value="single">Singles 👤</option><option value="double">Dobles 👥</option></select></div>
-      <div><label>Partidos al mejor de</label><select id="c_sets"><option value="3">3 sets</option><option value="5" selected>5 sets</option></select></div>
-      <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="3"/></div>
-      <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="4"/></div>
-      <div><label>Puntos al campeón 🥇</label><input id="c_pts" type="number" min="0" value="100"/></div>
+      <div><label>Formato</label><select id="c_fmt"><option value="single" ${cat ? sel(cat.format, 'single') : 'selected'}>Singles 👤</option><option value="double" ${cat ? sel(cat.format, 'double') : ''}>Dobles 👥</option></select></div>
+      <div><label>Partidos al mejor de</label><select id="c_sets"><option value="3" ${sel(r.sets, 3)}>3 sets</option><option value="5" ${cat ? sel(r.sets, 5) : 'selected'}>5 sets</option></select></div>
+      <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
+      <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
+      <div><label>Puntos al campeón 🥇</label><input id="c_pts" type="number" min="0" value="${cat ? cat.championPoints : 100}"/></div>
     </div>
-    <p class="hint">El resto se reparte: 2º=½ · 3º=⅓ · 4º=¼ · cuartofinalista=⅛ · octavofinalista=1/16 …</p>
+    <p class="hint">El resto se reparte: 2º=½ · 3º=⅓ · 4º=¼ · cuartofinalista=⅛ · octavofinalista=1/16 …${cat && cat.entrants.length ? ' <br>⚠️ Si cambiás el formato (singles/dobles) se borran los inscriptos actuales.' : ''}</p>
     <div id="cerr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveCategoria('${tid}')">Crear</button></div>`);
+      <button class="btn btn-primary" onclick="saveCategoria('${tid}','${cid || ''}')">${cat ? 'Guardar' : 'Crear'}</button></div>`);
 }
-function saveCategoria(tid) {
+function saveCategoria(tid, cid) {
   const t = tById(tid), name = $('#c_name').value;
   const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
   const e = $('#cerr');
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
-  t.categorias.push({ id: uid('c_'), name, format: $('#c_fmt').value, rule: catalogRule(name), rules: { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints: parseInt($('#c_pts').value, 10) || 0, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
+  const format = $('#c_fmt').value, rules = { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints = parseInt($('#c_pts').value, 10) || 0;
+  if (cid) {
+    const cat = getCat(tid, cid); if (!cat) return;
+    if (cat.groups) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: los partidos ya empezaron.'; return; }
+    if (cat.format !== format) cat.entrants = []; // cambia singles/dobles → se limpian inscriptos
+    cat.name = name; cat.format = format; cat.rule = catalogRule(name); cat.rules = rules; cat.championPoints = championPoints;
+  } else {
+    t.categorias.push({ id: uid('c_'), name, format, rule: catalogRule(name), rules, championPoints, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
+  }
   save(DB); closeModal(); render();
 }
 function delCategoria(tid, cid) { const t = tById(tid); if (confirm('¿Eliminar categoría?')) { t.categorias = t.categorias.filter(c => c.id !== cid); save(DB); render(); } }
@@ -1321,7 +1396,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove });
 
 migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
 migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)
