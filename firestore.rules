@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isAdmin() { return signedIn() && userData().role == 'admin'; }
+    function myPlayerId() { return signedIn() ? userData().playerId : null; }
+
+    // Perfiles de cuenta (rol + jugador vinculado). El uid del doc = uid de Firebase Auth.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if request.auth.uid == uid;                 // cada uno crea su propio perfil al registrarse
+      allow update, delete: if isAdmin() || request.auth.uid == uid;
+    }
+
+    // Jugadores: lectura para usuarios logueados; escritura admin o el propio jugador (su perfil).
+    match /players/{id} {
+      allow read: if signedIn();
+      allow create: if isAdmin() || myPlayerId() == id;          // alta por admin o autoregistro (su propio doc)
+      allow update: if isAdmin() || myPlayerId() == id;
+      allow delete: if isAdmin();
+    }
+
+    // Gimnasios y ajustes: solo admin escribe.
+    match /gyms/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /app/{doc}   { allow read: if signedIn(); allow write: if isAdmin(); }
+
+    // Torneos: escribe el admin o un colaborador (su playerId está en collaborators).
+    match /tournaments/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || (signedIn() && myPlayerId() in resource.data.collaborators);
+      allow create: if isAdmin();
+    }
+  }
+}

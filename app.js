@@ -202,29 +202,33 @@ function seed() {
   save(db); return db;
 }
 function load() { try { const r = localStorage.getItem(KEY); if (r) return JSON.parse(r); } catch (e) {} return seed(); }
-function save(db) { localStorage.setItem(KEY, JSON.stringify(db)); }
-let DB = load();
-if (!DB.gyms) { DB.gyms = defaultGyms(); save(DB); } // migración aditiva (no borra datos existentes)
-// Ajustes globales del club (editables por el admin). tableSuggestion: sugerencia de mesas (aún no hace nada).
-if (!DB.settings) { DB.settings = { tableSuggestion: false }; save(DB); }
-// Cantidad de mesas por torneo (migración aditiva: torneos viejos arrancan con 4 mesas).
-DB.tournaments.forEach(t => { if (t.tableCount == null) t.tableCount = 4; });
-// Colaboradores + inscripción a nivel torneo + override por categoría (migración aditiva).
-DB.tournaments.forEach(t => {
-  if (!Array.isArray(t.collaborators)) t.collaborators = [];
-  if (typeof t.enrollClosed !== 'boolean') t.enrollClosed = false;
-  if (typeof t.published !== 'boolean') t.published = true; // torneos existentes ya estaban "publicados"
-  t.categorias.forEach(c => {
-    if (c.enrollOverride === undefined) c.enrollOverride = (c.enrollClosed === true) ? 'closed' : null;
-    delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
+const FB = () => window.STORE && window.STORE.enabled;        // ¿estamos usando Firebase?
+// save(): guarda en localStorage (cache) y, si hay Firebase, sincroniza a Firestore en segundo plano.
+function save(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} if (FB()) window.STORE.sync(db); }
+let DB = { players: [], gyms: [], tournaments: [], users: [], settings: { tableSuggestion: false } };
+// Migraciones aditivas (no destructivas) sobre el DB ya cargado en memoria.
+function applyMigrations() {
+  if (!DB.gyms) DB.gyms = defaultGyms();
+  if (!DB.settings) DB.settings = { tableSuggestion: false };
+  if (!DB.users) DB.users = [];
+  (DB.tournaments || []).forEach(t => {
+    if (t.tableCount == null) t.tableCount = 4;
+    if (!Array.isArray(t.collaborators)) t.collaborators = [];
+    if (typeof t.enrollClosed !== 'boolean') t.enrollClosed = false;
+    if (typeof t.published !== 'boolean') t.published = true; // torneos existentes ya estaban "publicados"
+    t.categorias.forEach(c => {
+      if (c.enrollOverride === undefined) c.enrollOverride = (c.enrollClosed === true) ? 'closed' : null;
+      delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
+    });
   });
-});
+}
 const gymById = id => (DB.gyms || []).find(g => g.id === id);
 const tableCountOf = t => (t && t.tableCount != null) ? t.tableCount : 4;
 
 /* ---------------- session ---------------- */
-const currentUser = () => { try { return JSON.parse(sessionStorage.getItem('ttuser')); } catch (e) { return null; } };
-const setUser = u => u ? sessionStorage.setItem('ttuser', JSON.stringify(u)) : sessionStorage.removeItem('ttuser');
+let _session = null; // sesión en memoria (modo Firebase)
+const currentUser = () => { if (FB()) return _session; try { return JSON.parse(sessionStorage.getItem('ttuser')); } catch (e) { return null; } };
+const setUser = u => { if (FB()) { _session = u; } else if (u) sessionStorage.setItem('ttuser', JSON.stringify(u)); else sessionStorage.removeItem('ttuser'); };
 const isAdmin = () => { const u = currentUser(); return u && u.role === 'admin'; };
 // Colaborador de un torneo: jugador designado por el admin con permisos de edición sobre ese torneo.
 const isCollaboratorOf = t => { const u = currentUser(); return !!(u && u.playerId && t && (t.collaborators || []).includes(u.playerId)); };
@@ -327,25 +331,41 @@ function render() {
 /* ---------- login / registro ---------- */
 function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
+  const fb = FB();
   app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><h1>Tenis de Mesa</h1>
     <p class="page-sub">Dina Huapi &amp; Bariloche</p>
     <div class="card" style="text-align:left">
-      <label>Usuario</label><input id="lu"/><label>Contraseña</label><input id="lp" type="password"/>
+      <label>${fb ? 'Email' : 'Usuario'}</label><input id="lu" type="${fb ? 'email' : 'text'}" autocomplete="username"/>
+      <label>Contraseña</label><input id="lp" type="password" autocomplete="current-password"/>
       <div id="lerr" class="banner" hidden></div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="doLogin()">Ingresar</button>
+      ${fb ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="doResetPassword()">¿Olvidaste tu contraseña?</button>` : ''}
       <div class="auth-sep"><span>¿Sos nuevo en el club?</span></div>
       <button class="btn btn-accent" style="width:100%" onclick="setAuthMode('register')">🆕 Crear mi cuenta de jugador</button>
-      <p class="hint">👑 <b>admin</b>/<b>admin</b> · 🎾 <b>jugador</b>/<b>jugador</b></p>
+      ${fb ? '' : `<p class="hint">👑 <b>admin</b>/<b>admin</b> · 🎾 <b>jugador</b>/<b>jugador</b></p>`}
     </div></div>`;
   $('#lp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 }
-function doLogin() {
+async function doLogin() {
+  const e = $('#lerr');
+  if (FB()) {
+    try { await window.STORE.signIn($('#lu').value, $('#lp').value); view = 'ranking'; }
+    catch (err) { e.hidden = false; e.textContent = window.STORE.authMsg(err.code); }
+    return;
+  }
   const f = DB.users.find(x => x.username === $('#lu').value.trim() && x.password === $('#lp').value);
-  if (!f) { const e = $('#lerr'); e.hidden = false; e.textContent = 'Usuario o contraseña incorrectos.'; return; }
+  if (!f) { e.hidden = false; e.textContent = 'Usuario o contraseña incorrectos.'; return; }
   setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null }); view = 'ranking'; render();
+}
+async function doResetPassword() {
+  const e = $('#lerr'), email = $('#lu').value.trim();
+  if (!email) { e.hidden = false; e.textContent = 'Escribí tu email arriba y volvé a tocar el link.'; return; }
+  try { await window.STORE.resetPassword(email); e.hidden = false; e.className = 'banner ok'; e.textContent = 'Te enviamos un email para restablecer la contraseña.'; }
+  catch (err) { e.hidden = false; e.textContent = window.STORE.authMsg(err.code); }
 }
 function setAuthMode(m) { authMode = m; render(); }
 function renderRegister(app) {
+  const fb = FB();
   app.innerHTML = `<div class="login-wrap register-wrap"><div class="big-logo">🏓</div><h1>Crear cuenta</h1>
     <p class="page-sub">Registrate como jugador y empezá a anotarte a los torneos</p>
     <div class="card" style="text-align:left">
@@ -355,43 +375,59 @@ function renderRegister(app) {
         <div><label>Localidad</label><select id="r_city">${CITIES.map(c => `<option>${c}</option>`).join('')}</select></div>
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
       </div>
-      <label>Usuario</label><input id="r_user" placeholder="con el que vas a ingresar"/>
+      <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
       <div class="grid2">
         <div><label>Contraseña</label><input id="r_pw1" type="password"/></div>
         <div><label>Repetir contraseña</label><input id="r_pw2" type="password"/></div>
       </div>
       <label>Foto <span class="muted">(opcional)</span></label><input id="r_photo" type="file" accept="image/*"/>
       <div id="r_err" class="banner" hidden></div>
-      <p class="hint" style="margin-top:10px">Arrancás en 4ta con ${NEW_PLAYER_POINTS} puntos. Tu categoría sube o baja según los puntos que ganes.</p>
+      <p class="hint" style="margin-top:10px">Arrancás en 4ta con ${NEW_PLAYER_POINTS} puntos. Tu cuenta queda pendiente de aprobación del admin.</p>
       <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doRegister()">Crear cuenta e ingresar</button>
       <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="setAuthMode('login')">← Volver al ingreso</button>
     </div></div>`;
-  // sugerir usuario a partir del nombre, mientras el jugador no lo edite a mano
-  const suggest = () => { const u = $('#r_user'); if (!u.dataset.touched) u.value = usernameFor({ firstName: $('#r_first').value, lastName: $('#r_last').value }); };
-  $('#r_first').addEventListener('input', suggest);
-  $('#r_last').addEventListener('input', suggest);
-  $('#r_user').addEventListener('input', e => { e.target.dataset.touched = '1'; });
+  if (!fb) { // modo local: sugerir usuario desde el nombre
+    const suggest = () => { const u = $('#r_user'); if (!u.dataset.touched) u.value = usernameFor({ firstName: $('#r_first').value, lastName: $('#r_last').value }); };
+    $('#r_first').addEventListener('input', suggest);
+    $('#r_last').addEventListener('input', suggest);
+    $('#r_user').addEventListener('input', e => { e.target.dataset.touched = '1'; });
+  }
   $('#r_pw2').addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
   let photo = null; $('#r_photo').addEventListener('change', e => readPhoto(e.target.files[0], d => { photo = d; })); window.__rphoto = () => photo;
 }
-function doRegister() {
+async function doRegister() {
   const e = $('#r_err'), fail = msg => { e.hidden = false; e.textContent = msg; };
   const first = $('#r_first').value.trim(), last = $('#r_last').value.trim();
-  const user = $('#r_user').value.trim().toLowerCase();
-  const pw1 = $('#r_pw1').value, pw2 = $('#r_pw2').value;
+  const cred = $('#r_user').value.trim(), pw1 = $('#r_pw1').value, pw2 = $('#r_pw2').value;
   if (!first || !last) return fail('Nombre y apellido son obligatorios.');
-  if (!user) return fail('Elegí un nombre de usuario.');
-  if ((DB.users || []).some(u => (u.username || '').toLowerCase() === user)) return fail('Ese usuario ya existe, probá con otro.');
+  if (!cred) return fail(FB() ? 'Escribí tu email.' : 'Elegí un nombre de usuario.');
   if (!pw1) return fail('Escribí una contraseña.');
   if (pw1 !== pw2) return fail('Las contraseñas no coinciden.');
-  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city: $('#r_city').value, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo: (window.__rphoto ? window.__rphoto() : null), pending: true };
+  const photo = window.__rphoto ? window.__rphoto() : null;
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city: $('#r_city').value, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
+  if (FB()) {
+    window.__registering = true;
+    try {
+      const c = await window.STORE.signUp(cred, pw1);
+      const uidv = c.user.uid;
+      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred });
+      await window.STORE.setPlayer(player);
+      _session = { uid: uidv, email: cred, role: 'player', name: fullName(player), playerId: player.id };
+      _loaded = false; await ensureData();
+      authMode = 'login'; view = 'perfil'; render();
+    } catch (err) { fail(window.STORE.authMsg(err.code)); }
+    finally { window.__registering = false; }
+    return;
+  }
+  const user = cred.toLowerCase();
+  if ((DB.users || []).some(u => (u.username || '').toLowerCase() === user)) return fail('Ese usuario ya existe, probá con otro.');
   DB.players.push(player);
   DB.users.push({ username: user, password: pw1, role: 'player', name: fullName(player), playerId: player.id });
   save(DB);
   setUser({ username: user, role: 'player', name: fullName(player), playerId: player.id });
   authMode = 'login'; view = 'perfil'; render();
 }
-function logout() { setUser(null); authMode = 'login'; render(); }
+function logout() { authMode = 'login'; view = 'ranking'; if (FB()) { window.STORE.signOut(); } else { setUser(null); render(); } }
 
 /* ---------- ranking ---------- */
 function renderRanking(app) {
@@ -500,7 +536,7 @@ function renderProfile(app) {
     <div class="card" style="max-width:560px">
       <div class="row" style="gap:16px;margin-bottom:8px">${avatar(p, 'avatar')}
         <div><div style="font-weight:800;font-size:18px">${esc(fullName(p))}</div>
-        <div class="muted">${p.category} · ${p.points} pts · 👤 ${esc(u.username)}</div></div></div>
+        <div class="muted">${p.category} · ${p.points} pts · 👤 ${esc(u.email || u.username || '')}</div></div></div>
       <div class="grid2">
         <div><label>Nombre</label><input id="pf_first" value="${esc(p.firstName)}"/></div>
         <div><label>Apellido</label><input id="pf_last" value="${esc(p.lastName)}"/></div>
@@ -530,13 +566,19 @@ function saveProfile() {
   p.photo = window.__pfphoto ? window.__pfphoto() : p.photo;
   const acc = DB.users.find(x => x.playerId === p.id); if (acc) acc.name = fullName(p);
   setUser({ ...u, name: fullName(p) });
+  if (FB() && u.uid) window.STORE.setUserDoc(u.uid, { name: fullName(p) });
   save(DB); profileNote = '✓ Datos guardados.'; render();
 }
-function changePassword() {
+async function changePassword() {
   const u = currentUser(), e = $('#pf_pwerr');
   const a = $('#pf_pw1').value, b = $('#pf_pw2').value;
   if (!a) { e.hidden = false; e.textContent = 'Escribí una contraseña.'; return; }
   if (a !== b) { e.hidden = false; e.textContent = 'Las contraseñas no coinciden.'; return; }
+  if (FB()) {
+    try { await window.STORE.updatePassword(a); profileNote = '✓ Contraseña actualizada.'; render(); }
+    catch (err) { e.hidden = false; e.textContent = err.code === 'auth/requires-recent-login' ? 'Por seguridad, cerrá sesión y volvé a entrar antes de cambiar la contraseña.' : window.STORE.authMsg(err.code); }
+    return;
+  }
   const acc = DB.users.find(x => x.playerId === u.playerId);
   if (!acc) { e.hidden = false; e.textContent = 'Cuenta no encontrada.'; return; }
   acc.password = a; save(DB); profileNote = '✓ Contraseña actualizada.'; render();
@@ -546,7 +588,7 @@ function changePassword() {
 function renderPlayers(app) {
   const active = DB.players.filter(p => !p.pending);
   const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username)}` : ''}</div></div>
+    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
@@ -582,13 +624,19 @@ function savePlayer(id) {
   let target;
   if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), ...data }; DB.players.push(target); }
   syncCategory(target);  // categoría derivada de los puntos
-  ensurePlayerUsers();   // crea la cuenta del nuevo jugador (user = inicial+apellido)
+  if (!FB()) ensurePlayerUsers();   // en modo local: crea la cuenta del nuevo jugador (user = inicial+apellido)
   save(DB); closeModal(); render();
+}
+// Borra el doc de cuenta (users) en Firestore. La cuenta de Auth queda huérfana (se borra desde la consola).
+function dropUserDoc(playerId) {
+  const acc = (DB.users || []).find(u => u.playerId === playerId);
+  DB.users = (DB.users || []).filter(u => u.playerId !== playerId);
+  if (FB() && acc && acc.uid) window.STORE.delUserDoc(acc.uid);
 }
 function delPlayer(id) {
   const p = playerById(id); if (!p || !confirm(`¿Eliminar a ${fullName(p)}?`)) return;
   DB.players = DB.players.filter(x => x.id !== id);
-  DB.users = (DB.users || []).filter(u => u.playerId !== id); // borrar su cuenta
+  dropUserDoc(id);
   DB.tournaments.forEach(t => t.categorias.forEach(c => { c.entrants = c.entrants.filter(e => !e.players.includes(id)); c.groups = null; c.matches = null; c.bracket = null; c.thirdPlace = null; }));
   save(DB); render();
 }
@@ -598,7 +646,7 @@ function delPlayer(id) {
 function renderApprovals(app) {
   const pend = DB.players.filter(p => p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const rows = pend.map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username)}` : ''}</div></div>
+    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}</div></div>
     <button class="btn btn-primary btn-sm" onclick="approvePlayer('${p.id}')">✅ Aprobar</button>
     <button class="btn btn-ghost btn-sm" onclick="rejectPlayer('${p.id}')">🗑️ Rechazar</button></div>`; }).join('');
   app.innerHTML = `<div class="page-title"><h1>🙋 Altas de jugadores</h1></div>
@@ -609,7 +657,7 @@ function approvePlayer(id) { const p = playerById(id); if (!p) return; delete p.
 function rejectPlayer(id) {
   const p = playerById(id); if (!p || !confirm(`¿Rechazar la solicitud de ${fullName(p)}? Se elimina el jugador y su cuenta.`)) return;
   DB.players = DB.players.filter(x => x.id !== id);
-  DB.users = (DB.users || []).filter(u => u.playerId !== id);
+  dropUserDoc(id);
   save(DB); render();
 }
 
@@ -1420,13 +1468,52 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword });
 
-migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
-migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)
-migratePointsRedistribute();   // migración: redistribución de puntos (Jorge 1º, Paulina 4ta)
-ensurePlayerUsers();           // migración: cuenta por jugador (user = inicial+apellido)
-DB.players.forEach(syncCategory); // categoría siempre derivada de los puntos
-DB.tournaments.forEach(t => t.categorias.forEach(c => { c.rule = catalogRule(c.name); })); // reglas siempre al día con el catálogo
-save(DB);
-render();
+// Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
+function runDataMigrations() {
+  migrateInitialPoints();
+  migrateSeedData();
+  migratePointsRedistribute();
+  if (!FB()) ensurePlayerUsers();
+  DB.players.forEach(syncCategory);
+  DB.tournaments.forEach(t => t.categorias.forEach(c => { c.rule = catalogRule(c.name); }));
+}
+
+/* ---------------- bootstrap ---------------- */
+let _loaded = false;
+async function ensureData() {
+  if (_loaded || !FB()) return;
+  const data = await window.STORE.loadAll();
+  if (data.empty) {
+    if (!isAdmin()) return;                 // base vacía y no soy admin → no puedo sembrar (reglas)
+    DB = seed(); DB.users = data.users;      // arma datos de ejemplo
+    applyMigrations(); runDataMigrations();
+    await window.STORE.sync(DB); window.STORE.primeLast(DB);
+  } else {
+    DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, settings: data.settings || { tableSuggestion: false } };
+    applyMigrations();
+    DB.players.forEach(syncCategory);
+    DB.tournaments.forEach(t => t.categorias.forEach(c => { c.rule = catalogRule(c.name); }));
+    window.STORE.primeLast(DB);
+  }
+  _loaded = true;
+}
+async function boot() {
+  if (!FB()) { // modo local (sin Firebase configurado): comportamiento de siempre
+    DB = load(); applyMigrations(); runDataMigrations(); save(DB); render(); return;
+  }
+  render(); // login / cargando mientras resuelve la sesión
+  window.STORE.onAuth(async (fbUser) => {
+    if (window.__registering) return; // el alta maneja su propia sesión/render
+    if (fbUser) {
+      const ud = await window.STORE.getUserDoc(fbUser.uid);
+      _session = ud
+        ? { uid: fbUser.uid, email: fbUser.email, role: ud.role || 'player', name: ud.name || fbUser.email, playerId: ud.playerId || null }
+        : { uid: fbUser.uid, email: fbUser.email, role: 'player', name: fbUser.email, playerId: null };
+      _loaded = false; await ensureData();
+    } else { _session = null; }
+    render();
+  });
+}
+boot();

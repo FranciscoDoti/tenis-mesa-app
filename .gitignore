@@ -1,3 +1,7 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+# Firebase
+*-debug.log
+.firebase/
+node_modules/
