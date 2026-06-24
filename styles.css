@@ -204,4 +204,52 @@ ul.awarded li:last-child{border-bottom:0}
 .hist-score b{margin:0 8px; background:#eef4f0; border-radius:6px; padding:2px 8px; color:var(--table-dark)}
 .hist-score .win{font-weight:800; color:var(--table-dark)}
 
+/* ---------- ajustes ---------- */
+.setting-row{display:flex; align-items:center; gap:18px}
+.setting-text{flex:1; min-width:0}
+.setting-name{font-weight:700; font-size:15px}
+.setting-desc{font-size:13px; color:var(--muted); margin-top:4px; line-height:1.5}
+.switch{flex:0 0 auto; width:52px; height:30px; border-radius:999px; border:0; background:#cbd2da; position:relative; cursor:pointer; padding:0; transition:background .18s}
+.switch.on{background:var(--ok)}
+.switch .knob{position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .18s}
+.switch.on .knob{left:25px}
+
+/* ---------- mesa por partido ---------- */
+.mesa-sel{flex:0 0 auto; width:auto; padding:4px 6px; font-size:12px; font-weight:600; border-radius:8px}
+.bmatch{flex-wrap:wrap}
+.bmatch-mesa{flex-basis:100%; display:flex; align-items:center; gap:8px; margin-top:2px}
+.bmatch-mesa .mesa-sel{width:100%}
+.mesa-badge{flex:0 0 auto; background:#fff3e0; color:#8a5400; border:1px solid #ffd8a8; border-radius:999px; padding:2px 9px; font-size:12px; font-weight:700; white-space:nowrap}
+.br-mesa{padding:7px 9px; border-top:1px solid var(--line); display:flex; justify-content:center}
+.br-mesa .mesa-sel{width:100%}
+
+/* ---------- gimnasios con mapa ---------- */
+.gym-cards{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.gym-card{display:flex; flex-direction:column}
+.gym-head{display:flex; align-items:center; gap:12px; margin-bottom:12px}
+.gym-head .meta{min-width:0}
+.gym-head .name{font-weight:700}
+.gym-head .sub{font-size:12px; color:var(--muted)}
+.gym-map{width:100%; height:180px; border:1px solid var(--line); border-radius:12px; display:block}
+.gym-map-empty{display:flex; align-items:center; justify-content:center; text-align:center; padding:0 16px; color:var(--muted); font-size:13px; background:#f7f9fb}
+.maplink{color:var(--table-dark); font-weight:700; text-decoration:none; white-space:nowrap; margin-left:6px}
+.maplink:hover{text-decoration:underline}
+
+/* ---------- torneos destacados ---------- */
+.tourn-card{position:relative}
+.tourn-recent{border-color:var(--table); box-shadow:0 0 0 2px var(--table), var(--shadow)}
+.tourn-live{border-color:#e5484d; box-shadow:0 0 0 2px #e5484d, var(--shadow)}
+.t-badges{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px}
+.t-badge{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; letter-spacing:.3px}
+.t-badge.live{background:#e5484d; color:#fff}
+.t-badge.recent{background:#e6f4ec; color:var(--table-dark)}
+.tag-live{background:#fde8e8; color:#b42318}
+
+/* ---------- partidos en vivo ---------- */
+.live-list{display:flex; flex-direction:column; gap:8px}
+.live-row{display:flex; align-items:center; gap:12px; flex-wrap:wrap; background:#fff; border:1px solid var(--line); border-left:4px solid #e5484d; border-radius:12px; padding:12px 14px; box-shadow:var(--shadow)}
+.live-mesa{flex:0 0 auto; background:#fff3e0; color:#8a5400; border:1px solid #ffd8a8; border-radius:999px; padding:4px 12px; font-size:13px; font-weight:800}
+.live-players{flex:1; min-width:160px; font-weight:700}
+.live-cat{flex:0 0 auto; font-size:12px; color:var(--muted)}
+
 @media (max-width:560px){ .grid2{grid-template-columns:1fr} .topbar{flex-wrap:wrap} .user-area{width:100%; margin-left:0; justify-content:flex-end} }
