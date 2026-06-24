@@ -420,14 +420,17 @@ async function doRegister() {
   const photo = window.__rphoto ? window.__rphoto() : null;
   const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
   if (FB()) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cred)) return fail('Escribí un email válido (ej: nombre@gmail.com).');
     window.__registering = true;
     try {
       const c = await window.STORE.signUp(cred, pw1);
       const uidv = c.user.uid;
-      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred });
+      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false });
       await window.STORE.setPlayer(player);
-      _session = { uid: uidv, email: cred, role: 'player', name: fullName(player), playerId: player.id };
+      try { await window.STORE.sendVerification(); } catch (e) {}   // mail de verificación nativo
+      _session = { uid: uidv, email: cred, role: 'player', name: fullName(player), playerId: player.id, emailVerified: false };
       _loaded = false; await ensureData();
+      profileNote = `📧 Te enviamos un email a ${cred} para verificar tu cuenta. Revisá tu casilla (y la carpeta de spam).`;
       authMode = 'login'; view = 'perfil'; render();
     } catch (err) { fail(window.STORE.authMsg(err.code)); }
     finally { window.__registering = false; }
@@ -546,6 +549,9 @@ function renderProfile(app) {
   app.innerHTML = `<div class="page-title"><h1>👤 Mi perfil</h1></div>
     <p class="page-sub">Editá tus datos personales, tu foto y tu contraseña.</p>
     ${p.pending ? `<div class="banner" style="max-width:560px">⏳ <b>Tu cuenta está pendiente de aprobación.</b> Cuando el admin te apruebe vas a aparecer en el ranking y vas a poder anotarte a los torneos.</div>` : ''}
+    ${(FB() && u.emailVerified === false) ? `<div class="banner" style="max-width:560px">📧 <b>Verificá tu email.</b> Te mandamos un link a ${esc(u.email)} (revisá spam).
+      <div class="row" style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resendVerification()">Reenviar email</button>
+      <button class="btn btn-ghost btn-sm" onclick="recheckVerification()">Ya verifiqué ✓</button></div></div>` : ''}
     ${note ? `<div class="banner ok" style="max-width:560px">${esc(note)}</div>` : ''}
     <div class="card" style="max-width:560px">
       <div class="row" style="gap:16px;margin-bottom:8px">${avatar(p, 'avatar')}
@@ -596,6 +602,21 @@ async function changePassword() {
   const acc = DB.users.find(x => x.playerId === u.playerId);
   if (!acc) { e.hidden = false; e.textContent = 'Cuenta no encontrada.'; return; }
   acc.password = a; save(DB); profileNote = '✓ Contraseña actualizada.'; render();
+}
+async function resendVerification() {
+  try { await window.STORE.sendVerification(); profileNote = '📧 Te reenviamos el email de verificación. Revisá tu casilla (y spam).'; }
+  catch (e) { profileNote = 'No se pudo reenviar. Probá de nuevo en un rato.'; }
+  render();
+}
+async function recheckVerification() {
+  try {
+    await window.STORE.reloadUser();
+    const verified = window.STORE.isEmailVerified();
+    _session.emailVerified = verified;
+    if (verified && _session.uid) { window.STORE.setUserDoc(_session.uid, { emailVerified: true }); const me = (DB.users || []).find(x => x.uid === _session.uid); if (me) me.emailVerified = true; }
+    profileNote = verified ? '✅ ¡Email verificado! Gracias.' : 'Todavía no figura verificado. Abrí el link del email y volvé a tocar “Ya verifiqué”.';
+  } catch (e) { profileNote = 'No se pudo comprobar. Probá de nuevo.'; }
+  render();
 }
 
 /* ---------- jugadores (admin) ---------- */
@@ -660,7 +681,7 @@ function delPlayer(id) {
 function renderApprovals(app) {
   const pend = DB.players.filter(p => p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const rows = pend.map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}</div></div>
+    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}${u && FB() ? (u.emailVerified ? ' · ✅ email verificado' : ' · ✉️ sin verificar') : ''}</div></div>
     <label class="ap-pts">Puntaje inicial<input id="ap_${p.id}" type="number" min="0" value="${p.points}"/></label>
     <button class="btn btn-primary btn-sm" onclick="approvePlayer('${p.id}')">✅ Aprobar</button>
     <button class="btn btn-ghost btn-sm" onclick="rejectPlayer('${p.id}')">🗑️ Rechazar</button></div>`; }).join('');
@@ -1275,6 +1296,7 @@ function selfEnrollModal(tid, cid) {
   if (!enrollmentOpen(cat)) { alert('La inscripción no está abierta.'); return; }
   const u = currentUser(), me = u && u.playerId ? playerById(u.playerId) : null;
   if (me && me.pending) { openModal(`<h3>Anotarme — ${esc(cat.name)}</h3><div class="banner">⏳ Tu cuenta está pendiente de aprobación por el admin. Cuando te aprueben vas a poder anotarte.</div><div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`); return; }
+  if (FB() && me && currentUser().emailVerified === false) { openModal(`<h3>Anotarme — ${esc(cat.name)}</h3><div class="banner">📧 Verificá tu email antes de anotarte. Tenés el link en tu casilla; podés reenviarlo desde 👤 Perfil.</div><div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`); return; }
   const enrolledIds = new Set(cat.entrants.flatMap(e => e.players));
   const availFor = exclude => DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)))
     .filter(p => !enrolledIds.has(p.id) && p.id !== exclude && eligible(cat, p).ok);
@@ -1494,7 +1516,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter, resendVerification, recheckVerification });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
@@ -1535,8 +1557,10 @@ async function boot() {
     if (fbUser) {
       const ud = await window.STORE.getUserDoc(fbUser.uid);
       _session = ud
-        ? { uid: fbUser.uid, email: fbUser.email, role: ud.role || 'player', name: ud.name || fbUser.email, playerId: ud.playerId || null }
-        : { uid: fbUser.uid, email: fbUser.email, role: 'player', name: fbUser.email, playerId: null };
+        ? { uid: fbUser.uid, email: fbUser.email, role: ud.role || 'player', name: ud.name || fbUser.email, playerId: ud.playerId || null, emailVerified: !!fbUser.emailVerified }
+        : { uid: fbUser.uid, email: fbUser.email, role: 'player', name: fbUser.email, playerId: null, emailVerified: !!fbUser.emailVerified };
+      // reflejar la verificación en el doc para que el admin la vea en Altas
+      if (ud && fbUser.emailVerified && !ud.emailVerified) { try { await window.STORE.setUserDoc(fbUser.uid, { emailVerified: true }); } catch (e) {} }
       _loaded = false; await ensureData();
     } else { _session = null; }
     render();

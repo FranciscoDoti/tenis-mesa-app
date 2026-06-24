@@ -76,6 +76,10 @@
   STORE.getUserDoc = async uid => { const d = await db.doc('users/' + uid).get(); return d.exists ? { uid, ...d.data() } : null; };
   STORE.setUserDoc = (uid, data) => db.doc('users/' + uid).set(data, { merge: true });
   STORE.delUserDoc = uid => db.doc('users/' + uid).delete();
+  // verificación de email (nativa de Firebase: manda el mail y marca emailVerified)
+  STORE.sendVerification = () => { const u = auth.currentUser; return u ? u.sendEmailVerification() : Promise.reject(new Error('no-user')); };
+  STORE.reloadUser = () => { const u = auth.currentUser; return u ? u.reload() : Promise.resolve(); };
+  STORE.isEmailVerified = () => !!(auth.currentUser && auth.currentUser.emailVerified);
   // Errores de auth en español
   STORE.authMsg = code => ({
     'auth/invalid-email': 'El email no es válido.',
