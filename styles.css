@@ -284,4 +284,60 @@ ul.awarded li:last-child{border-bottom:0}
 .live-players{flex:1; min-width:160px; font-weight:700}
 .live-cat{flex:0 0 auto; font-size:12px; color:var(--muted)}
 
-@media (max-width:560px){ .grid2{grid-template-columns:1fr} .topbar{flex-wrap:wrap} .user-area{width:100%; margin-left:0; justify-content:flex-end} }
+/* evita el zoom raro de fuentes en mobile al rotar */
+html{-webkit-text-size-adjust:100%}
+
+@media (max-width:640px){
+  main{padding:16px 12px 32px}
+  .grid2{grid-template-columns:1fr}
+
+  /* topbar: marca + usuario en una fila, nav scrolleable abajo (estilo app) */
+  .topbar{flex-wrap:wrap; gap:10px; padding:10px 14px}
+  .brand{order:1}
+  .logo{width:40px; height:40px}
+  .brand-text strong{font-size:16px}
+  .user-area{order:2; width:auto; margin-left:auto; font-size:13px}
+  .nav{order:3; width:100%; margin-left:0; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:6px; padding-bottom:2px; scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav-btn{flex:0 0 auto; padding:8px 13px; font-size:13px}
+
+  /* títulos y secciones */
+  .page-title h1{font-size:20px}
+  .page-sub{margin-bottom:16px}
+  .section-head{flex-wrap:wrap; margin:20px 0 10px}
+  .section-head h2{font-size:16px}
+
+  /* inputs a 16px para que iOS no haga zoom al enfocar */
+  input,select,textarea{font-size:16px}
+
+  /* modales más a pantalla completa */
+  .modal-overlay{padding:2vh 10px}
+  .modal-card{padding:16px; max-height:94vh}
+
+  /* filas de jugadores: que no desborden, que envuelvan prolijo */
+  .player-row{flex-wrap:wrap; gap:10px 12px}
+  .player-row .meta{flex:1 1 55%; min-width:0}
+  .player-row .name{overflow:hidden; text-overflow:ellipsis}
+
+  /* cards horizontales de torneos antiguos: apiladas */
+  .tourn-card-h{padding:14px}
+  .th-actions{margin-left:0; width:100%}
+
+  /* historial: tarjetas apiladas y legibles */
+  .hist-row{flex-direction:column; align-items:flex-start; gap:8px}
+  .hist-score{text-align:left}
+
+  /* bracket un poco más angosto para que entre el scroll horizontal */
+  .br-col{min-width:168px}
+
+  /* mapas un poco más bajos */
+  .gym-map{height:160px}
+}
+
+/* pantallas muy chicas (≈360px) */
+@media (max-width:380px){
+  .cards{grid-template-columns:1fr}
+  .gym-cards{grid-template-columns:1fr}
+  .nav-btn{padding:8px 11px; font-size:12px}
+  .btn{padding:9px 13px}
+}
