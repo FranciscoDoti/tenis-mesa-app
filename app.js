@@ -684,6 +684,8 @@ function toggleTableSuggestion() {
 }
 
 /* ---------- torneos ---------- */
+// Fecha de hoy (YYYY-MM-DD) siempre en horario de Argentina, sin importar el dispositivo.
+const todayAR = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const fmtDate = s => new Date(s + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' });
 function dateRangeLabel(t) {
   if (t.dateEnd && t.dateEnd !== t.date) {
@@ -712,8 +714,7 @@ const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.da
 function isPastTournament(t) {
   if (isLiveTournament(t)) return false;
   const end = t.dateEnd || t.date; if (!end) return false;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return new Date(end + 'T00:00:00') < today;
+  return end < todayAR(); // comparación de strings YYYY-MM-DD en horario de Argentina
 }
 // Podio de una categoría: nombres de 1º/2º/3º (o null si no hay campeón todavía).
 function podiumOf(cat) {
@@ -787,12 +788,15 @@ function collabPickerHtml(initial) {
   const results = list.length
     ? list.map(p => `<li class="collab-opt" data-id="${p.id}" data-name="${esc(fullName(p)).toLowerCase()}" onclick="collabAdd('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('')
     : '<li class="muted" style="padding:8px 10px">No hay jugadores.</li>';
+  // onmousedown preventDefault en la lista: al tocar una opción no se pierde el foco del input (sigue abierto)
   return `<div class="collab-picker">
-    <input class="collab-search" placeholder="🔍 Buscar jugador para agregar…" oninput="collabFilter(this)"/>
-    <ul class="collab-results" id="collab-results">${results}</ul>
+    <input class="collab-search" placeholder="🔍 Tocá acá y escribí un nombre…" autocomplete="off" oninput="collabFilter(this)" onfocus="collabOpen()" onblur="collabClose()"/>
+    <ul class="collab-results" id="collab-results" hidden onmousedown="event.preventDefault()">${results}</ul>
     <div class="collab-chips" id="collab-chips"></div>
   </div>`;
 }
+function collabOpen() { const r = document.querySelector('#collab-results'); if (r) { r.hidden = false; collabFilter(document.querySelector('.collab-search')); } }
+function collabClose() { const r = document.querySelector('#collab-results'); if (r) r.hidden = true; }
 function collabFilter(inp) {
   const q = (inp && inp.value || '').toLowerCase();
   document.querySelectorAll('#collab-results .collab-opt').forEach(li => {
@@ -806,19 +810,25 @@ function renderCollabChips() {
     ? window.__collabSel.map(id => { const p = playerById(id); return `<span class="collab-chip">${esc(p ? fullName(p) : '?')}<button type="button" class="chip-x" onclick="collabRemove('${id}')" title="Quitar">✕</button></span>`; }).join('')
     : '<span class="muted" style="font-size:13px">Todavía no agregaste colaboradores.</span>';
 }
-function refreshCollab() { renderCollabChips(); collabFilter(document.querySelector('.collab-search')); }
-function collabAdd(id) { if (!window.__collabSel.includes(id)) window.__collabSel.push(id); refreshCollab(); }
-function collabRemove(id) { window.__collabSel = window.__collabSel.filter(x => x !== id); refreshCollab(); }
+function refreshCollab() { renderCollabChips(); }
+function collabAdd(id) {
+  if (!window.__collabSel.includes(id)) window.__collabSel.push(id);
+  const s = document.querySelector('.collab-search');
+  if (s) { s.value = ''; s.focus(); }          // limpio el texto para seguir buscando otro jugador
+  renderCollabChips(); collabFilter(s);
+  const r = document.querySelector('#collab-results'); if (r) r.hidden = false; // queda abierto
+}
+function collabRemove(id) { window.__collabSel = window.__collabSel.filter(x => x !== id); renderCollabChips(); collabFilter(document.querySelector('.collab-search')); }
 function tournamentForm() {
   const checks = CATALOG.map(c => `<label class="catchk"><input type="checkbox" class="cat-chk" value="${c.name}"/>
     <span>${c.name}</span><small class="muted">${ruleLabel(c.rule)}</small></label>`).join('');
   openModal(`<h3>Crear torneo</h3>
     <label>Nombre</label><input id="t_name" placeholder="Ej: Apertura 2026"/>
     <div class="grid2">
-      <div><label>Fecha inicio</label><input id="t_date" type="date"/></div>
-      <div><label>Fecha fin <span class="muted">(opcional)</span></label><input id="t_dateEnd" type="date"/></div>
+      <div><label>Fecha inicio</label><input id="t_date" type="date" min="${todayAR()}"/></div>
+      <div><label>Fecha fin <span class="muted">(opcional)</span></label><input id="t_dateEnd" type="date" min="${todayAR()}"/></div>
     </div>
-    <p class="hint" style="margin-top:0">Para torneos de varios días (ej. sábado y domingo) poné inicio y fin.</p>
+    <p class="hint" style="margin-top:0">Para torneos de varios días (ej. sábado y domingo) poné inicio y fin. La fecha de inicio no puede ser anterior a hoy.</p>
     <label>Cantidad de mesas disponibles</label>
     <input id="t_tables" type="number" min="1" value="4"/>
     <p class="hint" style="margin-top:4px">Mesas físicas del torneo. Después podés cambiarla, incluso con el torneo en juego.</p>
@@ -840,6 +850,7 @@ function tournamentForm() {
 function saveTournament() {
   const name = $('#t_name').value.trim(), date = $('#t_date').value, dateEnd = $('#t_dateEnd').value || date, e = $('#terr');
   if (!name || !date) { e.hidden = false; e.textContent = 'Nombre y fecha de inicio obligatorios.'; return; }
+  if (date < todayAR()) { e.hidden = false; e.textContent = 'La fecha de inicio no puede ser anterior a hoy.'; return; }
   if (dateEnd < date) { e.hidden = false; e.textContent = 'La fecha de fin no puede ser anterior al inicio.'; return; }
   const picked = [...$('#modalCard').querySelectorAll('.cat-chk:checked')].map(c => c.value);
   if (!picked.length) { e.hidden = false; e.textContent = 'Elegí al menos una categoría.'; return; }
@@ -921,21 +932,34 @@ function saveTournamentEdit(tid) {
   t.name = name; t.date = date; t.dateEnd = dateEnd; t.gymId = $('#et_gym').value || null;
   save(DB); closeModal(); render();
 }
+// Mesas ocupadas del torneo = asignadas a partidos en curso (sin terminar), de cualquier categoría.
+// exceptMm permite excluir el propio partido al editar su mesa.
+function occupiedTablesOf(t, exceptMm) {
+  const set = new Set();
+  t.categorias.forEach(cat => {
+    cat._tid = t.id;
+    catMatchList(cat).forEach(({ m }) => { if (m && m !== exceptMm && m.table != null && !matchDone(m, cat)) set.add(m.table); });
+  });
+  return set;
+}
 // Selector/insignia de mesa para un partido. Admin: <select>; jugador: insignia si hay mesa asignada.
 function tableControl(cat, kind, gidx, r, m, mm) {
   const t = tById(cat._tid), max = tableCountOf(t);
   const cur = mm && mm.table != null ? mm.table : '';
   if (!canEditCat(cat)) return cur ? `<span class="mesa-badge">🏓 Mesa ${cur}</span>` : '';
+  const occ = occupiedTablesOf(t, mm); // mesas tomadas por otros partidos en curso
   const top = Math.max(max, cur || 0);
   let opts = `<option value="">🏓 Mesa…</option>`;
-  for (let i = 1; i <= top; i++) opts += `<option value="${i}" ${cur === i ? 'selected' : ''}>Mesa ${i}</option>`;
+  for (let i = 1; i <= top; i++) { const busy = occ.has(i); opts += `<option value="${i}" ${cur === i ? 'selected' : ''} ${busy ? 'disabled' : ''}>Mesa ${i}${busy ? ' (ocupada)' : ''}</option>`; }
   const args = `'${cat._tid}','${cat.id}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
   return `<select class="mesa-sel" onchange="setMatchTable(${args},this.value)" onclick="event.stopPropagation()">${opts}</select>`;
 }
 function setMatchTable(tid, cid, kind, gidx, r, m, val) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm } = locateMatch(cat, kind, gidx, r, m);
-  mm.table = val ? parseInt(val, 10) : null;
+  const num = val ? parseInt(val, 10) : null;
+  if (num != null && occupiedTablesOf(tById(tid), mm).has(num)) { alert(`La mesa ${num} ya está ocupada por otro partido en curso. Esperá a que se libere.`); render(); return; }
+  mm.table = num;
   save(DB); render();
 }
 
@@ -1396,7 +1420,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose });
 
 migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
 migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)
