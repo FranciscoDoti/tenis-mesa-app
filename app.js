@@ -278,6 +278,7 @@ let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(['1ra']); // qué categorías del ranking están desplegadas (1ra por defecto)
+let tournSearch = ''; // texto del buscador de torneos antiguos
 
 function renderChrome() {
   const u = currentUser();
@@ -616,29 +617,77 @@ function liveMatchesOf(t) {
   return out.sort((x, y) => x.table - y.table);
 }
 const isLiveTournament = t => liveMatchesOf(t).length > 0;
-// Torneo "más reciente" = el de fecha de inicio más nueva (desempata por fecha de fin).
-function mostRecentTournamentId() {
-  if (!DB.tournaments.length) return null;
-  return DB.tournaments.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.dateEnd || '').localeCompare(a.dateEnd || ''))[0].id;
+// Orden por fecha: del más reciente al menos reciente (desempata por fecha de fin).
+const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.dateEnd || '').localeCompare(a.dateEnd || '');
+// Un torneo es "antiguo" si ya terminó (fecha de fin pasada) y no tiene partidos en vivo.
+function isPastTournament(t) {
+  if (isLiveTournament(t)) return false;
+  const end = t.dateEnd || t.date; if (!end) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return new Date(end + 'T00:00:00') < today;
+}
+// Podio de una categoría: nombres de 1º/2º/3º (o null si no hay campeón todavía).
+function podiumOf(cat) {
+  if (!cat.bracket) return null;
+  const champ = brWinner(cat, cat.bracket.length - 1, 0);
+  if (!champ || champ === 'BYE') return null;
+  const map = placements(cat);
+  const nameAt = n => { const hit = Object.entries(map).find(([, pl]) => pl === n); return hit ? entName(cat, hit[0]) : null; };
+  return { first: nameAt(1), second: nameAt(2), third: nameAt(3) };
+}
+// Bloque de podios del torneo (una línea por categoría que ya tiene campeón). Vacío si no hay resultados.
+function podiumHtml(t) {
+  return t.categorias.map(c => {
+    const p = podiumOf(c); if (!p) return '';
+    return `<div class="podium"><span class="podium-cat">${esc(c.name)}</span>
+      <span class="podium-pos">🏆 ${esc(p.first)}</span>
+      ${p.second ? `<span class="podium-pos">🥈 ${esc(p.second)}</span>` : ''}
+      ${p.third ? `<span class="podium-pos">🥉 ${esc(p.third)}</span>` : ''}</div>`;
+  }).filter(Boolean).join('');
+}
+function upcomingCardHtml(t) {
+  const live = isLiveTournament(t), gym = gymById(t.gymId), pod = podiumHtml(t);
+  return `<div class="card tourn-card${live ? ' tourn-live' : ''}">
+    ${live ? `<div class="t-badges"><span class="t-badge live">🔴 En vivo</span></div>` : ''}
+    <h3 style="margin:0">${esc(t.name)}</h3>
+    <div class="when">📅 ${dateRangeLabel(t)}</div>
+    ${gym ? `<div class="when">📍 ${esc(gym.name)}</div>` : ''}
+    <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span>${live ? `<span class="tag tag-live">${liveMatchesOf(t).length} en juego</span>` : ''}</div>
+    ${pod}
+    <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ Ver</button>
+      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
+}
+function pastCardHtml(t) {
+  const gym = gymById(t.gymId), pod = podiumHtml(t);
+  const search = esc(`${t.name} ${gym ? gym.name : ''} ${dateRangeLabel(t)}`.toLowerCase());
+  return `<div class="card tourn-card-h tourn-old-card" data-search="${search}">
+    <div class="th-main"><h3 style="margin:0">${esc(t.name)}</h3>
+      <div class="when">📅 ${dateRangeLabel(t)}${gym ? ` · 📍 ${esc(gym.name)}` : ''}</div>
+      <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span></div></div>
+    <div class="th-podium">${pod || '<span class="muted">Sin resultados cargados</span>'}</div>
+    <div class="th-actions"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ Ver</button>
+      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function renderTournaments(app) {
-  const recentId = mostRecentTournamentId();
-  const cards = DB.tournaments.map(t => {
-    const live = isLiveTournament(t), recent = t.id === recentId;
-    const cls = live ? ' tourn-live' : recent ? ' tourn-recent' : '';
-    const badges = `${live ? '<span class="t-badge live">🔴 En vivo</span>' : ''}${recent ? '<span class="t-badge recent">🆕 Más reciente</span>' : ''}`;
-    return `<div class="card tourn-card${cls}">${badges ? `<div class="t-badges">${badges}</div>` : ''}
-      <h3 style="margin:0">${esc(t.name)}</h3>
-      <div class="when">📅 ${dateRangeLabel(t)}</div>
-      ${gymById(t.gymId) ? `<div class="when">📍 ${esc(gymById(t.gymId).name)}</div>` : ''}
-      <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span>${live ? `<span class="tag tag-live">${liveMatchesOf(t).length} en juego</span>` : ''}</div>
-      <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ Ver</button>
-        ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
-  }).join('');
+  const all = DB.tournaments.slice().sort(byDateDesc);
+  const upcoming = all.filter(t => !isPastTournament(t));
+  const past = all.filter(t => isPastTournament(t));
+  const upCards = upcoming.map(upcomingCardHtml).join('');
+  const pastCards = past.map(pastCardHtml).join('');
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>📅 Torneos</h1></div>
     ${isAdmin() ? `<button class="btn btn-primary" onclick="tournamentForm()">➕ Crear torneo</button>` : ''}</div>
     <p class="page-sub">Cada torneo agrupa varias categorías (sub-torneos).</p>
-    <div class="cards">${cards || '<div class="empty">No hay torneos.</div>'}</div>`;
+    <div class="section-head"><h2>🔜 Torneos próximos</h2></div>
+    <div class="cards">${upCards || '<div class="empty">No hay torneos próximos.</div>'}</div>
+    <div class="section-head"><h2>📚 Torneos antiguos</h2></div>
+    ${past.length ? `<input class="tourn-search" placeholder="🔍 Buscar torneo por nombre, lugar o fecha…" oninput="tournFilter(this)" value="${esc(tournSearch)}"/>` : ''}
+    <div class="cards-h">${pastCards || '<div class="empty">No hay torneos antiguos todavía.</div>'}</div>`;
+  if (tournSearch) { const inp = $('.tourn-search'); if (inp) tournFilter(inp); }
+}
+function tournFilter(inp) {
+  tournSearch = inp.value;
+  const q = inp.value.toLowerCase();
+  document.querySelectorAll('.tourn-old-card').forEach(c => { c.style.display = c.dataset.search.includes(q) ? '' : 'none'; });
 }
 function tournamentForm() {
   const checks = CATALOG.map(c => `<label class="catchk"><input type="checkbox" value="${c.name}"/>
@@ -1112,7 +1161,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter });
 
 migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
 migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)

@@ -237,13 +237,25 @@ ul.awarded li:last-child{border-bottom:0}
 
 /* ---------- torneos destacados ---------- */
 .tourn-card{position:relative}
-.tourn-recent{border-color:var(--table); box-shadow:0 0 0 2px var(--table), var(--shadow)}
 .tourn-live{border-color:#e5484d; box-shadow:0 0 0 2px #e5484d, var(--shadow)}
 .t-badges{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px}
 .t-badge{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; letter-spacing:.3px}
 .t-badge.live{background:#e5484d; color:#fff}
-.t-badge.recent{background:#e6f4ec; color:var(--table-dark)}
 .tag-live{background:#fde8e8; color:#b42318}
+
+/* ---------- buscador + torneos antiguos (cards horizontales) ---------- */
+.tourn-search{max-width:440px; margin:0 0 14px}
+.cards-h{display:flex; flex-direction:column; gap:12px}
+.tourn-card-h{display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:14px 18px}
+.th-main{flex:1 1 220px; min-width:0}
+.th-main h3{font-size:16px}
+.th-podium{flex:1 1 280px; display:flex; flex-direction:column; gap:6px}
+.th-actions{flex:0 0 auto; display:flex; gap:8px; margin-left:auto}
+
+/* ---------- podio en las cards ---------- */
+.podium{display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:13px; margin-top:8px}
+.podium-cat{font-weight:800; color:var(--table-dark); font-size:12px}
+.podium-pos{background:#f7f9fb; border:1px solid var(--line); border-radius:999px; padding:2px 10px; font-weight:600; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
 /* ---------- partidos en vivo ---------- */
 .live-list{display:flex; flex-direction:column; gap:8px}
