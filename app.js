@@ -209,6 +209,15 @@ if (!DB.gyms) { DB.gyms = defaultGyms(); save(DB); } // migración aditiva (no b
 if (!DB.settings) { DB.settings = { tableSuggestion: false }; save(DB); }
 // Cantidad de mesas por torneo (migración aditiva: torneos viejos arrancan con 4 mesas).
 DB.tournaments.forEach(t => { if (t.tableCount == null) t.tableCount = 4; });
+// Colaboradores + inscripción a nivel torneo + override por categoría (migración aditiva).
+DB.tournaments.forEach(t => {
+  if (!Array.isArray(t.collaborators)) t.collaborators = [];
+  if (typeof t.enrollClosed !== 'boolean') t.enrollClosed = false;
+  t.categorias.forEach(c => {
+    if (c.enrollOverride === undefined) c.enrollOverride = (c.enrollClosed === true) ? 'closed' : null;
+    delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
+  });
+});
 const gymById = id => (DB.gyms || []).find(g => g.id === id);
 const tableCountOf = t => (t && t.tableCount != null) ? t.tableCount : 4;
 
@@ -216,6 +225,10 @@ const tableCountOf = t => (t && t.tableCount != null) ? t.tableCount : 4;
 const currentUser = () => { try { return JSON.parse(sessionStorage.getItem('ttuser')); } catch (e) { return null; } };
 const setUser = u => u ? sessionStorage.setItem('ttuser', JSON.stringify(u)) : sessionStorage.removeItem('ttuser');
 const isAdmin = () => { const u = currentUser(); return u && u.role === 'admin'; };
+// Colaborador de un torneo: jugador designado por el admin con permisos de edición sobre ese torneo.
+const isCollaboratorOf = t => { const u = currentUser(); return !!(u && u.playerId && t && (t.collaborators || []).includes(u.playerId)); };
+const canEditT = t => isAdmin() || isCollaboratorOf(t);          // permisos operativos sobre un torneo
+const canEditCat = cat => canEditT(tById(cat && cat._tid));      // idem, a partir de una categoría (usa cat._tid)
 
 /* ---------------- helpers ---------------- */
 const $ = s => document.querySelector(s);
@@ -767,8 +780,15 @@ function tournFilter(inp) {
   const q = inp.value.toLowerCase();
   document.querySelectorAll('.tourn-old-card').forEach(c => { c.style.display = c.dataset.search.includes(q) ? '' : 'none'; });
 }
+function collaboratorChecksHtml(selected) {
+  const set = new Set(selected || []);
+  const list = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  if (!list.length) return '<div class="empty">No hay jugadores.</div>';
+  return list.map(p => `<label class="catchk"><input type="checkbox" class="collab-chk" value="${p.id}" ${set.has(p.id) ? 'checked' : ''}/>
+    <span>${esc(fullName(p))}</span><small class="muted">${p.category}</small></label>`).join('');
+}
 function tournamentForm() {
-  const checks = CATALOG.map(c => `<label class="catchk"><input type="checkbox" value="${c.name}"/>
+  const checks = CATALOG.map(c => `<label class="catchk"><input type="checkbox" class="cat-chk" value="${c.name}"/>
     <span>${c.name}</span><small class="muted">${ruleLabel(c.rule)}</small></label>`).join('');
   openModal(`<h3>Crear torneo</h3>
     <label>Nombre</label><input id="t_name" placeholder="Ej: Apertura 2026"/>
@@ -786,6 +806,9 @@ function tournamentForm() {
     <label>Categorías del torneo</label>
     <p class="hint" style="margin-top:0">Marcá las que se jueguen. Por defecto se crean en singles, al mejor de 5, 100 pts — editás formato/puntos por categoría después.</p>
     <div class="catgrid">${checks}</div>
+    <label>Colaboradores <span class="muted">(opcional)</span></label>
+    <p class="hint" style="margin-top:0">Jugadores que van a poder ayudar a gestionar este torneo (inscribir, cargar resultados, abrir/cerrar inscripciones).</p>
+    <div class="catgrid" style="max-height:30vh;overflow:auto">${collaboratorChecksHtml([])}</div>
     <div id="terr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:18px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveTournament()">Crear</button></div>`);
@@ -794,14 +817,36 @@ function saveTournament() {
   const name = $('#t_name').value.trim(), date = $('#t_date').value, dateEnd = $('#t_dateEnd').value || date, e = $('#terr');
   if (!name || !date) { e.hidden = false; e.textContent = 'Nombre y fecha de inicio obligatorios.'; return; }
   if (dateEnd < date) { e.hidden = false; e.textContent = 'La fecha de fin no puede ser anterior al inicio.'; return; }
-  const picked = [...$('#modalCard').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+  const picked = [...$('#modalCard').querySelectorAll('.cat-chk:checked')].map(c => c.value);
   if (!picked.length) { e.hidden = false; e.textContent = 'Elegí al menos una categoría.'; return; }
-  const categorias = picked.map(nm => ({ id: uid('c_'), name: nm, format: 'single', rule: catalogRule(nm), rules: { sets: 5, groupMin: 3, groupMax: 4 }, championPoints: 100, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false }));
+  const categorias = picked.map(nm => ({ id: uid('c_'), name: nm, format: 'single', rule: catalogRule(nm), rules: { sets: 5, groupMin: 3, groupMax: 4 }, championPoints: 100, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null }));
   const tableCount = Math.max(1, parseInt($('#t_tables').value, 10) || 1);
-  DB.tournaments.push({ id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, categorias });
+  const collaborators = [...$('#modalCard').querySelectorAll('.collab-chk:checked')].map(c => c.value);
+  DB.tournaments.push({ id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, enrollClosed: false, categorias });
   save(DB); closeModal(); view = 'torneos'; render();
 }
 function delTournament(id) { if (confirm('¿Eliminar torneo?')) { DB.tournaments = DB.tournaments.filter(t => t.id !== id); save(DB); render(); } }
+
+/* ----- colaboradores del torneo (admin) ----- */
+function collaboratorsModal(tid) {
+  const t = tById(tid); if (!t) return;
+  openModal(`<h3>Colaboradores — ${esc(t.name)}</h3>
+    <p class="hint" style="margin-top:0">Pueden editar este torneo: inscribir jugadores, cargar resultados, abrir/cerrar inscripciones, armar grupos y la llave.</p>
+    <div class="catgrid" style="max-height:50vh;overflow:auto">${collaboratorChecksHtml(t.collaborators)}</div>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCollaborators('${tid}')">Guardar</button></div>`);
+}
+function saveCollaborators(tid) {
+  const t = tById(tid); if (!t) return;
+  t.collaborators = [...$('#modalCard').querySelectorAll('.collab-chk:checked')].map(c => c.value);
+  save(DB); closeModal(); render();
+}
+
+/* ----- inscripción a nivel torneo ----- */
+function toggleTournamentEnroll(tid) {
+  const t = tById(tid); if (!t || !canEditT(t)) return;
+  t.enrollClosed = !t.enrollClosed; save(DB); render();
+}
 
 /* ----- mesas del torneo (editable incluso en juego) ----- */
 function editTablesModal(tid) {
@@ -823,7 +868,7 @@ function saveTables(tid) {
 function tableControl(cat, kind, gidx, r, m, mm) {
   const t = tById(cat._tid), max = tableCountOf(t);
   const cur = mm && mm.table != null ? mm.table : '';
-  if (!isAdmin()) return cur ? `<span class="mesa-badge">🏓 Mesa ${cur}</span>` : '';
+  if (!canEditCat(cat)) return cur ? `<span class="mesa-badge">🏓 Mesa ${cur}</span>` : '';
   const top = Math.max(max, cur || 0);
   let opts = `<option value="">🏓 Mesa…</option>`;
   for (let i = 1; i <= top; i++) opts += `<option value="${i}" ${cur === i ? 'selected' : ''}>Mesa ${i}</option>`;
@@ -841,13 +886,15 @@ function setMatchTable(tid, cid, kind, gidx, r, m, val) {
 function renderTournament(app, tid) {
   const t = tById(tid); if (!t) { app.innerHTML = '<div class="empty">No encontrado.</div>'; return; }
   const cards = t.categorias.map(c => {
+    c._tid = t.id;
     const champ = c.bracket ? brWinner(c, c.bracket.length - 1, 0) : null;
+    const st = c.closed ? '✅ Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : enrollmentStatus(c).label;
     return `<div class="card"><div class="row spread"><h3 style="margin:0">${esc(c.name)}</h3></div>
       <div class="tags"><span class="tag">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
         <span class="tag">📋 ${ruleLabel(c.rule)}</span>
         <span class="tag">Al mejor de ${c.rules.sets}</span><span class="tag">🥇 ${c.championPoints} pts</span>
         <span class="tag">${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jugadores'}</span>
-        <span class="tag">${c.closed ? '✅ Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : c.enrollClosed ? '🔴 Inscripción cerrada' : '🟢 Inscripción abierta'}</span></div>
+        <span class="tag">${st}</span></div>
       ${champ && champ !== 'BYE' ? `<div class="champ" style="margin-top:10px">🏆 ${esc(entName(c, champ))}</div>` : ''}
       <div class="row" style="margin-top:12px"><button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
         ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delCategoria('${t.id}','${c.id}')">🗑️</button>` : ''}</div></div>`;
@@ -861,12 +908,19 @@ function renderTournament(app, tid) {
           <span class="live-players">${esc(L.a)} <span class="muted">vs</span> ${esc(L.b)}</span>
           <span class="live-cat">${esc(L.catName)} · ${esc(L.phase)}</span></div>`).join('') + `</div>`
       : `<div class="empty">No hay partidos en juego ahora. Cuando le asignes una mesa a un partido, aparece acá como “en vivo”.</div>`);
+  const tEnrollOpen = tournamentEnrollOpen(t);
+  const collabNames = (t.collaborators || []).map(id => { const p = playerById(id); return p ? fullName(p) : null; }).filter(Boolean);
+  const collabBanner = (!isAdmin() && isCollaboratorOf(t)) ? `<div class="banner ok" style="margin:8px 0 0">🤝 Sos colaborador de este torneo: podés inscribir jugadores, cargar resultados y abrir/cerrar inscripciones.</div>` : '';
   app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(t.name)}</h1></div>
     <div class="tags"><span class="tag">📅 ${dateRangeLabel(t)}</span>${gym ? `<span class="tag">🏟️ ${esc(gym.name)}</span>` : ''}
       <span class="tag">🏓 ${tableCountOf(t)} mesa${tableCountOf(t) === 1 ? '' : 's'}</span>
       ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">✏️ Editar mesas</button>` : ''}</div>
     ${gym ? `<p class="page-sub" style="margin:8px 0 0">📍 ${esc(gym.address)} ${gym.address ? `<a class="maplink" href="${mapsDirUrl(gym.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>` : ''}</p>` : ''}
+    ${collabBanner}
+    <div class="tags" style="margin-top:12px"><span class="tag ${tEnrollOpen ? 'tag-open' : 'tag-closed'}">${tEnrollOpen ? '🟢 Inscripción del torneo abierta' : '🔴 Inscripción del torneo cerrada'}</span>
+      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción del torneo' : '🔓 Abrir inscripción del torneo'}</button>` : ''}</div>
+    ${(collabNames.length || isAdmin()) ? `<p class="page-sub" style="margin:10px 0 0">🤝 Colaboradores: ${collabNames.length ? collabNames.map(esc).join(', ') : '<span class="muted">ninguno</span>'} ${isAdmin() ? `<a class="maplink" onclick="collaboratorsModal('${t.id}')">✏️ Editar</a>` : ''}</p>` : ''}
     ${liveHtml}
     <div class="section-head"><h2>Categorías (sub-torneos)</h2>${isAdmin() ? `<button class="btn btn-primary" onclick="categoriaForm('${t.id}')">➕ Crear categoría</button>` : ''}</div>
     <div class="cards">${cards || '<div class="empty">Sin categorías. Creá una.</div>'}</div>`;
@@ -892,7 +946,7 @@ function saveCategoria(tid) {
   const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
   const e = $('#cerr');
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
-  t.categorias.push({ id: uid('c_'), name, format: $('#c_fmt').value, rule: catalogRule(name), rules: { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints: parseInt($('#c_pts').value, 10) || 0, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false });
+  t.categorias.push({ id: uid('c_'), name, format: $('#c_fmt').value, rule: catalogRule(name), rules: { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints: parseInt($('#c_pts').value, 10) || 0, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
   save(DB); closeModal(); render();
 }
 function delCategoria(tid, cid) { const t = tById(tid); if (confirm('¿Eliminar categoría?')) { t.categorias = t.categorias.filter(c => c.id !== cid); save(DB); render(); } }
@@ -927,13 +981,14 @@ function renderCategoria(app, tid, cid) {
       <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
       <span class="tag ${enr.open ? 'tag-open' : 'tag-closed'}">${enr.label}</span></div>`;
 
-  if (isAdmin()) {
+  if (canEditCat(cat)) {
     const finalDone = cat.bracket && brWinner(cat, cat.bracket.length - 1, 0);
     const thirdReady = !cat.thirdPlace || matchDone(cat.thirdPlace, cat);
     const canToggle = !cat.groups && !cat.closed;
     html += `<div class="row" style="margin:16px 0">
       <button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>
-      ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${cat.enrollClosed ? '🔓 Reabrir inscripción' : '🔒 Cerrar inscripción'}</button>` : ''}
+      ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
+      ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
       <button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>
       ${cat.groups ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
       ${finalDone && thirdReady && !cat.closed ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>` : ''}
@@ -953,27 +1008,35 @@ function renderCategoria(app, tid, cid) {
     html += `<div class="groups">` + cat.groups.map((g, i) => groupCardHtml(cat, i)).join('') + `</div>`;
     html += `<div class="section-head"><h2>🏆 Llave final</h2></div>`;
     if (cat.bracket) html += bracketHtml(cat);
-    else html += `<div class="empty">Clasifican los 2 primeros de cada grupo.${groupStageComplete(cat) ? (isAdmin() ? ' Tocá “Generar llave”.' : '') : ' Cargá todos los resultados de grupos.'}</div>`;
+    else html += `<div class="empty">Clasifican los 2 primeros de cada grupo.${groupStageComplete(cat) ? (canEditCat(cat) ? ' Tocá “Generar llave”.' : '') : ' Cargá todos los resultados de grupos.'}</div>`;
   } else {
-    html += `<div class="empty">Grupos sin armar.${isAdmin() ? ' Anotá y tocá “Armar grupos”.' : ''}</div>`;
+    html += `<div class="empty">Grupos sin armar.${canEditCat(cat) ? ' Anotá y tocá “Armar grupos”.' : ''}</div>`;
   }
   app.innerHTML = html;
 }
 
-/* ----- estado de inscripción ----- */
-// Abierta mientras no haya empezado (no hay grupos armados), no esté finalizada, y el admin no la haya cerrado.
-const enrollmentOpen = cat => !cat.groups && !cat.closed && !cat.enrollClosed;
+/* ----- estado de inscripción (torneo + override por categoría) ----- */
+const tournamentEnrollOpen = t => !!t && !t.enrollClosed;
+// La inscripción de una categoría depende del torneo, salvo que la categoría tenga un override propio.
 function enrollmentStatus(cat) {
   if (cat.closed) return { open: false, label: '🏁 Categoría finalizada' };
   if (cat.groups) return { open: false, label: '🔴 Inscripción cerrada (partidos en curso)' };
-  if (cat.enrollClosed) return { open: false, label: '🔴 Inscripción cerrada por el admin' };
-  return { open: true, label: '🟢 Inscripción abierta' };
+  if (cat.enrollOverride === 'open') return { open: true, label: '🟢 Inscripción abierta (categoría)' };
+  if (cat.enrollOverride === 'closed') return { open: false, label: '🔴 Inscripción cerrada (categoría)' };
+  const t = tById(cat._tid);
+  return tournamentEnrollOpen(t)
+    ? { open: true, label: '🟢 Inscripción abierta' }
+    : { open: false, label: '🔴 Inscripción cerrada (torneo)' };
 }
+const enrollmentOpen = cat => enrollmentStatus(cat).open;
+// Toggle a nivel categoría: fija un override opuesto al estado efectivo actual.
 function toggleEnroll(tid, cid) {
-  const cat = getCat(tid, cid);
+  const cat = getCat(tid, cid); cat._tid = tid;
   if (cat.groups || cat.closed) { alert('No aplica: los partidos ya empezaron o la categoría está finalizada.'); return; }
-  cat.enrollClosed = !cat.enrollClosed; save(DB); render();
+  cat.enrollOverride = enrollmentStatus(cat).open ? 'closed' : 'open'; save(DB); render();
 }
+// Vuelve a que la categoría herede la inscripción del torneo.
+function resetEnrollOverride(tid, cid) { const cat = getCat(tid, cid); cat._tid = tid; cat.enrollOverride = null; save(DB); render(); }
 
 /* ----- enroll ----- */
 function enrollModal(tid, cid) {
@@ -1035,7 +1098,7 @@ function resetCat(cat) { cat.groups = null; cat.matches = null; cat.bracket = nu
 
 /* ----- autoinscripción (jugadores) ----- */
 function selfEnrollModal(tid, cid) {
-  const cat = getCat(tid, cid);
+  const cat = getCat(tid, cid); cat._tid = tid;
   if (!enrollmentOpen(cat)) { alert('La inscripción no está abierta.'); return; }
   const u = currentUser(), me = u && u.playerId ? playerById(u.playerId) : null;
   if (me && me.pending) { openModal(`<h3>Anotarme — ${esc(cat.name)}</h3><div class="banner">⏳ Tu cuenta está pendiente de aprobación por el admin. Cuando te aprueben vas a poder anotarte.</div><div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`); return; }
@@ -1068,7 +1131,7 @@ function selfEnrollModal(tid, cid) {
     <div class="row spread" style="margin-top:16px">${close}<button class="btn btn-primary" onclick="saveSelfEnroll('${tid}','${cid}')">Anotarme</button></div>`);
 }
 function saveSelfEnroll(tid, cid) {
-  const cat = getCat(tid, cid), e = $('#seerr');
+  const cat = getCat(tid, cid), e = $('#seerr'); cat._tid = tid;
   if (!enrollmentOpen(cat)) { if (e) { e.hidden = false; e.textContent = 'La inscripción se cerró.'; } return; }
   const u = currentUser(), me = u && u.playerId ? u.playerId : null;
   const a = me || ($('#se_a') ? $('#se_a').value : '');
@@ -1129,7 +1192,7 @@ function groupCardHtml(cat, gi) {
     return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${esc(entName(cat, m.a))}</span>
       <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>
       <span class="${w === 'b' ? 'win' : ''}">${esc(entName(cat, m.b))}</span>
-      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="resultModal('${cat._tid}','${cat.id}','group',${idx},null,null)">${done ? '✏️' : 'Cargar'}</button>` : ''}
+      ${canEditCat(cat) ? `<button class="btn btn-ghost btn-sm" onclick="resultModal('${cat._tid}','${cat.id}','group',${idx},null,null)">${done ? '✏️' : 'Cargar'}</button>` : ''}
       ${mesa ? `<div class="bmatch-mesa">${mesa}</div>` : ''}</div>`;
   }).join('');
   return `<div class="group-card"><h4>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</h4><ul>${rows}</ul><div class="matches">${ms}</div></div>`;
@@ -1166,7 +1229,7 @@ function bracketHtml(cat) {
   const slot = (id, w, sc) => `<div class="br-slot ${w ? 'win' : ''}">${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? esc(entName(cat, id)) : '<i class="muted">—</i>'}<span class="br-s">${sc}</span></div>`;
   const cols = cat.bracket.map((round, r) => `<div class="br-col"><div class="br-rtitle">${rname(r)}</div>` +
     round.map((mm, m) => { const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b'), res = matchResult(mm), w = brWinner(cat, r, m), done = matchDone(mm, cat);
-      const can = isAdmin() && a && b && a !== 'BYE' && b !== 'BYE';
+      const can = canEditCat(cat) && a && b && a !== 'BYE' && b !== 'BYE';
       const mesa = (a && b && a !== 'BYE' && b !== 'BYE' && !done) ? tableControl(cat, 'bracket', null, r, m, mm) : '';
       return `<div class="br-match">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
@@ -1175,7 +1238,7 @@ function bracketHtml(cat) {
   let extra = '';
   if (cat.thirdPlace) {
     const a = semiLoser(cat, 0), b = semiLoser(cat, 1), res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
-    const can = isAdmin() && a && b && a !== 'BYE' && b !== 'BYE';
+    const can = canEditCat(cat) && a && b && a !== 'BYE' && b !== 'BYE';
     const mesa = (a && b && a !== 'BYE' && b !== 'BYE' && !done) ? tableControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
     extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">
       ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
@@ -1258,7 +1321,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride });
 
 migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
 migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)
