@@ -328,6 +328,18 @@ function render() {
   if (view.startsWith('cat:')) { const [, tid, cid] = view.split(':'); return renderCategoria(app, tid, cid); }
 }
 
+/* ---------- campo de localidad (con opción "Otra" de texto libre) ---------- */
+function cityFieldHtml(sel, current) {
+  const known = CITIES.includes(current), other = (!known && current) ? current : '';
+  const opts = CITIES.map(c => `<option ${c === current ? 'selected' : ''}>${c}</option>`).join('')
+    + `<option value="Otra" ${other ? 'selected' : ''}>Otra…</option>`;
+  return `<select id="${sel}" onchange="toggleCityOther('${sel}')">${opts}</select>
+    <div id="${sel}_otherwrap" ${other ? '' : 'hidden'} style="margin-top:6px">
+      <input id="${sel}_other" maxlength="100" placeholder="Escribí tu localidad (máx. 100)" value="${esc(other)}"/></div>`;
+}
+function toggleCityOther(sel) { const w = $('#' + sel + '_otherwrap'); if (w) w.hidden = ($('#' + sel).value !== 'Otra'); }
+function readCityField(sel) { const v = $('#' + sel).value; return v === 'Otra' ? (($('#' + sel + '_other').value || '').trim().slice(0, 100)) : v; }
+
 /* ---------- login / registro ---------- */
 function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
@@ -372,7 +384,7 @@ function renderRegister(app) {
       <div class="grid2">
         <div><label>Nombre</label><input id="r_first"/></div>
         <div><label>Apellido</label><input id="r_last"/></div>
-        <div><label>Localidad</label><select id="r_city">${CITIES.map(c => `<option>${c}</option>`).join('')}</select></div>
+        <div><label>Localidad</label>${cityFieldHtml('r_city', '')}</div>
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
       </div>
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
@@ -403,8 +415,10 @@ async function doRegister() {
   if (!cred) return fail(FB() ? 'Escribí tu email.' : 'Elegí un nombre de usuario.');
   if (!pw1) return fail('Escribí una contraseña.');
   if (pw1 !== pw2) return fail('Las contraseñas no coinciden.');
+  const city = readCityField('r_city');
+  if (!city) return fail('Indicá tu localidad.');
   const photo = window.__rphoto ? window.__rphoto() : null;
-  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city: $('#r_city').value, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
   if (FB()) {
     window.__registering = true;
     try {
@@ -540,7 +554,7 @@ function renderProfile(app) {
       <div class="grid2">
         <div><label>Nombre</label><input id="pf_first" value="${esc(p.firstName)}"/></div>
         <div><label>Apellido</label><input id="pf_last" value="${esc(p.lastName)}"/></div>
-        <div><label>Localidad</label><select id="pf_city">${CITIES.map(c => `<option ${c === p.city ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+        <div><label>Localidad</label>${cityFieldHtml('pf_city', p.city)}</div>
         <div><label>Fecha de nacimiento</label><input id="pf_dob" type="date" value="${p.dob || ''}"/></div>
       </div>
       <label>Foto</label><input id="pf_photo" type="file" accept="image/*"/>
@@ -562,7 +576,7 @@ function saveProfile() {
   const u = currentUser(), p = playerById(u.playerId), e = $('#pf_err');
   const first = $('#pf_first').value.trim(), last = $('#pf_last').value.trim();
   if (!first || !last) { e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
-  p.firstName = first; p.lastName = last; p.city = $('#pf_city').value; p.dob = $('#pf_dob').value || null;
+  p.firstName = first; p.lastName = last; p.city = readCityField('pf_city') || p.city; p.dob = $('#pf_dob').value || null;
   p.photo = window.__pfphoto ? window.__pfphoto() : p.photo;
   const acc = DB.users.find(x => x.playerId === p.id); if (acc) acc.name = fullName(p);
   setUser({ ...u, name: fullName(p) });
@@ -605,7 +619,7 @@ function playerForm(id) {
     <div class="grid2">
       <div><label>Nombre</label><input id="f_first" value="${esc(p.firstName)}"/></div>
       <div><label>Apellido</label><input id="f_last" value="${esc(p.lastName)}"/></div>
-      <div><label>Localidad</label><select id="f_city">${CITIES.map(c => `<option ${c === p.city ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+      <div><label>Localidad</label>${cityFieldHtml('f_city', p.city)}</div>
       <div><label>Puntos</label><input id="f_pts" type="number" min="0" value="${p.points}"/></div>
       <div><label>Fecha de nacimiento</label><input id="f_dob" type="date" value="${p.dob || ''}"/></div>
     </div>
@@ -620,7 +634,7 @@ function playerForm(id) {
 function savePlayer(id) {
   const first = $('#f_first').value.trim(), last = $('#f_last').value.trim();
   if (!first || !last) { const e = $('#ferr'); e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
-  const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: $('#f_city').value, points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
+  const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: readCityField('f_city'), points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
   let target;
   if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), ...data }; DB.players.push(target); }
   syncCategory(target);  // categoría derivada de los puntos
@@ -647,13 +661,19 @@ function renderApprovals(app) {
   const pend = DB.players.filter(p => p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const rows = pend.map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
     <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}</div></div>
+    <label class="ap-pts">Puntaje inicial<input id="ap_${p.id}" type="number" min="0" value="${p.points}"/></label>
     <button class="btn btn-primary btn-sm" onclick="approvePlayer('${p.id}')">✅ Aprobar</button>
     <button class="btn btn-ghost btn-sm" onclick="rejectPlayer('${p.id}')">🗑️ Rechazar</button></div>`; }).join('');
   app.innerHTML = `<div class="page-title"><h1>🙋 Altas de jugadores</h1></div>
-    <p class="page-sub">Jugadores que se registraron por su cuenta y esperan tu aprobación para aparecer en el ranking y poder competir.</p>
+    <p class="page-sub">Jugadores que se registraron por su cuenta y esperan tu aprobación. Ajustá el <b>puntaje inicial</b> según su nivel antes de aprobar (la categoría se calcula sola).</p>
     ${rows || '<div class="empty">No hay solicitudes pendientes. 🎉</div>'}`;
 }
-function approvePlayer(id) { const p = playerById(id); if (!p) return; delete p.pending; syncCategory(p); save(DB); render(); }
+function approvePlayer(id) {
+  const p = playerById(id); if (!p) return;
+  const inp = document.querySelector('#ap_' + id);
+  if (inp) { const v = parseInt(inp.value, 10); if (!isNaN(v) && v >= 0) p.points = v; }
+  delete p.pending; syncCategory(p); save(DB); render();
+}
 function rejectPlayer(id) {
   const p = playerById(id); if (!p || !confirm(`¿Rechazar la solicitud de ${fullName(p)}? Se elimina el jugador y su cuenta.`)) return;
   DB.players = DB.players.filter(x => x.id !== id);
@@ -1192,16 +1212,22 @@ function enrollModal(tid, cid) {
   const opts = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => {
     const checked = cat.entrants.some(e => e.players[0] === p.id);
     const el = eligible(cat, p), age = ageFromDob(p.dob);
-    return `<label class="enrow ${el.ok ? '' : 'no'}" style="display:flex;align-items:center;gap:10px;font-weight:500;margin:6px 0">
+    return `<label class="enrow ${el.ok ? '' : 'no'}" data-name="${esc(fullName(p) + ' ' + p.city).toLowerCase()}" style="display:flex;align-items:center;gap:10px;font-weight:500;margin:6px 0">
       <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''} ${el.ok ? '' : 'disabled'} style="width:auto"/>
       <span>${esc(fullName(p))} <span class="muted" style="font-size:12px">· ${p.category}${age != null ? ` · ${age}a` : ''} · ${esc(p.city)}</span>
       ${el.ok ? '' : `<br><small style="color:#b42318">⛔ ${esc(el.reason)}</small>`}</span></label>`;
   }).join('');
   openModal(`<h3>Anotar jugadores — ${esc(cat.name)}</h3>
     <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b></p>
-    <div style="max-height:46vh;overflow:auto">${opts || '<div class="empty">No hay jugadores.</div>'}</div>
+    <input class="enroll-search" placeholder="🔍 Buscar jugador por nombre o localidad…" oninput="enrollFilter(this)"/>
+    <div id="enrollList" style="max-height:46vh;overflow:auto">${opts || '<div class="empty">No hay jugadores.</div>'}</div>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveEnrollSingles('${tid}','${cid}')">Guardar</button></div>`);
+  const s = $('.enroll-search'); if (s) s.focus();
+}
+function enrollFilter(inp) {
+  const q = inp.value.toLowerCase();
+  document.querySelectorAll('#enrollList .enrow').forEach(el => { el.style.display = el.dataset.name.includes(q) ? '' : 'none'; });
 }
 function saveEnrollSingles(tid, cid) {
   const cat = getCat(tid, cid);
@@ -1468,7 +1494,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {

@@ -11,7 +11,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn();
       // Al registrarse, cada uno crea su propio perfil pero NO puede nacer admin.
-      allow create: if request.auth.uid == uid && request.resource.data.role == 'player';
+      // El admin sí puede crear perfiles de otros (p. ej. designar otro admin).
+      allow create: if isAdmin() || (request.auth.uid == uid && request.resource.data.role == 'player');
       // Uno puede editar su propio perfil sin tocar rol ni jugador vinculado; el admin puede todo.
       allow update: if isAdmin() ||
         (request.auth.uid == uid

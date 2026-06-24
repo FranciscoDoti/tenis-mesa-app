@@ -42,6 +42,9 @@ body{
 .nav-btn.active{background:var(--ball); color:#3a1a00}
 .navcount{display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#e5484d; color:#fff; font-size:11px; font-weight:800; margin-left:2px}
 .you-tag{background:var(--ball); color:#3a1a00; font-size:10px; font-weight:800; padding:1px 7px; border-radius:999px; margin-left:6px; vertical-align:middle}
+.enroll-search{margin:0 0 10px}
+.ap-pts{display:flex; flex-direction:column; gap:2px; font-size:11px; color:var(--muted); font-weight:600; flex:0 0 auto; margin:0}
+.ap-pts input{width:84px; padding:6px 8px; font-size:14px}
 .user-area{margin-left:auto; display:flex; align-items:center; gap:10px; font-size:14px}
 .chip{background:rgba(255,255,255,.15); padding:5px 12px; border-radius:999px; font-weight:600}
 .chip.admin{background:var(--ball); color:#3a1a00}
