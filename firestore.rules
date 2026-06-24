@@ -10,8 +10,14 @@ service cloud.firestore {
     // Perfiles de cuenta (rol + jugador vinculado). El uid del doc = uid de Firebase Auth.
     match /users/{uid} {
       allow read: if signedIn();
-      allow create: if request.auth.uid == uid;                 // cada uno crea su propio perfil al registrarse
-      allow update, delete: if isAdmin() || request.auth.uid == uid;
+      // Al registrarse, cada uno crea su propio perfil pero NO puede nacer admin.
+      allow create: if request.auth.uid == uid && request.resource.data.role == 'player';
+      // Uno puede editar su propio perfil sin tocar rol ni jugador vinculado; el admin puede todo.
+      allow update: if isAdmin() ||
+        (request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.playerId == resource.data.playerId);
+      allow delete: if isAdmin();
     }
 
     // Jugadores: lectura para usuarios logueados; escritura admin o el propio jugador (su perfil).
