@@ -279,6 +279,7 @@ let histA = null, histB = null, histOpen = null; // historial head-to-head
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(['1ra']); // qué categorías del ranking están desplegadas (1ra por defecto)
 let tournSearch = ''; // texto del buscador de torneos antiguos
+let authMode = 'login'; // 'login' | 'register' en la pantalla inicial
 
 function renderChrome() {
   const u = currentUser();
@@ -305,14 +306,17 @@ function render() {
   if (view.startsWith('cat:')) { const [, tid, cid] = view.split(':'); return renderCategoria(app, tid, cid); }
 }
 
-/* ---------- login ---------- */
+/* ---------- login / registro ---------- */
 function renderLogin(app) {
+  if (authMode === 'register') return renderRegister(app);
   app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><h1>Tenis de Mesa</h1>
     <p class="page-sub">Dina Huapi &amp; Bariloche</p>
     <div class="card" style="text-align:left">
       <label>Usuario</label><input id="lu"/><label>Contraseña</label><input id="lp" type="password"/>
       <div id="lerr" class="banner" hidden></div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="doLogin()">Ingresar</button>
+      <div class="auth-sep"><span>¿Sos nuevo en el club?</span></div>
+      <button class="btn btn-accent" style="width:100%" onclick="setAuthMode('register')">🆕 Crear mi cuenta de jugador</button>
       <p class="hint">👑 <b>admin</b>/<b>admin</b> · 🎾 <b>jugador</b>/<b>jugador</b></p>
     </div></div>`;
   $('#lp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -322,7 +326,54 @@ function doLogin() {
   if (!f) { const e = $('#lerr'); e.hidden = false; e.textContent = 'Usuario o contraseña incorrectos.'; return; }
   setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null }); view = 'ranking'; render();
 }
-function logout() { setUser(null); render(); }
+function setAuthMode(m) { authMode = m; render(); }
+function renderRegister(app) {
+  app.innerHTML = `<div class="login-wrap register-wrap"><div class="big-logo">🏓</div><h1>Crear cuenta</h1>
+    <p class="page-sub">Registrate como jugador y empezá a anotarte a los torneos</p>
+    <div class="card" style="text-align:left">
+      <div class="grid2">
+        <div><label>Nombre</label><input id="r_first"/></div>
+        <div><label>Apellido</label><input id="r_last"/></div>
+        <div><label>Localidad</label><select id="r_city">${CITIES.map(c => `<option>${c}</option>`).join('')}</select></div>
+        <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
+      </div>
+      <label>Usuario</label><input id="r_user" placeholder="con el que vas a ingresar"/>
+      <div class="grid2">
+        <div><label>Contraseña</label><input id="r_pw1" type="password"/></div>
+        <div><label>Repetir contraseña</label><input id="r_pw2" type="password"/></div>
+      </div>
+      <label>Foto <span class="muted">(opcional)</span></label><input id="r_photo" type="file" accept="image/*"/>
+      <div id="r_err" class="banner" hidden></div>
+      <p class="hint" style="margin-top:10px">Arrancás en 4ta con ${NEW_PLAYER_POINTS} puntos. Tu categoría sube o baja según los puntos que ganes.</p>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doRegister()">Crear cuenta e ingresar</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="setAuthMode('login')">← Volver al ingreso</button>
+    </div></div>`;
+  // sugerir usuario a partir del nombre, mientras el jugador no lo edite a mano
+  const suggest = () => { const u = $('#r_user'); if (!u.dataset.touched) u.value = usernameFor({ firstName: $('#r_first').value, lastName: $('#r_last').value }); };
+  $('#r_first').addEventListener('input', suggest);
+  $('#r_last').addEventListener('input', suggest);
+  $('#r_user').addEventListener('input', e => { e.target.dataset.touched = '1'; });
+  $('#r_pw2').addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
+  let photo = null; $('#r_photo').addEventListener('change', e => readPhoto(e.target.files[0], d => { photo = d; })); window.__rphoto = () => photo;
+}
+function doRegister() {
+  const e = $('#r_err'), fail = msg => { e.hidden = false; e.textContent = msg; };
+  const first = $('#r_first').value.trim(), last = $('#r_last').value.trim();
+  const user = $('#r_user').value.trim().toLowerCase();
+  const pw1 = $('#r_pw1').value, pw2 = $('#r_pw2').value;
+  if (!first || !last) return fail('Nombre y apellido son obligatorios.');
+  if (!user) return fail('Elegí un nombre de usuario.');
+  if ((DB.users || []).some(u => (u.username || '').toLowerCase() === user)) return fail('Ese usuario ya existe, probá con otro.');
+  if (!pw1) return fail('Escribí una contraseña.');
+  if (pw1 !== pw2) return fail('Las contraseñas no coinciden.');
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city: $('#r_city').value, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo: (window.__rphoto ? window.__rphoto() : null) };
+  DB.players.push(player);
+  DB.users.push({ username: user, password: pw1, role: 'player', name: fullName(player), playerId: player.id });
+  save(DB);
+  setUser({ username: user, role: 'player', name: fullName(player), playerId: player.id });
+  authMode = 'login'; view = 'perfil'; render();
+}
+function logout() { setUser(null); authMode = 'login'; render(); }
 
 /* ---------- ranking ---------- */
 function renderRanking(app) {
@@ -1161,7 +1212,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister });
 
 migrateInitialPoints();        // migración: puntos iniciales (una sola vez)
 migrateSeedData();             // migración: jugadores de prueba + fotos servidas (una sola vez)
