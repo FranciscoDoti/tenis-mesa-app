@@ -898,6 +898,22 @@ function saveCategoria(tid) {
 function delCategoria(tid, cid) { const t = tById(tid); if (confirm('¿Eliminar categoría?')) { t.categorias = t.categorias.filter(c => c.id !== cid); save(DB); render(); } }
 
 /* ---------- categoría: inscripción, grupos, resultados, llave ---------- */
+// Lista de inscriptos de la categoría (visible para admin y jugadores).
+function entrantsListHtml(cat) {
+  if (!cat.entrants.length) return `<div class="empty">Todavía no hay ${cat.format === 'double' ? 'parejas' : 'jugadores'} inscriptos.</div>`;
+  const u = currentUser(), myId = u && u.playerId;
+  const list = cat.entrants.slice().sort((a, b) => entName(cat, a.id).localeCompare(entName(cat, b.id)));
+  return list.map((e, i) => {
+    const mine = myId && e.players.includes(myId);
+    const p = playerById(e.players[0]);
+    const sub = cat.format === 'double'
+      ? e.players.map(pid => { const pp = playerById(pid); return pp ? `${esc(fullName(pp))} (${pp.category})` : '?'; }).join(' + ')
+      : (p ? `${p.category} · 📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}` : '');
+    return `<div class="player-row"><span class="pos">${i + 1}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
+      <div class="meta"><div class="name">${esc(entName(cat, e.id))}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
+      <div class="sub">${sub}</div></div></div>`;
+  }).join('');
+}
 function renderCategoria(app, tid, cid) {
   const t = tById(tid), cat = getCat(tid, cid);
   if (!cat) { app.innerHTML = '<div class="empty">No encontrada.</div>'; return; }
@@ -929,6 +945,8 @@ function renderCategoria(app, tid, cid) {
       ? `<div class="row" style="margin:16px 0"><button class="btn btn-primary" onclick="selfEnrollModal('${tid}','${cid}')">📝 Anotarme</button></div>`
       : `<div class="banner" style="margin:16px 0">${enr.label}. No te podés anotar en este momento.</div>`;
   }
+
+  html += `<div class="section-head"><h2>📋 Inscriptos (${cat.entrants.length})</h2></div>` + entrantsListHtml(cat);
 
   html += `<div class="section-head"><h2>Fase de grupos</h2></div>`;
   if (cat.groups && cat.groups.length) {
