@@ -331,15 +331,21 @@ function cacheTheme(t) { try { localStorage.setItem(THEME_KEY, JSON.stringify(t)
 const cachedTheme = () => { try { const r = localStorage.getItem(THEME_KEY); return r ? Object.assign({}, DEFAULT_THEME, JSON.parse(r)) : null; } catch (e) { return null; } };
 // Pinta el tema cacheado lo antes posible (en el login, antes de autenticar). Si no hay cache, no hace nada.
 function applyCachedTheme() { const c = cachedTheme(); if (c) setThemeVars(c); }
+// Tema que se debe MOSTRAR ahora mismo (única fuente de verdad para colores, fuente y emoji):
+//  - en Apariencia, el borrador en edición;
+//  - si ya cargaron los datos reales, el guardado;
+//  - pre-login en modo Firebase (datos aún no cargados), el cacheado (o el guardado/defaults).
+function effectiveTheme() {
+  if (view === 'apariencia' && themeDraft) return themeOf();
+  if (!FB() || _loaded) return savedThemeOf();
+  return cachedTheme() || savedThemeOf();
+}
 function applyTheme() {
-  // En la pantalla de Apariencia se previsualiza el borrador; en el resto del sitio se ve el tema guardado.
+  const loaded = (!FB() || _loaded);
   const draftPreview = (view === 'apariencia' && themeDraft);
-  const loaded = (!FB() || _loaded); // ¿ya tenemos los datos reales (ajustes) en memoria?
-  // Pre-login en modo Firebase los ajustes todavía no cargaron: usamos el tema cacheado para no pisar el encabezado.
-  const t = draftPreview ? themeOf() : (loaded ? savedThemeOf() : (cachedTheme() || savedThemeOf()));
-  setThemeVars(t);
+  setThemeVars(effectiveTheme());
   // Cacheamos solo el tema real ya cargado (no el borrador, ni los defaults previos al login en modo Firebase).
-  if (!draftPreview && loaded) cacheTheme(t);
+  if (!draftPreview && loaded) cacheTheme(savedThemeOf());
 }
 
 let DB = { players: [], gyms: [], tournaments: [], users: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
@@ -505,7 +511,7 @@ function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
   if (authMode === 'forgot') return renderForgot(app);
   const fb = FB(), note = loginNote; loginNote = '';
-  app.innerHTML = `<div class="login-wrap"><div class="big-logo app-emoji">${esc(themeOf().emoji)}</div><h1>Tenis de Mesa</h1>
+  app.innerHTML = `<div class="login-wrap"><div class="big-logo app-emoji">${esc(effectiveTheme().emoji)}</div><h1>Tenis de Mesa</h1>
     <p class="page-sub">Dina Huapi &amp; Bariloche</p>
     <div class="card" style="text-align:left">
       ${note ? `<div class="banner ok">${esc(note)}</div>` : ''}
@@ -1925,6 +1931,14 @@ async function boot() {
     DB = load(); applyMigrations(); runDataMigrations(); save(DB); render(); return;
   }
   render(); // login / cargando mientras resuelve la sesión
+  // Traer el tema publicado SIN login para pintar la apariencia actual en la pantalla de inicio
+  // (no depende del cache por-dispositivo). Requiere la regla de lectura pública de app/settings;
+  // si falla o no está, se mantiene lo cacheado sin romper nada.
+  if (window.STORE.loadPublicSettings) {
+    window.STORE.loadPublicSettings().then(s => {
+      if (s && s.theme && !_loaded) { cacheTheme(Object.assign({}, DEFAULT_THEME, s.theme)); applyTheme(); render(); }
+    }).catch(() => {});
+  }
   window.STORE.onAuth(async (fbUser) => {
     if (window.__registering) return; // el alta maneja su propia sesión/render
     if (fbUser) {

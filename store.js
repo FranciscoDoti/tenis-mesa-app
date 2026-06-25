@@ -46,6 +46,14 @@
     };
   };
 
+  // Lee solo los ajustes (incluye el tema) — pensado para usar SIN login, p. ej. para pintar el
+  // tema publicado en la pantalla de inicio. Requiere que las reglas permitan leer app/settings
+  // públicamente; si no, devuelve null sin romper nada.
+  STORE.loadPublicSettings = async function () {
+    try { const d = await db.doc('app/settings').get(); return d.exists ? JSON.parse(d.data().j) : null; }
+    catch (e) { return null; }
+  };
+
   // Estado base para el diff (se llama tras loadAll y tras cada sync).
   let _last = { players: {}, gyms: {}, tournaments: {} };
   STORE.primeLast = function (data) {

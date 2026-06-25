@@ -36,9 +36,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Gimnasios y ajustes: solo admin escribe.
+    // Gimnasios: solo admin escribe.
     match /gyms/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
-    match /app/{doc}   { allow read: if signedIn(); allow write: if isAdmin(); }
+    // Ajustes (incluye el tema): lectura pública para poder pintar la apariencia publicada en
+    // la pantalla de inicio sin estar logueado. No hay datos sensibles (colores + toggles).
+    match /app/{doc}   { allow read: if true; allow write: if isAdmin(); }
 
     // Torneos: escribe el admin o un colaborador (su playerId está en collaborators).
     match /tournaments/{id} {
