@@ -298,6 +298,7 @@ let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(['1ra']); // qué categorías del ranking están desplegadas (1ra por defecto)
 let tournSearch = ''; // texto del buscador de torneos antiguos
 let authMode = 'login'; // 'login' | 'register' en la pantalla inicial
+let loginNote = '';     // aviso a mostrar en el login (ej. tras registrarse)
 
 function renderChrome() {
   const u = currentUser();
@@ -343,11 +344,12 @@ function readCityField(sel) { const v = $('#' + sel).value; return v === 'Otra' 
 /* ---------- login / registro ---------- */
 function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
-  const fb = FB();
+  const fb = FB(), note = loginNote; loginNote = '';
   app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><h1>Tenis de Mesa</h1>
     <p class="page-sub">Dina Huapi &amp; Bariloche</p>
     <div class="card" style="text-align:left">
-      <label>${fb ? 'Email' : 'Usuario'}</label><input id="lu" type="${fb ? 'email' : 'text'}" autocomplete="username"/>
+      ${note ? `<div class="banner ok">${esc(note)}</div>` : ''}
+      <label>${fb ? 'Email o usuario' : 'Usuario'}</label><input id="lu" type="text" autocomplete="username" placeholder="${fb ? 'tu@email.com o tu usuario' : ''}"/>
       <label>Contraseña</label><input id="lp" type="password" autocomplete="current-password"/>
       <div id="lerr" class="banner" hidden></div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="doLogin()">Ingresar</button>
@@ -361,8 +363,16 @@ function renderLogin(app) {
 async function doLogin() {
   const e = $('#lerr');
   if (FB()) {
-    try { await window.STORE.signIn($('#lu').value, $('#lp').value); view = 'ranking'; }
-    catch (err) { e.hidden = false; e.textContent = window.STORE.authMsg(err.code); }
+    let id = $('#lu').value.trim();
+    if (!id) { e.hidden = false; e.textContent = 'Escribí tu email o usuario.'; return; }
+    try {
+      if (!id.includes('@')) { // es un nombre de usuario → resolver a email
+        const map = await window.STORE.lookupUsername(id);
+        if (!map || !map.email) { e.hidden = false; e.textContent = 'No existe ese usuario.'; return; }
+        id = map.email;
+      }
+      await window.STORE.signIn(id, $('#lp').value); view = 'ranking';
+    } catch (err) { e.hidden = false; e.textContent = window.STORE.authMsg(err.code); }
     return;
   }
   const f = DB.users.find(x => x.username === $('#lu').value.trim() && x.password === $('#lp').value);
@@ -388,14 +398,15 @@ function renderRegister(app) {
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
       </div>
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
+      ${fb ? `<label>Usuario <span class="muted">(opcional, para ingresar sin el email)</span></label><input id="r_username" placeholder="ej: juanperez"/>` : ''}
       <div class="grid2">
         <div><label>Contraseña</label><input id="r_pw1" type="password"/></div>
         <div><label>Repetir contraseña</label><input id="r_pw2" type="password"/></div>
       </div>
       <label>Foto <span class="muted">(opcional)</span></label><input id="r_photo" type="file" accept="image/*"/>
       <div id="r_err" class="banner" hidden></div>
-      <p class="hint" style="margin-top:10px">Arrancás en 4ta con ${NEW_PLAYER_POINTS} puntos. Tu cuenta queda pendiente de aprobación del admin.</p>
-      <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doRegister()">Crear cuenta e ingresar</button>
+      <p class="hint" style="margin-top:10px">Arrancás en 4ta con ${NEW_PLAYER_POINTS} puntos. Te vamos a mandar un email para verificar tu cuenta, y queda pendiente de aprobación del admin.</p>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doRegister()">Crear cuenta</button>
       <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="setAuthMode('login')">← Volver al ingreso</button>
     </div></div>`;
   if (!fb) { // modo local: sugerir usuario desde el nombre
@@ -421,17 +432,21 @@ async function doRegister() {
   const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
   if (FB()) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cred)) return fail('Escribí un email válido (ej: nombre@gmail.com).');
+    const uname = ($('#r_username') && $('#r_username').value.trim().toLowerCase()) || '';
+    if (uname && !/^[a-z0-9._-]{3,20}$/.test(uname)) return fail('El usuario: 3 a 20 caracteres (letras, números, . _ -).');
+    if (uname) { const taken = await window.STORE.lookupUsername(uname); if (taken) return fail('Ese usuario ya está en uso, probá otro.'); }
     window.__registering = true;
     try {
       const c = await window.STORE.signUp(cred, pw1);
       const uidv = c.user.uid;
-      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false });
+      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false, username: uname || null });
       await window.STORE.setPlayer(player);
+      if (uname) { try { await window.STORE.setUsername(uname, { uid: uidv, email: cred }); } catch (e) {} }
       try { await window.STORE.sendVerification(); } catch (e) {}   // mail de verificación nativo
-      _session = { uid: uidv, email: cred, role: 'player', name: fullName(player), playerId: player.id, emailVerified: false };
-      _loaded = false; await ensureData();
-      profileNote = `📧 Te enviamos un email a ${cred} para verificar tu cuenta. Revisá tu casilla (y la carpeta de spam).`;
-      authMode = 'login'; view = 'perfil'; render();
+      await window.STORE.signOut();                                  // NO queda logueado: vuelve al login
+      _session = null; authMode = 'login'; view = 'ranking';
+      loginNote = `✅ ¡Cuenta creada! Te enviamos un email a ${cred} para verificarla (revisá spam). Después de verificar, ingresá.`;
+      render();
     } catch (err) { fail(window.STORE.authMsg(err.code)); }
     finally { window.__registering = false; }
     return;
@@ -666,7 +681,7 @@ function savePlayer(id) {
 function dropUserDoc(playerId) {
   const acc = (DB.users || []).find(u => u.playerId === playerId);
   DB.users = (DB.users || []).filter(u => u.playerId !== playerId);
-  if (FB() && acc && acc.uid) window.STORE.delUserDoc(acc.uid);
+  if (FB() && acc) { if (acc.uid) window.STORE.delUserDoc(acc.uid); if (acc.username) window.STORE.delUsername(acc.username); }
 }
 function delPlayer(id) {
   const p = playerById(id); if (!p || !confirm(`¿Eliminar a ${fullName(p)}?`)) return;

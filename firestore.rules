@@ -21,6 +21,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Índice usuario→email (lectura pública: se necesita para loguear por usuario sin estar logueado).
+    match /usernames/{uname} {
+      allow read: if true;
+      allow create: if isAdmin() || (signedIn() && request.resource.data.uid == request.auth.uid);
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
     // Jugadores: lectura para usuarios logueados; escritura admin o el propio jugador (su perfil).
     match /players/{id} {
       allow read: if signedIn();

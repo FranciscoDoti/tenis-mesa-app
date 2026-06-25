@@ -65,19 +65,24 @@
   };
 
   // ---- auth ----
+  const APP_URL = location.origin + location.pathname.replace(/[^/]*$/, ''); // base de la app (para volver al login)
   STORE.onAuth = cb => auth.onAuthStateChanged(cb);
   STORE.signIn = (email, pwd) => auth.signInWithEmailAndPassword(email.trim(), pwd);
   STORE.signUp = (email, pwd) => auth.createUserWithEmailAndPassword(email.trim(), pwd);
   STORE.signOut = () => auth.signOut();
-  STORE.resetPassword = email => auth.sendPasswordResetEmail(email.trim());
+  STORE.resetPassword = async email => { email = email.trim(); try { await auth.sendPasswordResetEmail(email, { url: APP_URL }); } catch (e) { await auth.sendPasswordResetEmail(email); } };
   STORE.updatePassword = pwd => auth.currentUser.updatePassword(pwd);
   STORE.uid = () => auth.currentUser && auth.currentUser.uid;
   STORE.setPlayer = p => db.collection('players').doc(p.id).set(docFor('players', p));
   STORE.getUserDoc = async uid => { const d = await db.doc('users/' + uid).get(); return d.exists ? { uid, ...d.data() } : null; };
   STORE.setUserDoc = (uid, data) => db.doc('users/' + uid).set(data, { merge: true });
   STORE.delUserDoc = uid => db.doc('users/' + uid).delete();
-  // verificación de email (nativa de Firebase: manda el mail y marca emailVerified)
-  STORE.sendVerification = () => { const u = auth.currentUser; return u ? u.sendEmailVerification() : Promise.reject(new Error('no-user')); };
+  // índice público usuario→email para poder loguear con nombre de usuario (estando deslogueado)
+  STORE.lookupUsername = async u => { try { const d = await db.doc('usernames/' + u.trim().toLowerCase()).get(); return d.exists ? d.data() : null; } catch (e) { return null; } };
+  STORE.setUsername = (u, data) => db.doc('usernames/' + u.trim().toLowerCase()).set(data);
+  STORE.delUsername = u => db.doc('usernames/' + u.trim().toLowerCase()).delete();
+  // verificación de email (nativa: manda el mail; al verificar redirige a la app/login)
+  STORE.sendVerification = async () => { const u = auth.currentUser; if (!u) throw new Error('no-user'); try { await u.sendEmailVerification({ url: APP_URL }); } catch (e) { await u.sendEmailVerification(); } };
   STORE.reloadUser = () => { const u = auth.currentUser; return u ? u.reload() : Promise.resolve(); };
   STORE.isEmailVerified = () => !!(auth.currentUser && auth.currentUser.emailVerified);
   // Errores de auth en español
