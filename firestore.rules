@@ -4,7 +4,8 @@ service cloud.firestore {
 
     function signedIn() { return request.auth != null; }
     function userData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function isAdmin() { return signedIn() && userData().role == 'admin'; }
+    // "admin" = admin de escuela; "superadmin" = administra toda la organización. Ambos pueden escribir.
+    function isAdmin() { return signedIn() && (userData().role == 'admin' || userData().role == 'superadmin'); }
     function myPlayerId() { return signedIn() ? userData().playerId : null; }
 
     // Perfiles de cuenta (rol + jugador vinculado). El uid del doc = uid de Firebase Auth.
