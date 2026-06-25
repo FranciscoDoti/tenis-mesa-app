@@ -335,6 +335,21 @@ function readPhoto(file, cb) {
   }; img.src = r.result; };
   r.readAsDataURL(file);
 }
+// Campo de foto con dos opciones: cámara (capture) y galería. En la compu ambos abren el explorador.
+function photoButtonsHtml(id) {
+  return `<div class="photo-pick">
+    <label class="btn btn-ghost btn-sm photo-btn">📷 Sacar foto<input id="${id}_cam" type="file" accept="image/*" capture="environment"></label>
+    <label class="btn btn-ghost btn-sm photo-btn">🖼️ Galería<input id="${id}" type="file" accept="image/*"></label>
+    <span id="${id}_note" class="muted" style="font-size:12px"></span>
+  </div>`;
+}
+// Conecta ambos inputs (cámara + galería) al mismo setter; muestra "foto cargada".
+function wirePhoto(id, set) {
+  const onPick = e => readPhoto(e.target.files[0], d => { if (d) { set(d); const n = $('#' + id + '_note'); if (n) n.textContent = '✓ Foto lista'; } });
+  const a = $('#' + id), b = $('#' + id + '_cam');
+  if (a) a.addEventListener('change', onPick);
+  if (b) b.addEventListener('change', onPick);
+}
 
 /* ================= VIEWS ================= */
 let view = 'ranking';
@@ -468,7 +483,7 @@ function renderRegister(app) {
         <div><label>Contraseña</label><input id="r_pw1" type="password"/></div>
         <div><label>Repetir contraseña</label><input id="r_pw2" type="password"/></div>
       </div>
-      <label>Foto <span class="muted">(opcional)</span></label><input id="r_photo" type="file" accept="image/*"/>
+      <label>Foto <span class="muted">(opcional)</span></label>${photoButtonsHtml('r_photo')}
       <div id="r_err" class="banner" hidden></div>
       <p class="hint" style="margin-top:10px">Arrancás en 4ta con ${NEW_PLAYER_POINTS} puntos. Te vamos a mandar un email para verificar tu cuenta, y queda pendiente de aprobación del admin.</p>
       <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="doRegister()">Crear cuenta</button>
@@ -481,7 +496,7 @@ function renderRegister(app) {
     $('#r_user').addEventListener('input', e => { e.target.dataset.touched = '1'; });
   }
   $('#r_pw2').addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
-  let photo = null; $('#r_photo').addEventListener('change', e => readPhoto(e.target.files[0], d => { photo = d; })); window.__rphoto = () => photo;
+  let photo = null; wirePhoto('r_photo', d => { photo = d; }); window.__rphoto = () => photo;
 }
 async function doRegister() {
   const e = $('#r_err'), fail = msg => { e.hidden = false; e.textContent = msg; };
@@ -643,7 +658,7 @@ function renderProfile(app) {
         <div><label>Localidad</label>${cityFieldHtml('pf_city', p.city)}</div>
         <div><label>Fecha de nacimiento</label><input id="pf_dob" type="date" value="${p.dob || ''}"/></div>
       </div>
-      <label>Foto</label><input id="pf_photo" type="file" accept="image/*"/>
+      <label>Foto</label>${photoButtonsHtml('pf_photo')}
       <div id="pf_err" class="banner" hidden></div>
       <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="saveProfile()">Guardar cambios</button></div>
     </div>
@@ -659,7 +674,7 @@ function renderProfile(app) {
            <div id="pf_pwerr" class="banner" hidden></div>
            <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="changePassword()">Cambiar contraseña</button></div>`}
     </div>`;
-  let photo = p.photo; $('#pf_photo').addEventListener('change', e => readPhoto(e.target.files[0], d => { photo = d || photo; }));
+  let photo = p.photo; wirePhoto('pf_photo', d => { photo = d; });
   window.__pfphoto = () => photo;
 }
 function saveProfile() {
@@ -736,11 +751,11 @@ function playerForm(id) {
       <div><label>Fecha de nacimiento</label><input id="f_dob" type="date" value="${p.dob || ''}"/></div>
     </div>
     <p class="hint">Categoría: <b>${levelFromPoints(p.points)}</b> — se calcula por puntos (>800 1ra · >600 2da · >300 3ra · resto 4ta). Nuevos arrancan con ${NEW_PLAYER_POINTS}.${id && ageFromDob(p.dob) != null ? ` · Edad: <b>${ageFromDob(p.dob)} años</b>` : ''}</p>
-    <label>Foto</label><input id="f_photo" type="file" accept="image/*"/>
+    <label>Foto</label>${photoButtonsHtml('f_photo')}
     <div id="ferr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:18px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="savePlayer('${id || ''}')">Guardar</button></div>`);
-  let photo = p.photo; $('#f_photo').addEventListener('change', e => readPhoto(e.target.files[0], d => { photo = d || photo; }));
+  let photo = p.photo; wirePhoto('f_photo', d => { photo = d; });
   window.__photo = () => photo;
 }
 function savePlayer(id) {
