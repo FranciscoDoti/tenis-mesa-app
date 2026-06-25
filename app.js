@@ -328,7 +328,7 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, theme: DEFAULT_THEME };
 // Borrador de tema mientras el admin edita Apariencia (null = sin cambios pendientes).
 // La vista previa usa el borrador; el sitio recién cambia para todos al "Publicar".
 let themeDraft = null;
@@ -396,6 +396,7 @@ function applyMigrations() {
   // completa ajustes faltantes sin pisar los ya configurados
   Object.keys(DEFAULT_SETTINGS).forEach(k => { if (DB.settings[k] === undefined) DB.settings[k] = DEFAULT_SETTINGS[k]; });
   DB.settings.theme = Object.assign({}, DEFAULT_THEME, DB.settings.theme || {});
+  if (!Array.isArray(DB.settings.pairs)) DB.settings.pairs = []; // ranking de dobles (por pareja)
   // Catálogo global de categorías: se siembra una vez desde el CATALOG fijo (luego lo edita el admin).
   if (!Array.isArray(DB.settings.categoryCatalog) || !DB.settings.categoryCatalog.length) {
     DB.settings.categoryCatalog = CATALOG.map(c => ({ id: uid('cc_'), name: c.name, rule: c.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20, cost: 0 }));
@@ -571,6 +572,7 @@ function renderChrome() {
   document.querySelectorAll('.admin-only').forEach(el => el.hidden = !isAdmin());
   document.querySelectorAll('.profile-only').forEach(el => el.hidden = !(u && u.playerId)); // Perfil solo para cuentas de jugador
   document.querySelectorAll('.news-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.news)); // Noticias solo si la feature está activa
+  document.querySelectorAll('.doubles-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.doublesRanking)); // Ranking de dobles según feature
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
   const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
@@ -596,6 +598,7 @@ function render() {
   if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return DB.settings.news ? renderNoticias(app) : renderRanking(app);
+  if (view === 'dobles') return DB.settings.doublesRanking ? renderDoublesRanking(app) : renderRanking(app);
   if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
@@ -784,6 +787,19 @@ function renderRanking(app) {
   app.innerHTML = html;
 }
 function rankToggle(cat) { if (rankOpen.has(cat)) rankOpen.delete(cat); else rankOpen.add(cat); render(); }
+function renderDoublesRanking(app) {
+  const pairs = (DB.settings.pairs || []).slice().sort((a, b) => b.points - a.points);
+  let html = `<div class="page-title"><h1>👥 Ranking de dobles</h1></div>
+    <p class="page-sub">Por pareja. Una pareja entra al ranking desde el primer torneo de dobles que juega. El puntaje se calcula como en singles, usando el promedio del ranking individual de cada integrante.</p>`;
+  if (!pairs.length) { app.innerHTML = html + `<div class="empty">Todavía no hay parejas en el ranking. Aparecen cuando se cierra un torneo de dobles.</div>`; return; }
+  html += pairs.map((pr, i) => {
+    const avg = Math.round(pr.players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (pr.players.length || 1));
+    return `<div class="player-row"><span class="pos">${i + 1}</span>
+      <div class="meta"><div class="name">${esc(pairName(pr))}</div><div class="sub">Promedio individual: ${avg} pts</div></div>
+      <div class="pts">${pr.points}<small> pts</small></div></div>`;
+  }).join('');
+  app.innerHTML = html;
+}
 
 /* ---------- historial head-to-head ---------- */
 function catMatchList(cat) {
@@ -1293,6 +1309,9 @@ function renderSettings(app) {
       ${settingRow('📜 Reglamento',
         'Habilitar el Reglamento del club para los jugadores. Si lo apagás, no lo ven (vos podés editarlo siempre). Además tiene que estar publicado.',
         s.reglamento, 'toggleReglamento')}
+      ${settingRow('👥 Ranking de dobles',
+        'Habilitar el ranking de dobles (por pareja) y que los torneos de dobles sumen puntos. El puntaje de la pareja para el cálculo es el promedio del ranking individual de sus integrantes.',
+        s.doublesRanking, 'toggleDoublesRanking')}
     </div>`;
 }
 // Alterna un ajuste booleano de DB.settings y vuelve a renderizar.
@@ -1306,6 +1325,7 @@ function togglePayments() { toggleSetting('paymentsEnabled'); }
 function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
 function toggleNews() { toggleSetting('news'); }
 function toggleReglamento() { toggleSetting('reglamento'); }
+function toggleDoublesRanking() { toggleSetting('doublesRanking'); }
 
 /* ---------- noticias ---------- */
 const newsBodyHtml = body => esc(body || '').replace(/\n/g, '<br>');
@@ -2564,7 +2584,23 @@ const ELO_K = 12, ELO_D = 400;                  // suavidad del intercambio por 
 const SCORE_CAP_HI = 1100, SCORE_CAP_LO = 100;  // >1100 las sumas valen la mitad; <100 las restas valen la mitad
 const TOURNEY_MAX = 20;                          // tope de puntos que otorga un torneo (campeón)
 // Solo puntúan las categorías singles de nivel (Primera/Segunda/Tercera/Cuarta).
-const catScores = cat => !!(cat && cat.format !== 'double' && cat.rule && cat.rule.type === 'level');
+// Puntúan: singles de nivel (siempre) y dobles (si la feature "Ranking de dobles" está activa).
+const catScores = cat => !cat ? false : (cat.format === 'double' ? !!(DB.settings && DB.settings.doublesRanking) : !!(cat.rule && cat.rule.type === 'level'));
+// ---- ranking de dobles (por pareja) ----
+const pairKey = ids => ids.slice().sort().join('|');
+// Busca (o crea) el registro de la pareja. Al crearla, arranca con el promedio del ranking individual de sus miembros.
+function pairRecord(players, create) {
+  if (!DB.settings.pairs) DB.settings.pairs = [];
+  const key = pairKey(players);
+  let pr = DB.settings.pairs.find(p => pairKey(p.players) === key);
+  if (!pr && create) {
+    const base = Math.round(players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (players.length || 1));
+    pr = { id: 'pr_' + key.replace(/\W+/g, '_'), players: players.slice(), points: base };
+    DB.settings.pairs.push(pr);
+  }
+  return pr;
+}
+const pairName = pr => pr.players.map(pid => { const p = playerById(pid); return p ? fullName(p) : '?'; }).join(' / ');
 // Rating de referencia de un entrante: la foto tomada al iniciar la categoría (cae al puntaje actual si falta).
 function seedRatingOf(cat, entId) {
   if (cat.seedRatings && cat.seedRatings[entId] != null) return cat.seedRatings[entId];
@@ -2628,20 +2664,21 @@ function awardPoints(tid, cid) {
     // 2) Podio (solo 1°–4°), escalado del valor del torneo (tope 20): campeón V, finalista V/2, 3° V/3, 4° V/4.
     const V = Math.min(TOURNEY_MAX, cat.championPoints || 0), map = placements(cat);
     Object.entries(map).forEach(([eid, div]) => { if (div <= 4) add(eid, Math.round(V / div)); });
-    // 3) Aplicar a cada jugador con topes: >1100 sumas a la mitad, <100 restas a la mitad, nunca <0.
+    // 3) Aplicar con topes: >1100 sumas a la mitad, <100 restas a la mitad, nunca <0.
+    //    Dobles → al ranking de la PAREJA; singles → al ranking individual de cada jugador.
+    const cap = (cur, net) => { let d = net; if (cur > SCORE_CAP_HI && d > 0) d = Math.floor(d * 0.5); if (cur < SCORE_CAP_LO && d < 0) d = -Math.floor(Math.abs(d) * 0.5); return Math.max(0, cur + d) - cur; };
     Object.entries(delta).forEach(([eid, net]) => {
       const e = entById(cat, eid); if (!e) return;
       let applied = net;
-      e.players.forEach(pid => {
-        const p = playerById(pid); if (!p) return;
-        let d = net;
-        if (p.points > SCORE_CAP_HI && d > 0) d = Math.floor(d * 0.5);
-        if (p.points < SCORE_CAP_LO && d < 0) d = -Math.floor(Math.abs(d) * 0.5);
-        const before = p.points;
-        p.points = Math.max(0, before + d);
-        applied = p.points - before;   // cambio real (contempla el tope y el piso en 0)
-        syncCategory(p);
-      });
+      if (cat.format === 'double') {
+        const pr = pairRecord(e.players, true);            // crea la pareja la primera vez (entra al ranking)
+        applied = cap(pr.points, net); pr.points += applied;
+      } else {
+        e.players.forEach(pid => {
+          const p = playerById(pid); if (!p) return;
+          applied = cap(p.points, net); p.points += applied; syncCategory(p);
+        });
+      }
       cat.awarded[eid] = applied;
     });
   }
@@ -2654,7 +2691,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
