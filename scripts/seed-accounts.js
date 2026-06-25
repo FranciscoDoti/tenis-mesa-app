@@ -9,7 +9,9 @@
    Uso:   node scripts/seed-accounts.js
    (opcional) cambiar el dominio de los emails de prueba con la variable EMAIL_DOMAIN.
 */
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
 const path = require('path');
 
 let sa;
@@ -20,9 +22,9 @@ catch (e) {
   process.exit(1);
 }
 
-admin.initializeApp({ credential: admin.credential.cert(sa) });
-const db = admin.firestore();
-const auth = admin.auth();
+initializeApp({ credential: cert(sa) });
+const db = getFirestore();
+const auth = getAuth();
 
 const PASSWORD = process.env.SEED_PASSWORD || 'tenis1234';          // contraseña para todas las cuentas de prueba
 const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'tenismesa.test';   // dominio de los emails de prueba
