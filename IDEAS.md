@@ -12,3 +12,4 @@
   - [ ] Reporte de jugadores que no pagaron.
   - [ ] Otros reportes útiles para la organización.
 - [ ] Mostrar una notificación al usuario cuando tenga una inscripción pendiente de pago.
+- [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas
