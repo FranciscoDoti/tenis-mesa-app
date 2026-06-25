@@ -2128,7 +2128,6 @@ async function boot() {
   }
   window.STORE.onAuth(async (fbUser) => {
     if (window.__registering) return; // el alta maneja su propia sesión/render
-    _authReady = true;                // ya sabemos si hay sesión o no
     if (fbUser) {
       const ud = await window.STORE.getUserDoc(fbUser.uid);
       _session = ud
@@ -2138,6 +2137,7 @@ async function boot() {
       if (ud && fbUser.emailVerified && !ud.emailVerified) { try { await window.STORE.setUserDoc(fbUser.uid, { emailVerified: true }); } catch (e) {} }
       _loaded = false; await ensureData();
     } else { _session = null; }
+    _authReady = true;   // recién acá: ya está la sesión resuelta (evita flash de login durante los await)
     render();
   });
 }
