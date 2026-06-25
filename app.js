@@ -2009,7 +2009,9 @@ function snapshotSeed(cat) {
 function matchElo(cat, winId, loseId) {
   const Rw = seedRatingOf(cat, winId), Rl = seedRatingOf(cat, loseId);
   const Ew = 1 / (1 + Math.pow(10, (Rl - Rw) / ELO_D));
-  return Math.round(ELO_K * (1 - Ew));
+  // Mínimo ±1: todo partido decidido cuenta, aunque la diferencia de puntaje sea enorme
+  // (con K=12 y redondeo, un favorito muy superior sumaría 0 y el partido no contaría).
+  return Math.max(1, Math.round(ELO_K * (1 - Ew)));
 }
 // Para un partido terminado de una categoría que puntúa: { winId, loseId, n } o null.
 function matchEloOf(cat, mm, a, b) {
