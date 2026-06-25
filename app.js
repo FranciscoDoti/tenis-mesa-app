@@ -717,7 +717,7 @@ function headToHead(aId, bId) {
       else return;
       const w = matchWinnerSide(m, cat), r = matchResult(m);
       const aWon = (sideA === 'a' && w === 'a') || (sideA === 'b' && w === 'b');
-      res.push({ tournament: t.name, date: t.date, cat: cat.name, fmt: cat.format, phase,
+      res.push({ tournament: t.name, date: t.date, cat: cat.name, fmt: cat.format, phase, wo: !!m.walkover,
         teamA: sideA === 'a' ? entName(cat, a) : entName(cat, b), teamB: sideA === 'a' ? entName(cat, b) : entName(cat, a),
         aWon, scoreA: sideA === 'a' ? `${r.wa}-${r.wb}` : `${r.wb}-${r.wa}`, sets: (m.sets || []).map(s => s.join('-')).join(', ') });
     });
@@ -744,9 +744,9 @@ function renderHistory(app) {
       ? `<div class="hist-summary"><b>${esc(fullName(a))}</b> ${aw} — ${bw} <b>${esc(fullName(b))}</b> <span class="muted">(${rows.length} partido${rows.length > 1 ? 's' : ''})</span></div>` +
         rows.map(r => `<div class="hist-row">
           <div class="hist-meta"><div class="name">${esc(r.tournament)} · ${esc(r.cat)}</div>
-            <div class="sub">${r.date ? fmtDate(r.date) : ''} · ${r.phase}${r.fmt === 'double' ? ' · dobles' : ''}</div></div>
+            <div class="sub">${r.date ? fmtDate(r.date) : ''} · ${r.phase}${r.fmt === 'double' ? ' · dobles' : ''}${r.wo ? ' · 🚷 no se presentó' : ''}</div></div>
           <div class="hist-score"><span class="${r.aWon ? 'win' : ''}">${esc(r.teamA)}</span> <b>${r.scoreA}</b> <span class="${r.aWon ? '' : 'win'}">${esc(r.teamB)}</span>
-            ${r.sets ? `<div class="sub">${esc(r.sets)}</div>` : ''}</div></div>`).join('')
+            <div class="sub">${r.wo ? 'ganó por no presentación' : esc(r.sets)}</div></div></div>`).join('')
       : `<div class="empty">No hay partidos jugados entre ${esc(fullName(a))} y ${esc(fullName(b))}.</div>`;
   }
   app.innerHTML = `<div class="page-title"><h1>📊 Historial entre jugadores</h1></div>
@@ -875,7 +875,7 @@ async function recheckVerification() {
 function renderPlayers(app) {
   const active = DB.players.filter(p => !p.pending);
   const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}</div></div>
+    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(u && (u.username || u.email)) ? ` · 👤 ${esc(u.username || u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
@@ -887,6 +887,9 @@ function renderPlayers(app) {
 }
 function playerForm(id) {
   const p = id ? playerById(id) : { firstName: '', lastName: '', dob: '', city: CITIES[0], category: '4ta', points: NEW_PLAYER_POINTS, photo: null };
+  const acc = id ? (DB.users || []).find(x => x.playerId === id) : null;
+  const curEmail = (acc && acc.email) || p.email || '';
+  const hasLogin = !!(acc && acc.uid);   // tiene cuenta de acceso (Firebase): el email se gestiona desde su cuenta
   openModal(`<h3>${id ? 'Editar' : 'Inscribir'} jugador</h3>
     <div class="row" style="margin:12px 0">${avatar(p)}<span class="muted">${id ? esc(fullName(p)) : 'Nuevo'}</span></div>
     <div class="grid2">
@@ -896,6 +899,9 @@ function playerForm(id) {
       <div><label>Puntos</label><input id="f_pts" type="number" min="0" value="${p.points}"/></div>
       <div><label>Fecha de nacimiento</label><input id="f_dob" type="date" value="${p.dob || ''}"/></div>
     </div>
+    <label>Email <span class="muted">(opcional)</span></label>
+    <input id="f_email" type="email" value="${esc(curEmail)}" placeholder="tu@email.com" ${hasLogin ? 'disabled' : ''}/>
+    ${hasLogin ? `<p class="hint" style="margin-top:4px">El email de acceso lo cambia el jugador desde su cuenta.</p>` : ''}
     <p class="hint">Categoría: <b>${levelFromPoints(p.points)}</b> — se calcula por puntos (>800 1ra · >600 2da · >300 3ra · resto 4ta). Nuevos arrancan con ${NEW_PLAYER_POINTS}.${id && ageFromDob(p.dob) != null ? ` · Edad: <b>${ageFromDob(p.dob)} años</b>` : ''}</p>
     <label>Foto</label>${photoButtonsHtml('f_photo')}
     <div id="ferr" class="banner" hidden></div>
@@ -907,7 +913,10 @@ function playerForm(id) {
 function savePlayer(id) {
   const first = $('#f_first').value.trim(), last = $('#f_last').value.trim();
   if (!first || !last) { const e = $('#ferr'); e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
+  const emailInp = $('#f_email');
   const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: readCityField('f_city'), points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
+  if (emailInp && !emailInp.disabled) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
+  if (emailInp && !emailInp.disabled && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { const e = $('#ferr'); e.hidden = false; e.textContent = 'El email no es válido (ej: nombre@gmail.com).'; return; }
   let target;
   if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), ...data }; DB.players.push(target); }
   syncCategory(target);  // categoría derivada de los puntos
@@ -2124,10 +2133,15 @@ function saveResult(tid, cid, kind, gidx, r, m) {
     if (!setWinner([a, b])) { e.hidden = false; e.textContent = `Set ${i + 1} inválido (a 11, diferencia de 2). Ej: 11-9, 14-12.`; return; }
     sets.push([a, b]);
   }
-  let wa = 0, wb = 0; sets.forEach(s => setWinner(s) === 'a' ? wa++ : wb++);
   const n = need(cat);
-  if (wa < n && wb < n) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
-  if (wa >= n && wb >= n) { e.hidden = false; e.textContent = 'Resultado inconsistente.'; return; }
+  // Recorre en orden: el partido termina cuando alguien llega a n sets; no se pueden cargar sets de más.
+  let wa = 0, wb = 0, decided = -1;
+  for (let i = 0; i < sets.length; i++) {
+    setWinner(sets[i]) === 'a' ? wa++ : wb++;
+    if (decided < 0 && (wa === n || wb === n)) decided = i;
+  }
+  if (decided < 0) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
+  if (decided < sets.length - 1) { e.hidden = false; e.textContent = `Cargaste sets de más: el partido termina cuando alguien llega a ${n} sets (no puede ganar por más de ${n}).`; return; }
   const { mm } = locateMatch(cat, kind, gidx, r, m);
   mm.sets = sets; if (mm.walkover) delete mm.walkover; save(DB); closeModal(); render();
 }
