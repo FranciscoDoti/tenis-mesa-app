@@ -1979,15 +1979,15 @@ function tournamentUnits(t) {
       if (!ms.length) return;
       const pending = ms.filter(m => !matchDone(m, cat)).length;
       const tbl = cat.zoneTable && cat.zoneTable[gi] != null ? cat.zoneTable[gi] : null;
-      units.push({ kind: 'zone', cat, table: tbl, pending, players: zonePlayers(cat, gi), prio, startMs, label: 'Zona ' + String.fromCharCode(65 + gi), action: `assignZoneTable('${t.id}','${cat.id}',${gi},__T__)` });
+      units.push({ kind: 'zone', cat, table: tbl, pending, players: zonePlayers(cat, gi), who: g.map(eid => entName(cat, eid)).join(', '), prio, startMs, label: 'Zona ' + String.fromCharCode(65 + gi), action: `assignZoneTable('${t.id}','${cat.id}',${gi},__T__)` });
     });
     if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
       const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
       if (!(a && b && a !== 'BYE' && b !== 'BYE')) return;
-      units.push({ kind: 'bracket', cat, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
+      units.push({ kind: 'bracket', cat, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
     }));
-    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'bracket', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
-    (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
+    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'bracket', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
+    (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), who: `${entName(cat, m.a)} vs ${entName(cat, m.b)}`, prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
   });
   return units;
 }
@@ -2021,7 +2021,8 @@ function suggestPanelHtml(t) {
     <p class="muted" style="margin:0">Hay ${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}, pero no hay zonas o llaves listas para largar (o sus jugadores ya están jugando en otra mesa).</p></div>`;
   const row = (table, u) => `<div class="suggest-row">
       <div class="suggest-info"><b>Mesa ${table}</b> → ${esc(u.cat.name)} · ${esc(u.label)}
-        <span class="muted">(${CLASS_LABELS[u.prio]}${u.cat.startAt ? ` · 🕒 ${fmtStartAt(u.cat.startAt)}` : ''})</span></div>
+        <span class="muted">(${CLASS_LABELS[u.prio]}${u.cat.startAt ? ` · 🕒 ${fmtStartAt(u.cat.startAt)}` : ''})</span>
+        ${u.who ? `<div class="suggest-who">👥 ${esc(u.who)}</div>` : ''}</div>
       <button class="btn btn-primary btn-sm" onclick="${u.action.replace('__T__', table)}">▶️ Largar en Mesa ${table}</button></div>`;
   let html = `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
     <p class="muted" style="margin:0 0 10px">${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}. Sugerencias por prioridad (Sub, Maxi, niveles…), horario y sin superponer jugadores. Tocá para largar.</p>`;
