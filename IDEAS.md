@@ -22,3 +22,4 @@
 - [ ] Bugs a arreglar
     - [x]  A veces el menú lateral se carga como topbar en celulares
     - [ ] Al recargar la app te vuelve por un instante a la pagina de login incluso cuadno ya tenias la sesión iniciada y no debería
+    - [ ] no anda para cargar colaboradores a los torneos
