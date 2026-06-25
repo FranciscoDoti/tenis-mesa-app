@@ -6,7 +6,7 @@
 - [ ] Implementar el sistema que sugiera qué mesas largar . Reformular el largado de mesas actual para hacerlo por zona y despues individual por llave
 - [ ] Implementar las otras dos configuraciones que figuran en **Settings**.
 - [ ] Implementar un reglamento editable con opción de **publicar / despublicar**.
-- [ X ] Implementar una sección de **Noticias**.
+- [x] Implementar una sección de **Noticias**.
 - [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
 - [ ] Implementar un módulo de **Reportes**.
   - [ ] Reporte de jugadores que no pagaron.
