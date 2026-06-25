@@ -667,7 +667,8 @@ let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
 let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = ''; // estado de la sección Reportes
 let profileNote = ''; // aviso transitorio en Perfil
-let rankOpen = new Set(['1ra']); // qué categorías del ranking están desplegadas (1ra por defecto)
+let rankOpen = new Set(); // categorías del ranking desplegadas (todas colapsadas por defecto; se ve el líder en el encabezado)
+let catTab = null, catTabFor = null; // pestaña activa del detalle de categoría (Inscriptos/Grupos/Llave) y para qué categoría
 let tournSearch = ''; // texto del buscador de torneos antiguos
 let authMode = 'login'; // 'login' | 'register' en la pantalla inicial
 let loginNote = '';     // aviso a mostrar en el login (ej. tras registrarse)
@@ -971,6 +972,7 @@ function renderSchoolRanking(app) {
   app.innerHTML = html + `</div>`;
 }
 function rankToggle(cat) { if (rankOpen.has(cat)) rankOpen.delete(cat); else rankOpen.add(cat); render(); }
+function setCatTab(tab) { catTab = tab; render(); }
 function renderDoublesRanking(app) {
   const byCat = {};
   (DB.settings.pairs || []).forEach(pr => { const cn = pr.catName || 'Dobles'; (byCat[cn] = byCat[cn] || []).push(pr); });
@@ -1337,23 +1339,22 @@ function delGym(id) {
    Define qué categorías existen y sus reglas por defecto (inscripción, formato, sets por fase,
    grupos, valor 🏆). Cuando se arma un torneo, las categorías heredan estas reglas. Solo admin. */
 function renderCatalog(app) {
-  const cards = catCatalog().map(c => `<div class="card">
-    <div class="gym-head"><span class="gym-ico">🗂️</span>
-      <div class="meta"><div class="name">${esc(c.name)}</div>
-        <div class="sub">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'}${c.gender && c.gender !== 'any' ? ' · ' + GENDER_RULE_LABEL[c.gender] : ''} · 📋 ${ruleLabel(c.rule)}</div></div></div>
-    <div class="tags" style="margin-top:10px">
-      <span class="tag">🎾 ${setsFmtById(c.setsFormat).label}</span>
-      <span class="tag">Grupos ${c.groupMin}–${c.groupMax}</span>
-      <span class="tag">🥇 ${c.championPoints} pts</span>
-      <span class="tag">💲 ${c.cost ? money(c.cost) : 'sin costo'}</span></div>
-    <div class="row" style="margin-top:12px">
-      <button class="btn btn-ghost btn-sm" onclick="catalogEntryForm('${c.id}')">✏️ Editar</button>
-      <button class="btn btn-ghost btn-sm" onclick="delCatalogEntry('${c.id}')">🗑️</button>
-    </div></div>`).join('');
+  const cards = catCatalog().map(c => {
+    const meta = [c.format === 'double' ? '👥 Dobles' : '👤 Singles', c.gender && c.gender !== 'any' ? GENDER_RULE_LABEL[c.gender] : null,
+      ruleLabel(c.rule), setsFmtById(c.setsFormat).label, `Grupos ${c.groupMin}–${c.groupMax}`, `🥇 ${c.championPoints}`,
+      c.cost ? `💲 ${money(c.cost)}` : 'sin costo'].filter(Boolean).join(' · ');
+    return `<div class="cat-card"><div class="cat-card-head">
+      <span class="cat-ico">🗂️</span>
+      <div class="cat-card-info"><div class="cat-card-name">${esc(c.name)}</div><div class="cat-card-meta">${esc(meta)}</div></div>
+      <div class="cat-card-actions">
+        <button class="btn btn-ghost btn-sm icon-btn" title="Editar" onclick="catalogEntryForm('${c.id}')">✏️</button>
+        <button class="btn btn-ghost btn-sm icon-btn" title="Eliminar" onclick="delCatalogEntry('${c.id}')">🗑️</button>
+      </div></div></div>`;
+  }).join('');
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>🗂️ Categorías</h1></div>
     <button class="btn btn-primary" onclick="catalogEntryForm()">➕ Nueva categoría</button></div>
     <p class="page-sub">Catálogo de categorías del club y sus reglas por defecto. Al crear un torneo, las categorías que marques <b>heredan</b> estas reglas (después podés ajustarlas dentro de cada torneo). Solo el administrador puede gestionarlo.</p>
-    <div class="cards gym-cards">${cards || '<div class="empty">Sin categorías en el catálogo.</div>'}</div>`;
+    <div class="cat-list">${cards || '<div class="empty">Sin categorías en el catálogo.</div>'}</div>`;
 }
 function catalogEntryForm(id) {
   const c = id ? catCatalog().find(x => x.id === id) : null;
@@ -1863,21 +1864,27 @@ function podiumHtml(t) {
       ${p.third ? `<span class="podium-pos">🥉 ${esc(p.third)}</span>` : ''}</div>`;
   }).filter(Boolean).join('');
 }
+// Podios plegables: por defecto ocultos detrás de "🏅 Ver resultados" para no recargar la tarjeta.
+function podiumBlockHtml(t) {
+  const pod = podiumHtml(t); if (!pod) return '';
+  const n = t.categorias.filter(c => podiumOf(c)).length;
+  return `<details class="podium-collapse"><summary>🏅 Ver resultados (${n})</summary>${pod}</details>`;
+}
 function upcomingCardHtml(t) {
-  const live = isLiveTournament(t), gym = gymById(t.gymId), pod = podiumHtml(t), draft = !t.published;
+  const live = isLiveTournament(t), gym = gymById(t.gymId), draft = !t.published;
   return `<div class="card tourn-card${draft ? ' tourn-draft' : live ? ' tourn-live' : ''}">
     ${(draft || live) ? `<div class="t-badges">${draft ? '<span class="t-badge draft">📝 Borrador</span>' : ''}${live ? '<span class="t-badge live">🔴 En vivo</span>' : ''}</div>` : ''}
     <h3 style="margin:0">${esc(t.name)}</h3>
     <div class="when">📅 ${dateRangeLabel(t)}</div>
     ${gym ? `<div class="when">📍 ${esc(gym.name)}</div>` : ''}
     <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span>${live ? `<span class="tag tag-live">${liveMatchesOf(t).length} en juego</span>` : ''}</div>
-    ${pod}
+    ${podiumBlockHtml(t)}
     <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ ${draft ? 'Editar' : 'Ver'}</button>
       ${draft && isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar</button>` : ''}
       ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function pastCardHtml(t) {
-  const gym = gymById(t.gymId), pod = podiumHtml(t);
+  const gym = gymById(t.gymId), pod = podiumBlockHtml(t);
   const search = esc(`${t.name} ${gym ? gym.name : ''} ${dateRangeLabel(t)}`.toLowerCase());
   return `<div class="card tourn-card-h tourn-old-card" data-search="${search}">
     <div class="th-main"><h3 style="margin:0">${esc(t.name)}</h3>
@@ -2423,22 +2430,25 @@ function renderTournament(app, tid) {
       catCost(c) > 0 ? `💲 ${money(catCost(c))}` : null,
       c.startAt ? `🕒 ${fmtStartAt(c.startAt)}` : null].filter(Boolean).join(' · ');
     const pay = (() => { const m = myPaymentStatus(c); return m ? `<div class="pay-line ${m.paid ? 'ok' : 'no'}">${m.paid ? '✅ Inscripción pagada' : `💲 Te falta pagar ${money(m.cost)}`}</div>` : ''; })();
-    return `<div class="cat-card">
-      <div class="cat-card-head">
+    return `<details class="cat-card">
+      <summary class="cat-card-head">
         <span class="cat-ico">${c.format === 'double' ? '👥' : '👤'}</span>
         <div class="cat-card-info">
           <div class="cat-card-name">${esc(c.name)} <span class="t-badge ${stCls}">${st}</span></div>
-          <div class="cat-card-meta">${esc(meta)}</div>
         </div>
+        <span class="cat-caret">▸</span>
+      </summary>
+      <div class="cat-card-body">
+        <div class="cat-card-meta">${esc(meta)}</div>
+        ${champ && champ !== 'BYE' ? `<div class="champ">🏆 ${esc(entName(c, champ))}</div>` : ''}
+        ${pay}
         <div class="cat-card-actions">
           <button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
-          ${canEditT(t) && !c.groups ? `<button class="btn btn-ghost btn-sm icon-btn" title="Reglas" onclick="categoriaForm('${t.id}','${c.id}')">✏️</button>` : ''}
+          ${canEditT(t) && !c.groups ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
           ${canEditT(t) ? `<button class="btn btn-ghost btn-sm icon-btn" title="Eliminar" onclick="delCategoria('${t.id}','${c.id}')">🗑️</button>` : ''}
         </div>
       </div>
-      ${champ && champ !== 'BYE' ? `<div class="champ">🏆 ${esc(entName(c, champ))}</div>` : ''}
-      ${pay}
-    </div>`;
+    </details>`;
   }).join('');
   const gym = gymById(t.gymId);
   const live = liveMatchesOf(t);
@@ -2462,13 +2472,16 @@ function renderTournament(app, tid) {
   const finishedBanner = t.finished ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span>🏁 <b>Torneo finalizado.</b> Los jugadores lo ven en modo lectura.</span>
       ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="reopenTournament('${t.id}')">♻️ Reabrir torneo</button>` : ''}</div>` : '';
-  const adminTools = canEditT(t) ? `<div class="admin-toolbar">
-      <button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Datos</button>
-      <button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">🏓 Mesas</button>
-      ${!t.finished ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'}</button>` : ''}
-      <button class="btn btn-ghost btn-sm" onclick="collaboratorsModal('${t.id}')">🤝 Colaboradores</button>
-      ${!t.finished ? `<button class="btn btn-ghost btn-sm danger" onclick="finalizeTournament('${t.id}')">🏁 Finalizar</button>` : ''}
-    </div>` : '';
+  const adminTools = canEditT(t) ? `<details class="admin-tools">
+      <summary>⋯ Acciones</summary>
+      <div class="admin-toolbar">
+        <button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Datos</button>
+        <button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">🏓 Mesas</button>
+        ${!t.finished ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'}</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="collaboratorsModal('${t.id}')">🤝 Colaboradores</button>
+        ${!t.finished ? `<button class="btn btn-ghost btn-sm danger" onclick="finalizeTournament('${t.id}')">🏁 Finalizar</button>` : ''}
+      </div>
+    </details>` : '';
   app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(t.name)}</h1></div>
     ${draftBanner}${finishedBanner}
@@ -2608,15 +2621,24 @@ function renderCategoria(app, tid, cid) {
   _est = (DB.settings && DB.settings.matchTimeEstimates && t) ? estimateSchedule(t) : null; // horarios estimados (todo el torneo)
   let html = `<button class="btn btn-ghost btn-sm" onclick="go('torneo:${tid}')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(cat.name)}</h1></div>`;
+  if (catTabFor !== cid) { catTabFor = cid; catTab = null; } // resetear la pestaña activa al cambiar de categoría
   const enr = enrollmentStatus(cat);
-  html += `<div class="tags"><span class="tag">${cat.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
-      ${cat.gender && cat.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[cat.gender]}</span>` : ''}
-      <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
-      <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
-      <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
-      ${catCost(cat) > 0 ? `<span class="tag">💲 ${money(catCost(cat))}</span>` : ''}
-      ${cat.startAt ? `<span class="tag">🕒 ${fmtStartAt(cat.startAt)}</span>` : ''}
-      <span class="tag ${enr.open ? 'tag-open' : 'tag-closed'}">${enr.label}</span></div>`;
+  // Reglas: una línea resumen + estado, con el detalle completo detrás de ℹ️.
+  const summaryBits = [cat.format === 'double' ? '👥 Dobles' : '👤 Singles', ruleLabel(cat.rule), catSetsFmt(cat).label, `${cat.entrants.length} inscriptos`].join(' · ');
+  html += `<div class="cat-rules">
+      <span class="cat-rules-sum">${esc(summaryBits)}</span>
+      <span class="t-badge ${enr.open ? 'open' : 'closed'}">${esc(enr.label)}</span>
+      <details class="rules-more"><summary>ℹ️</summary>
+        <div class="tags" style="margin-top:8px">
+          ${cat.gender && cat.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[cat.gender]}</span>` : ''}
+          <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
+          <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
+          <span class="tag">🥇 ${cat.championPoints} pts</span>
+          ${catCost(cat) > 0 ? `<span class="tag">💲 ${money(catCost(cat))}</span>` : ''}
+          ${cat.startAt ? `<span class="tag">🕒 ${fmtStartAt(cat.startAt)}</span>` : ''}
+        </div>
+      </details>
+    </div>`;
   // Estado de pago del jugador logueado (si está inscripto y la categoría tiene costo)
   const mps = myPaymentStatus(cat);
   if (mps) html += `<div class="banner ${mps.paid ? 'ok' : ''}" style="margin:12px 0">${mps.paid ? '✅ Ya pagaste tu inscripción a esta categoría.' : `💲 Te falta pagar la inscripción de esta categoría: <b>${money(mps.cost)}</b>.`}</div>`;
@@ -2630,7 +2652,7 @@ function renderCategoria(app, tid, cid) {
     const finalDone = cat.bracket && brWinner(cat, cat.bracket.length - 1, 0);
     const thirdReady = !cat.thirdPlace || matchDone(cat.thirdPlace, cat);
     const canToggle = !cat.groups && !cat.closed;
-    html += `<div class="row" style="margin:16px 0">
+    html += `<details class="cat-actions"><summary>⋯ Acciones</summary><div class="cat-actions-body">
       <button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>
       <button class="btn btn-ghost" onclick="categoryTimeModal('${tid}','${cid}')">🕒 ${cat.startAt ? 'Horario' : 'Poner horario'}</button>
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
@@ -2638,8 +2660,8 @@ function renderCategoria(app, tid, cid) {
       <button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>
       ${cat.groups ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
       ${finalDone && thirdReady && !cat.closed ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>` : ''}
-    </div>`;
-    if (cat.closed) html += `<div class="banner">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
+    </div></details>`;
+    if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
   } else {
     // jugadores: autoinscripción si la inscripción está abierta
     html += enr.open
@@ -2647,21 +2669,19 @@ function renderCategoria(app, tid, cid) {
       : `<div class="banner" style="margin:16px 0">${enr.label}. No te podés anotar en este momento.</div>`;
   }
 
-  // Cuando ya hay grupos armados, la lista de inscriptos es redundante con las zonas → plegable.
-  if (cat.groups && cat.groups.length) {
-    html += `<details class="collapse-section"><summary>📋 Inscriptos (${cat.entrants.length})</summary>${entrantsListHtml(cat)}</details>`;
-  } else {
-    html += `<div class="section-head"><h2>📋 Inscriptos (${cat.entrants.length})</h2></div>` + entrantsListHtml(cat);
-  }
-
-  html += `<div class="section-head"><h2>Fase de grupos</h2></div>`;
-  if (cat.groups && cat.groups.length) {
-    html += `<div class="groups">` + cat.groups.map((g, i) => groupCardHtml(cat, i)).join('') + `</div>`;
-    html += `<div class="section-head"><h2>🏆 Llave final</h2></div>`;
+  // Pestañas: muestran de a una sección para no saturar la pantalla.
+  const defaultTab = cat.bracket ? 'llave' : (cat.groups ? 'grupos' : 'inscriptos');
+  const tab = catTab || defaultTab;
+  const tb = (id, label) => `<button class="cat-tab${tab === id ? ' active' : ''}" onclick="setCatTab('${id}')">${label}</button>`;
+  html += `<div class="cat-tabs">${tb('inscriptos', `📋 Inscriptos${cat.entrants.length ? ` (${cat.entrants.length})` : ''}`)}${tb('grupos', '🎲 Grupos')}${tb('llave', '🏆 Llave')}</div>`;
+  if (tab === 'inscriptos') html += entrantsListHtml(cat);
+  else if (tab === 'grupos') {
+    if (cat.groups && cat.groups.length) html += `<div class="groups">` + cat.groups.map((g, i) => groupCardHtml(cat, i)).join('') + `</div>`;
+    else html += `<div class="empty">Grupos sin armar.${canEditCat(cat) ? ' Anotá jugadores y usá “⋯ Acciones → Armar grupos”.' : ''}</div>`;
+  } else if (tab === 'llave') {
     if (cat.bracket) html += bracketHtml(cat);
-    else html += `<div class="empty">Clasifican los 2 primeros de cada grupo.${groupStageComplete(cat) ? (canEditCat(cat) ? ' Tocá “Generar llave”.' : '') : ' Cargá todos los resultados de grupos.'}</div>`;
-  } else {
-    html += `<div class="empty">Grupos sin armar.${canEditCat(cat) ? ' Anotá y tocá “Armar grupos”.' : ''}</div>`;
+    else if (cat.groups && cat.groups.length) html += `<div class="empty">Clasifican los 2 primeros de cada grupo.${groupStageComplete(cat) ? (canEditCat(cat) ? ' Usá “⋯ Acciones → Generar llave”.' : '') : ' Cargá todos los resultados de grupos.'}</div>`;
+    else html += `<div class="empty">Primero armá los grupos.</div>`;
   }
   app.innerHTML = html;
 }
@@ -3116,7 +3136,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {

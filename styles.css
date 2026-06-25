@@ -414,6 +414,35 @@ ul.awarded li:last-child{border-bottom:0}
 .icon-btn{padding:6px 9px}
 .cat-card .champ{margin-top:10px}
 .cat-card .pay-line{margin-top:8px}
+/* cat-card como acordeón (tap-to-expand) */
+.cat-card>summary{list-style:none; cursor:pointer; user-select:none}
+.cat-card>summary::-webkit-details-marker{display:none}
+.cat-card>summary .cat-caret{margin-left:auto; flex:0 0 auto; color:var(--muted); transition:transform .15s}
+.cat-card[open]>summary .cat-caret{transform:rotate(90deg)}
+.cat-card-body{margin-top:12px; padding-top:12px; border-top:1px solid var(--line)}
+.cat-card-body .cat-card-actions{margin-top:12px}
+/* podios plegables en la lista de torneos */
+.podium-collapse{margin-top:8px}
+.podium-collapse>summary{cursor:pointer; list-style:none; font-size:13px; font-weight:700; color:var(--table-dark)}
+.podium-collapse>summary::-webkit-details-marker{display:none}
+.podium-collapse>summary::before{content:'▸ '; color:var(--muted)}
+.podium-collapse[open]>summary::before{content:'▾ '}
+/* resumen de reglas + detalle (ℹ️) en el detalle de categoría */
+.cat-rules{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px}
+.cat-rules-sum{font-size:13px; color:var(--muted)}
+.rules-more{display:inline}
+.rules-more>summary{cursor:pointer; list-style:none; background:#eef1f4; border-radius:999px; width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; font-size:12px}
+.rules-more>summary::-webkit-details-marker{display:none}
+/* menú "⋯ Acciones" (categoría y torneo) */
+.cat-actions,.admin-tools{margin:14px 0}
+.cat-actions>summary,.admin-tools>summary{cursor:pointer; list-style:none; display:inline-flex; align-items:center; gap:6px; font-weight:700; background:#f7f9fb; border:1px solid var(--line); border-radius:10px; padding:8px 14px}
+.cat-actions>summary::-webkit-details-marker,.admin-tools>summary::-webkit-details-marker{display:none}
+.cat-actions-body{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+/* pestañas del detalle de categoría */
+.cat-tabs{display:flex; gap:6px; margin:16px 0 12px; border-bottom:2px solid var(--line)}
+.cat-tab{flex:1; background:transparent; border:0; cursor:pointer; padding:10px 8px; font-size:13px; font-weight:700; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; border-radius:8px 8px 0 0}
+.cat-tab.active{color:var(--table-dark); border-bottom-color:var(--table)}
+.cat-tab:hover{background:#f3f5f7}
 /* sección plegable (ej. inscriptos cuando ya hay grupos) */
 .collapse-section{margin-top:16px; border:1px solid var(--line); border-radius:12px; background:var(--card); overflow:hidden}
 .collapse-section>summary{cursor:pointer; padding:12px 14px; font-weight:700; list-style:none; display:flex; align-items:center; gap:8px}
