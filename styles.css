@@ -219,7 +219,7 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .matches{border-top:1px solid var(--line); margin-top:4px}
 .bmatch{display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:13px}
 .bmatch:nth-child(even){background:#f7f9fb}
-.bmatch>span{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.bmatch>span{flex:1 1 38%; min-width:0; overflow-wrap:anywhere; line-height:1.2}
 .bmatch>span:last-of-type{text-align:right}
 .bmatch .score{flex:0 0 auto; background:#eef4f0; border-radius:6px; padding:2px 8px; color:var(--table-dark)}
 .bmatch .win,.br-slot.win{font-weight:800; color:var(--table-dark)}
@@ -394,6 +394,50 @@ ul.awarded li:last-child{border-bottom:0}
 .t-badge{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; letter-spacing:.3px}
 .t-badge.live{background:#e5484d; color:#fff}
 .t-badge.draft{background:#fef3c7; color:#92560a}
+.t-badge.open{background:#dcfce7; color:#166534}
+.t-badge.closed{background:#fee2e2; color:#991b1b}
+.t-badge.done{background:#e0e7ff; color:#3730a3}
+/* barra de acciones de admin (agrupa los botones de gestión del torneo) */
+.admin-toolbar{display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; padding:10px; background:#f7f9fb; border:1px solid var(--line); border-radius:12px}
+.admin-toolbar .btn.danger{color:#991b1b}
+.info-tags{align-items:center}
+.slim-empty{margin:4px 0 0; font-size:13px}
+/* lista compacta de categorías (sub-torneos) */
+.cat-list{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+.cat-card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow)}
+.cat-card-head{display:flex; align-items:center; gap:12px}
+.cat-ico{flex:0 0 auto; width:34px; height:34px; border-radius:50%; background:#eef1f4; display:flex; align-items:center; justify-content:center; font-size:16px}
+.cat-card-info{flex:1; min-width:0}
+.cat-card-name{font-weight:700; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.cat-card-meta{font-size:12px; color:var(--muted); margin-top:2px}
+.cat-card-actions{flex:0 0 auto; display:flex; gap:6px; align-items:center}
+.icon-btn{padding:6px 9px}
+.cat-card .champ{margin-top:10px}
+.cat-card .pay-line{margin-top:8px}
+/* sección plegable (ej. inscriptos cuando ya hay grupos) */
+.collapse-section{margin-top:16px; border:1px solid var(--line); border-radius:12px; background:var(--card); overflow:hidden}
+.collapse-section>summary{cursor:pointer; padding:12px 14px; font-weight:700; list-style:none; display:flex; align-items:center; gap:8px}
+.collapse-section>summary::after{content:'▸'; margin-left:auto; color:var(--muted)}
+.collapse-section[open]>summary::after{content:'▾'}
+.collapse-section .player-row{padding-left:14px; padding-right:14px}
+/* encabezado y resaltado de clasificados en las zonas */
+.grp-head{font-size:11px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.3px}
+.grp-stat{margin-left:auto; font-size:12px; color:var(--muted); flex:0 0 auto; white-space:nowrap}
+.group-card li.grp-q{background:#ecfdf3}
+/* líder en el encabezado plegado del ranking por categoría */
+.rt-leader{display:block; font-size:12px; font-weight:600; color:var(--muted); margin-top:1px}
+/* logo de escuela junto al título del ranking */
+.title-logo{display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:50%; background:#eef1f4; overflow:hidden; font-size:22px; flex:0 0 auto}
+.title-logo img{width:100%; height:100%; object-fit:cover; border-radius:50%}
+/* ranking de escuelas: medallas + barra proporcional */
+.school-rank{display:flex; flex-direction:column; gap:10px; margin-top:8px}
+.school-row{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow)}
+.school-pos{flex:0 0 auto; font-size:20px; min-width:28px; text-align:center; font-weight:800; color:var(--muted)}
+.school-info{flex:1; min-width:0}
+.school-name{font-weight:700}
+.school-count{font-weight:500; font-size:13px}
+.school-bar{height:8px; border-radius:999px; background:#eef1f4; margin-top:6px; overflow:hidden}
+.school-bar>span{display:block; height:100%; border-radius:999px; background:var(--table); transition:width .3s}
 .tag-live{background:#fde8e8; color:#b42318}
 .tourn-draft{border-style:dashed; border-color:#d6a93a}
 
