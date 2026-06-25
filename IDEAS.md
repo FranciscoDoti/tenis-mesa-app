@@ -17,9 +17,9 @@
 - [ ] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
 - [ ] Implementar un sistema de ranking para Dobles
-- [ ] hacer que los colaboradores puedan tener más control sobre el torneo para poder editar más cosas
-- [ ] hacer algo para que se pueda dar por iniciada una categoría y ya no se pueda editar más y lo mismo para cerrar y lo mismo para dar por finalizado un torneo 
-- [ ] Implementar horarios de comienzo de categorías y notificación a los celulares de los jugadores como una opción cuando su cateogría está por emepezar
+- [x] hacer que los colaboradores puedan tener más control sobre el torneo para poder editar más cosas
+- [x] hacer algo para que se pueda dar por iniciada una categoría y ya no se pueda editar más y lo mismo para cerrar y lo mismo para dar por finalizado un torneo 
+- [x] Implementar horarios de comienzo de categorías
 - [x] Implementar algo para cdo el jugador no se presentó.
 - [x] que al hacer click en la cara del jugador se abra la foto un poquito más grande y que al hacer click en su nombre te mande a su perfil por más que seas jugador (obviamente el jugador no puede editar ese perfil pero el admin sí), y en ese caso si sos jguador y estas viendo el perfil de otro jugador que haya un boton que diga Ver Historial contra este jugador que al clickearlo te mande al historial ya habinedo seleccionado ambos jugadores ) 
 - [ ] Bugs a arreglar
