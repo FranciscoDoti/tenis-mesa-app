@@ -24,6 +24,7 @@
 - [x] hacer algo para que se pueda dar por iniciada una categoría y ya no se pueda editar más y lo mismo para cerrar y lo mismo para dar por finalizado un torneo 
 - [x] Implementar horarios de comienzo de categorías
 - [x] Implementar algo para cdo el jugador no se presentó.
+- [ ] los singles tambien debería poder agregarselé regla de inscripción por género y que esas reglas efectivamente funcionen a la hora de inscribirse
 - [x] que al hacer click en la cara del jugador se abra la foto un poquito más grande y que al hacer click en su nombre te mande a su perfil por más que seas jugador (obviamente el jugador no puede editar ese perfil pero el admin sí), y en ese caso si sos jguador y estas viendo el perfil de otro jugador que haya un boton que diga Ver Historial contra este jugador que al clickearlo te mande al historial ya habinedo seleccionado ambos jugadores ) 
 - [ ] Bugs a arreglar
     - [x]  A veces el menú lateral se carga como topbar en celulares
