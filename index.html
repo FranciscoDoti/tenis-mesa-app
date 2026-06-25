@@ -16,6 +16,7 @@
 </head>
 <body>
   <header class="topbar">
+    <button class="menu-btn" id="menuBtn" onclick="toggleDrawer()" aria-label="Abrir menú" hidden>☰</button>
     <div class="brand">
       <!-- inline logo: paddle + ball (se reemplaza por el emoji si el admin lo personaliza) -->
       <svg class="logo logo-svg" viewBox="0 0 64 64" aria-hidden="true">
@@ -32,6 +33,11 @@
         <span>Dina Huapi &amp; Bariloche</span>
       </div>
     </div>
+  </header>
+
+  <!-- menú lateral (drawer) -->
+  <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Menú">
     <nav class="nav" id="nav" hidden>
       <button data-view="ranking" class="nav-btn active">🏆 Ranking</button>
       <button data-view="torneos" class="nav-btn">📅 Torneos</button>
@@ -44,7 +50,7 @@
       <button data-view="settings" class="nav-btn admin-only">⚙️ Ajustes</button>
     </nav>
     <div class="user-area" id="userArea"></div>
-  </header>
+  </aside>
 
   <main id="app"></main>
 

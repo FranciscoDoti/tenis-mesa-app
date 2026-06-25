@@ -33,14 +33,28 @@ body{
 .brand-text{display:flex; flex-direction:column; line-height:1.1}
 .brand-text strong{font-size:18px; letter-spacing:.3px}
 .brand-text span{font-size:12px; opacity:.85}
-.nav{display:flex; gap:6px; margin-left:8px; flex-wrap:wrap}
-.nav[hidden]{display:none}  /* respetar el atributo hidden (display:flex lo pisaba) */
+/* botón hamburguesa en la topbar */
+.menu-btn{flex:0 0 auto; width:42px; height:42px; border:0; border-radius:10px; cursor:pointer; font-size:22px; line-height:1; background:rgba(255,255,255,.15); color:#fff}
+.menu-btn[hidden]{display:none}
+.menu-btn:hover{background:rgba(255,255,255,.28)}
+
+/* menú lateral (drawer) */
+.drawer{position:fixed; top:0; left:0; height:100%; width:280px; max-width:85vw; z-index:60;
+  background:var(--card); box-shadow:2px 0 18px rgba(0,0,0,.18); padding:16px 12px;
+  display:flex; flex-direction:column; overflow-y:auto;
+  transform:translateX(-100%); transition:transform .22s ease;}
+.drawer.open{transform:none}
+.drawer-overlay{position:fixed; inset:0; background:rgba(15,25,20,.45); z-index:55}
+.drawer-overlay[hidden]{display:none}
+
+.nav{display:flex; flex-direction:column; gap:4px}
+.nav[hidden]{display:none}
 .nav-btn{
-  background:rgba(255,255,255,.12); color:#fff; border:0; cursor:pointer;
-  padding:9px 14px; border-radius:999px; font-size:14px; font-weight:600;
-  transition:background .15s, transform .05s;
+  background:transparent; color:var(--ink); border:0; cursor:pointer; width:100%; text-align:left;
+  padding:11px 14px; border-radius:10px; font-size:15px; font-weight:600;
+  display:flex; align-items:center; gap:8px; transition:background .15s;
 }
-.nav-btn:hover{background:rgba(255,255,255,.24)}
+.nav-btn:hover{background:#eef1f4}
 .nav-btn.active{background:var(--ball); color:#3a1a00}
 .navcount{display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#e5484d; color:#fff; font-size:11px; font-weight:800; margin-left:2px}
 .you-tag{background:var(--ball); color:#3a1a00; font-size:10px; font-weight:800; padding:1px 7px; border-radius:999px; margin-left:6px; vertical-align:middle}
@@ -50,7 +64,9 @@ body{
 .photo-pick{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:4px}
 .photo-btn{margin:0; cursor:pointer}
 .photo-btn input{display:none}
-.user-area{margin-left:auto; display:flex; align-items:center; gap:10px; font-size:14px}
+.user-area{margin-top:auto; display:flex; flex-direction:column; align-items:stretch; gap:8px; font-size:14px; padding-top:12px; border-top:1px solid var(--line)}
+.user-area .chip{text-align:center}
+.user-area:empty{display:none}
 .chip{background:rgba(255,255,255,.15); padding:5px 12px; border-radius:999px; font-weight:600}
 .chip.admin{background:var(--ball); color:#3a1a00}
 
@@ -346,15 +362,10 @@ html{-webkit-text-size-adjust:100%}
   main{padding:16px 12px 32px}
   .grid2{grid-template-columns:1fr}
 
-  /* topbar: marca + usuario en una fila, nav scrolleable abajo (estilo app) */
-  .topbar{flex-wrap:wrap; gap:10px; padding:10px 14px}
-  .brand{order:1}
+  /* topbar compacta (el menú ahora es lateral) */
+  .topbar{gap:10px; padding:10px 14px}
   .logo{width:40px; height:40px}
   .brand-text strong{font-size:16px}
-  .user-area{order:2; width:auto; margin-left:auto; font-size:13px}
-  .nav{order:3; width:100%; margin-left:0; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:6px; padding-bottom:2px; scrollbar-width:none}
-  .nav::-webkit-scrollbar{display:none}
-  .nav-btn{flex:0 0 auto; padding:8px 13px; font-size:13px}
 
   /* títulos y secciones */
   .page-title h1{font-size:20px}
@@ -393,6 +404,5 @@ html{-webkit-text-size-adjust:100%}
 @media (max-width:380px){
   .cards{grid-template-columns:1fr}
   .gym-cards{grid-template-columns:1fr}
-  .nav-btn{padding:8px 11px; font-size:12px}
   .btn{padding:9px 13px}
 }
