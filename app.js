@@ -451,6 +451,37 @@ function myPaymentStatus(cat) {
   if (catCost(cat) <= 0) return null;          // sin costo → nada que pagar
   return { paid: !!e.paid, cost: catCost(cat) };
 }
+// ¿La categoría ya arrancó? (se largó al menos una mesa: zona, llave, 3er puesto o partido individual)
+function catStarted(cat) {
+  if (cat.zoneTable && Object.keys(cat.zoneTable).some(k => cat.zoneTable[k] != null)) return true;
+  if (cat.bracket && cat.bracket.some(round => round.some(m => m && m.table != null))) return true;
+  if (cat.thirdPlace && cat.thirdPlace.table != null) return true;
+  if ((cat.matches || []).some(m => m.table != null)) return true;
+  return false;
+}
+// Popup de recordatorio de pago: se muestra una vez al iniciar sesión o recargar, si el jugador
+// tiene inscripciones impagas. Marca las categorías que ya empezaron (primera mesa largada).
+let _payReminderDone = false;
+function maybePaymentReminder() { if (_payReminderDone) return; _payReminderDone = true; paymentReminder(); }
+function paymentReminder() {
+  const u = currentUser(), myId = u && u.playerId; if (!myId) return;
+  const owed = [];
+  (DB.tournaments || []).forEach(t => (t.categorias || []).forEach(c => {
+    if (catCost(c) <= 0) return;
+    const e = entrantOfPlayer(c, myId); if (!e || e.paid) return;
+    owed.push({ tour: t.name, cat: c.name, cost: catCost(c), started: catStarted(c) });
+  }));
+  if (!owed.length) return;
+  owed.sort((a, b) => (b.started ? 1 : 0) - (a.started ? 1 : 0)); // primero las que ya empezaron
+  const total = owed.reduce((s, o) => s + o.cost, 0);
+  const rows = owed.map(o => `<div class="report-row"><span>${esc(o.cat)} <span class="muted">· ${esc(o.tour)}</span>${o.started ? ' <span class="wo-tag">ya empezó</span>' : ''}</span><span class="pay-tag no">${money(o.cost)}</span></div>`).join('');
+  const anyStarted = owed.some(o => o.started);
+  openModal(`<h3>💲 Tenés inscripciones sin pagar</h3>
+    <p class="muted" style="margin:0 0 12px">Acercate a pagar ${owed.length === 1 ? 'esta inscripción' : 'estas inscripciones'}${anyStarted ? ' — ⚠️ algunas categorías <b>ya empezaron</b>' : ''}:</p>
+    <div>${rows}</div>
+    <div class="report-row" style="border-top:2px solid var(--line);font-weight:800;margin-top:4px"><span>Total</span><span>${money(total)}</span></div>
+    <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn btn-primary" onclick="closeModal()">Entendido</button></div>`);
+}
 function entName(cat, id) {
   if (id === 'BYE') return 'BYE'; if (!id) return '—';
   const e = entById(cat, id); if (!e) return '—';
@@ -626,7 +657,7 @@ async function doLogin() {
   }
   const f = DB.users.find(x => x.username === $('#lu').value.trim() && x.password === $('#lp').value);
   if (!f) { e.hidden = false; e.textContent = 'Usuario o contraseña incorrectos.'; return; }
-  setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null }); view = 'ranking'; render();
+  setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null }); view = 'ranking'; render(); maybePaymentReminder();
 }
 function setAuthMode(m) { authMode = m; render(); }
 function renderForgot(app) {
@@ -725,7 +756,7 @@ async function doRegister() {
   setUser({ username: user, role: 'player', name: fullName(player), playerId: player.id });
   authMode = 'login'; view = 'perfil'; render();
 }
-function logout() { authMode = 'login'; view = 'ranking'; if (FB()) { window.STORE.signOut(); } else { setUser(null); render(); } }
+function logout() { _payReminderDone = false; authMode = 'login'; view = 'ranking'; if (FB()) { window.STORE.signOut(); } else { setUser(null); render(); } }
 
 /* ---------- ranking ---------- */
 function renderRanking(app) {
@@ -2559,7 +2590,7 @@ async function ensureData() {
 async function boot() {
   applyCachedTheme(); // pinta el tema publicado al instante (sirve para el login, antes de autenticar)
   if (!FB()) { // modo local (sin Firebase configurado): comportamiento de siempre
-    DB = load(); applyMigrations(); runDataMigrations(); save(DB); render(); return;
+    DB = load(); applyMigrations(); runDataMigrations(); save(DB); render(); maybePaymentReminder(); return;
   }
   render(); // login / cargando mientras resuelve la sesión
   // Traer el tema publicado SIN login para pintar la apariencia actual en la pantalla de inicio
@@ -2583,6 +2614,7 @@ async function boot() {
     } else { _session = null; }
     _authReady = true;   // recién acá: ya está la sesión resuelta (evita flash de login durante los await)
     render();
+    if (fbUser) maybePaymentReminder(); // recordatorio de pago al iniciar sesión / recargar
   });
 }
 boot();
