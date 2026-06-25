@@ -5,3 +5,4 @@ desktop.ini
 *-debug.log
 .firebase/
 node_modules/
+serviceAccountKey.json

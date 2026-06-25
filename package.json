@@ -1,0 +1,23 @@
+{
+  "name": "tenis-mesa-app",
+  "version": "1.0.0",
+  "description": "App web para administrar el tenis de mesa local: ranking por categorías, jugadores, torneos con reglas y armado automático de grupos. Roles **administrador** (gestiona todo) y **jugador** (solo ve).",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://FranciscoDoti@github.com/FranciscoDoti/tenis-mesa-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/FranciscoDoti/tenis-mesa-app/issues"
+  },
+  "homepage": "https://github.com/FranciscoDoti/tenis-mesa-app#readme",
+  "dependencies": {
+    "firebase-admin": "^14.1.0"
+  }
+}
