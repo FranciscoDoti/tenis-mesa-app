@@ -5,7 +5,7 @@
 - [x] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
 - [x] Implementar el sistema que sugiera qué mesas y zonas largar .
   - [x] agregar un link en la setting para una página o un tooltip donde explique cómo funciona esta funcionalidad
-  - [ ] que avise qué jugadores están involucrados en cada mesa o partido de llave
+  - [x] que avise qué jugadores están involucrados en cada mesa o partido de llave
 - [x] Reformular el largado de mesas actual para hacerlo por zona y despues individual por llave
 - [ ] Implementar las otras dos configuraciones que figuran en **Settings**.
 - [x] Implementar un reglamento editable con opción de **publicar / despublicar**.
