@@ -58,6 +58,7 @@
   let _last = { players: {}, gyms: {}, tournaments: {}, news: {} };
   STORE.primeLast = function (data) {
     BLOBS.forEach(c => { _last[c] = {}; (data[c] || []).forEach(o => { _last[c][o.id] = JSON.stringify(strip(o)); }); });
+    _last.__settings = data.settings ? JSON.stringify(strip(data.settings)) : null;
   };
   // Escribe solo lo que cambió y borra lo que ya no está.
   STORE.sync = async function (data) {
@@ -68,7 +69,8 @@
       Object.keys(_last[c]).forEach(id => { if (!(id in cur)) ops.push(db.collection(c).doc(id).delete()); });
       _last[c] = cur;
     });
-    if (data.settings) ops.push(db.doc('app/settings').set({ j: JSON.stringify(strip(data.settings)) }));
+    // Ajustes: escribir SOLO si cambiaron (si no, un colaborador/jugador chocaría con la regla admin-only).
+    if (data.settings) { const s = JSON.stringify(strip(data.settings)); if (s !== _last.__settings) { ops.push(db.doc('app/settings').set({ j: s })); _last.__settings = s; } }
     return Promise.all(ops).catch(e => console.error('sync', e));
   };
 
