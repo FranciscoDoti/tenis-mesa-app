@@ -461,6 +461,7 @@ let rankOpen = new Set(['1ra']); // qué categorías del ranking están desplega
 let tournSearch = ''; // texto del buscador de torneos antiguos
 let authMode = 'login'; // 'login' | 'register' en la pantalla inicial
 let loginNote = '';     // aviso a mostrar en el login (ej. tras registrarse)
+let _authReady = false; // (Firebase) si ya resolvió el primer onAuthStateChanged
 
 function renderChrome() {
   const u = currentUser();
@@ -482,6 +483,8 @@ function render() {
   renderChrome();
   applyTheme();
   const app = $('#app');
+  // En modo Firebase, mientras no resolvió el estado de sesión, mostrar "cargando" (evita el flash al login).
+  if (FB() && !_authReady) return renderSplash(app);
   if (!currentUser()) return renderLogin(app);
   if (view === 'ranking') return renderRanking(app);
   if (view === 'jugadores') return isAdmin() ? renderPlayers(app) : renderRanking(app);
@@ -510,6 +513,9 @@ function toggleCityOther(sel) { const w = $('#' + sel + '_otherwrap'); if (w) w.
 function readCityField(sel) { const v = $('#' + sel).value; return v === 'Otra' ? (($('#' + sel + '_other').value || '').trim().slice(0, 100)) : v; }
 
 /* ---------- login / registro ---------- */
+function renderSplash(app) {
+  app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><p class="page-sub" style="margin-top:10px">Cargando…</p></div>`;
+}
 function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
   if (authMode === 'forgot') return renderForgot(app);
@@ -1993,6 +1999,7 @@ async function boot() {
   }
   window.STORE.onAuth(async (fbUser) => {
     if (window.__registering) return; // el alta maneja su propia sesión/render
+    _authReady = true;                // ya sabemos si hay sesión o no
     if (fbUser) {
       const ud = await window.STORE.getUserDoc(fbUser.uid);
       _session = ud
