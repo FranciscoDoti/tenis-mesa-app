@@ -240,6 +240,8 @@ ul.awarded li:last-child{border-bottom:0}
 .elo-up{color:#0a7d2c; font-weight:800; font-size:12px}
 .elo-down{color:#c1121f; font-weight:800; font-size:12px}
 .br-elo{padding:5px 9px; border-top:1px solid var(--line); display:flex; justify-content:center; gap:6px}
+.est-time{flex:0 0 auto; font-size:11.5px; font-weight:700; color:var(--table-dark); background:#eef4f0; border-radius:999px; padding:1px 8px; white-space:nowrap}
+.br-est{padding:5px 9px; border-top:1px solid var(--line); display:flex; justify-content:center}
 .catgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:6px}
 .catchk{display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; font-weight:600; font-size:13px; cursor:pointer}
 .catchk:hover{background:#f7f9fb}

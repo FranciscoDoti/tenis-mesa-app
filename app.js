@@ -1301,7 +1301,7 @@ function renderSettings(app) {
         'Permitir cobrar la inscripción a los torneos al anotarse. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
         s.paymentsEnabled, 'togglePayments')}
       ${settingRow('🕒 Horarios estimados de partidos',
-        'Calcular y mostrar un horario aproximado para cada partido del torneo. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
+        'Muestra una hora aproximada de comienzo de cada partido, estimada según la hora actual, el horario de cada categoría, la duración por cantidad de sets, las mesas disponibles y cómo vienen los partidos (con un margen de seguridad). Es una estimación.',
         s.matchTimeEstimates, 'toggleMatchTimes')}
       ${settingRow('📰 Noticias',
         'Habilitar la sección de Noticias del club. Si la apagás, desaparece del menú para todos.',
@@ -2051,6 +2051,66 @@ function suggestPanelHtml(t) {
   return html + `</div>`;
 }
 
+/* ---------- horario estimado de comienzo de cada partido (si la setting está activa) ---------- */
+// Parámetros (se pueden afinar a medida que aprendemos): minutos por set, recambio entre partidos y buffer mostrado.
+const EST_SET_MIN = 7, EST_TURNAROUND_MIN = 4, EST_BUFFER_MIN = 5;
+// Sets esperados según "al mejor de N": llegar a N/2+1, más algo de los sets parejos extra.
+function expectedSets(bestOf) { const need = Math.ceil(bestOf / 2); return need + (need - 1) * 0.5; }
+const matchMinutes = (cat, m) => Math.round(expectedSets(bestOfOf(m, cat)) * EST_SET_MIN) + EST_TURNAROUND_MIN;
+// Unidades para simular el cronograma (zonas y partidos), con sus partidos pendientes en orden.
+function scheduleUnits(t) {
+  const units = [];
+  t.categorias.forEach(cat => {
+    cat._tid = t.id;
+    const prio = catClassPriority(cat), startMs = startAtMs(cat);
+    (cat.groups || []).forEach((g, gi) => {
+      const ms = (cat.matches || []).filter(m => m.g === gi && !m.postponed && !matchDone(m, cat));
+      if (!ms.length) return;
+      const tbl = cat.zoneTable && cat.zoneTable[gi] != null ? cat.zoneTable[gi] : null;
+      units.push({ kind: 'zone', cat, table: tbl, matches: ms, players: zonePlayers(cat, gi), prio, startMs });
+    });
+    if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
+      if (matchDone(mm, cat)) return;
+      const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
+      if (!(a && b && a !== 'BYE' && b !== 'BYE')) return; // contendientes sin definir → no estimamos
+      units.push({ kind: 'match', cat, table: mm.table != null ? mm.table : null, matches: [mm], players: matchPlayers(cat, a, b), prio, startMs });
+    }));
+    if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'match', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, matches: [cat.thirdPlace], players: matchPlayers(cat, a, b), prio, startMs }); }
+    (cat.matches || []).forEach(m => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'match', cat, table: m.table != null ? m.table : null, matches: [m], players: matchPlayers(cat, m.a, m.b), prio, startMs }); });
+  });
+  return units;
+}
+// Simula el cronograma y devuelve un Map(partido → hora estimada de comienzo en ms).
+function estimateSchedule(t) {
+  const map = new Map(), now = Date.now(), n = tableCountOf(t);
+  const tableFree = {}; for (let i = 1; i <= n; i++) tableFree[i] = now;
+  const playerFree = {};
+  const playersReadyAt = set => { let mx = now; set.forEach(p => { if ((playerFree[p] || now) > mx) mx = playerFree[p] || now; }); return mx; };
+  const busyUntil = (set, until) => set.forEach(p => { if (until > (playerFree[p] || 0)) playerFree[p] = until; });
+  const dur = (cat, m) => matchMinutes(cat, m) * 60000;
+  const earliest = cat => { const s = cat.startAt ? (new Date(cat.startAt).getTime() || 0) : 0; return Math.max(now, s); }; // respeta el horario (si pasó, es "ahora")
+  const place = (u, table) => {
+    let clock = Math.max(tableFree[table] || now, earliest(u.cat), playersReadyAt(u.players));
+    u.matches.forEach(m => { map.set(m, clock); const end = clock + dur(u.cat, m); busyUntil(u.players, end); clock = end; });
+    tableFree[table] = Math.max(tableFree[table] || now, clock);
+  };
+  const units = scheduleUnits(t);
+  units.filter(u => u.table != null).forEach(u => place(u, u.table)); // zonas/partidos ya largados (ocupan su mesa)
+  const waiting = units.filter(u => u.table == null)
+    .sort((a, b) => (a.kind === 'zone' ? 0 : 1) - (b.kind === 'zone' ? 0 : 1) || a.prio - b.prio || a.startMs - b.startMs);
+  waiting.forEach(u => { let bt = 1; for (let i = 2; i <= n; i++) if ((tableFree[i] || now) < (tableFree[bt] || now)) bt = i; place(u, bt); });
+  return map;
+}
+let _est = null; // Map de horarios estimados, calculado al renderizar la categoría/torneo
+function estStartLabel(m) {
+  if (!_est || !(DB.settings && DB.settings.matchTimeEstimates)) return '';
+  const ms = _est.get(m); if (ms == null) return '';
+  const t = ms + EST_BUFFER_MIN * 60000;
+  if (t <= Date.now() + 90000) return `<span class="est-time" title="Horario estimado (aprox.)">🕒 ~ahora</span>`;
+  const d = new Date(Math.ceil(t / 300000) * 300000); // redondeo hacia arriba a 5 min (buffer extra)
+  return `<span class="est-time" title="Horario estimado de comienzo (aprox.)">🕒 ~${d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>`;
+}
+
 function renderTournament(app, tid) {
   const t = tById(tid); if (!t) { app.innerHTML = '<div class="empty">No encontrado.</div>'; return; }
   if (!t.published && !isAdmin()) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
@@ -2211,6 +2271,7 @@ function renderCategoria(app, tid, cid) {
   const t = tById(tid), cat = getCat(tid, cid);
   if (!cat) { app.innerHTML = '<div class="empty">No encontrada.</div>'; return; }
   cat._tid = tid; // para los onclick de grupos/llave
+  _est = (DB.settings && DB.settings.matchTimeEstimates && t) ? estimateSchedule(t) : null; // horarios estimados (todo el torneo)
   let html = `<button class="btn btn-ghost btn-sm" onclick="go('torneo:${tid}')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(cat.name)}</h1></div>`;
   const enr = enrollmentStatus(cat);
@@ -2458,7 +2519,7 @@ function groupCardHtml(cat, gi) {
       <span class="${w === 'b' ? 'win' : ''}">${esc(entName(cat, m.b))}</span>
       ${canEditCat(cat) ? resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️') : ''}
       ${canEditCat(cat) && !done ? noShowBtn(cat, 'group', idx, null, null) : ''}
-      ${done ? eloLabel(cat, m, m.a, m.b) : ''}
+      ${done ? eloLabel(cat, m, m.a, m.b) : estStartLabel(m)}
       ${ctl ? `<div class="bmatch-mesa">${ctl}</div>` : ''}</div>`;
   }).join('');
   const zc = zoneControl(cat, gi);
@@ -2503,7 +2564,7 @@ function bracketHtml(cat) {
       const can = canEditCat(cat) && playable;
       const mesa = (playable && !done) ? startControl(cat, 'bracket', null, r, m, mm) : '';
       return `<div class="br-match">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
-        ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : ''}
+        ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : (playable && !done && estStartLabel(mm) ? `<div class="br-est">${estStartLabel(mm)}</div>` : '')}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
         ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}
         ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','bracket',null,${r},${m})" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div>`;
@@ -2516,7 +2577,7 @@ function bracketHtml(cat) {
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
     extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">
       ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
-      ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : ''}
+      ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : (playable && !done && estStartLabel(cat.thirdPlace) ? `<div class="br-est">${estStartLabel(cat.thirdPlace)}</div>` : '')}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
       ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}
       ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','third',null,null,null)" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div></div>`;
