@@ -13,8 +13,8 @@
   - [ ] Reporte de jugadores que no pagaron.
   - [ ] Otros reportes útiles para la organización.
 - [ ] Mostrar una notificación al usuario cuando tenga una inscripción pendiente de pago.
-- [ ] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
-- [ ] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
+- [x] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
+- [x] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
 - [ ] Implementar un sistema de ranking para Dobles
 - [x] hacer que los colaboradores puedan tener más control sobre el torneo para poder editar más cosas
