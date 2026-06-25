@@ -230,6 +230,14 @@ function migrateSeedData() {
   DB._seedDataVer = VER;
   return 1;
 }
+// Organizaciones y escuelas por defecto (ids estables para referenciarlos desde users/players/torneos).
+function defaultOrgs() {
+  return [
+    { id: 'org_byd', name: 'Bariloche&DinaHuapi', schools: [{ id: 'sch_bari', name: 'Bariloche', logo: '🏔️' }, { id: 'sch_dina', name: 'Dina', logo: '🌊' }] },
+    { id: 'org_otra', name: 'Otra', schools: [{ id: 'sch_otra', name: 'General', logo: '🏓' }] },
+  ];
+}
+const DEFAULT_SCHOOL_LOGO = '🏫';
 function seed() {
   const NAMES = [
     ['Sabrina', 'Bodnar', '1ra', 'Bariloche', '2001-03-14'],
@@ -246,7 +254,8 @@ function seed() {
     ['Ignacio', 'Asenjo', '4ta', 'Bariloche', '1966-12-12'],
   ];
   const players = NAMES.map(([firstName, lastName, category, city, dob]) => ({
-    id: uid('p_'), firstName, lastName, dob, city, category, points: 0, photo: null,
+    id: uid('p_'), firstName, lastName, dob, city, category, points: 0, openPoints: 0, photo: null,
+    orgId: 'org_byd', schoolId: city === 'Dina Huapi' ? 'sch_dina' : 'sch_bari', // escuela por localidad
   }));
   const mkCat = (name, format, extra = {}) => ({
     id: uid('c_'), name, format, rule: catalogRule(name), rules: { sets: 5, groupMin: 3, groupMax: 4 },
@@ -256,14 +265,18 @@ function seed() {
   mayores.entrants = players.slice(0, 8).map(p => ({ id: uid('e_'), players: [p.id] })); // listo para correr la demo
   const gyms = defaultGyms();
   const db = {
+    orgs: defaultOrgs(),
     players, gyms,
     tournaments: [{
       id: uid('t_'), name: 'Apertura Patagónico 2026', date: '2026-07-11', dateEnd: '2026-07-12', gymId: gyms[0].id,
+      orgId: 'org_byd', schoolId: 'sch_bari', open: true, // abierto a toda la organización
       categorias: [mayores, mkCat('Tercera', 'single'), mkCat('Sub 15', 'single'), mkCat('Maxi 40', 'single')],
     }],
     users: [
-      { username: 'admin', password: 'admin', role: 'admin', name: 'Administrador' },
-      { username: 'jugador', password: 'jugador', role: 'player', name: 'Jugador' },
+      { username: 'admin', password: 'admin', role: 'superadmin', name: 'Super Admin' },
+      { username: 'adminBari', password: 'adminBari', role: 'admin', name: 'Admin Bariloche', orgId: 'org_byd', schoolId: 'sch_bari' },
+      { username: 'adminDina', password: 'adminDina', role: 'admin', name: 'Admin Dina', orgId: 'org_byd', schoolId: 'sch_dina' },
+      { username: 'jugador', password: 'jugador', role: 'player', name: 'Jugador', orgId: 'org_byd', schoolId: 'sch_bari' },
     ],
   };
   save(db); return db;
@@ -353,10 +366,11 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, theme: DEFAULT_THEME };
 // Borrador de tema mientras el admin edita Apariencia (null = sin cambios pendientes).
 // La vista previa usa el borrador; el sitio recién cambia para todos al "Publicar".
 let themeDraft = null;
+let schoolDraft = null; // edits pendientes de escuelas (nombre/logo) en Apariencia: { [schoolId]: {orgId, name, logo} }
 // Aclara/oscurece un color hex (amt en [-1,1]) — usado para derivar --table-dark.
 function shadeHex(hex, amt) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) return hex;
@@ -417,6 +431,18 @@ let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], settings
 function applyMigrations() {
   if (!DB.gyms) DB.gyms = defaultGyms();
   if (!DB.news) DB.news = [];
+  // Organizaciones / escuelas (sistema multi-org). Datos viejos → Bariloche&DinaHuapi / escuela por localidad.
+  if (!Array.isArray(DB.orgs) || !DB.orgs.length) DB.orgs = defaultOrgs();
+  // logo por escuela (emoji por defecto si falta) + acumulador de puntos en torneos abiertos
+  DB.orgs.forEach(o => (o.schools || []).forEach(s => { if (!s.logo) s.logo = DEFAULT_SCHOOL_LOGO; }));
+  (DB.players || []).forEach(p => { if (!p.orgId) p.orgId = 'org_byd'; if (!p.schoolId) p.schoolId = (p.city === 'Dina Huapi' ? 'sch_dina' : 'sch_bari'); if (typeof p.openPoints !== 'number') p.openPoints = 0; });
+  (DB.tournaments || []).forEach(t => { if (!t.orgId) t.orgId = 'org_byd'; if (!t.schoolId) t.schoolId = 'sch_bari'; if (typeof t.open !== 'boolean') t.open = true; });
+  (DB.users || []).forEach(u => { if (u.role === 'admin' && !u.orgId && !u.schoolId) u.role = 'superadmin'; }); // admin viejo (global) → superadmin
+  if (!FB()) { // en modo local, asegurar los admins de escuela
+    const ensureAdmin = (username, name, schoolId) => { if (!(DB.users || []).some(u => u.username === username)) (DB.users = DB.users || []).push({ username, password: username, role: 'admin', name, orgId: 'org_byd', schoolId }); };
+    ensureAdmin('adminBari', 'Admin Bariloche', 'sch_bari');
+    ensureAdmin('adminDina', 'Admin Dina', 'sch_dina');
+  }
   if (!DB.settings) DB.settings = {};
   // completa ajustes faltantes sin pisar los ya configurados
   Object.keys(DEFAULT_SETTINGS).forEach(k => { if (DB.settings[k] === undefined) DB.settings[k] = DEFAULT_SETTINGS[k]; });
@@ -452,7 +478,47 @@ const tableCountOf = t => (t && t.tableCount != null) ? t.tableCount : 4;
 let _session = null; // sesión en memoria (modo Firebase)
 const currentUser = () => { if (FB()) return _session; try { return JSON.parse(sessionStorage.getItem('ttuser')); } catch (e) { return null; } };
 const setUser = u => { if (FB()) { _session = u; } else if (u) sessionStorage.setItem('ttuser', JSON.stringify(u)); else sessionStorage.removeItem('ttuser'); };
-const isAdmin = () => { const u = currentUser(); return u && u.role === 'admin'; };
+// Modo local: la sesión guarda rol/escuela al ingresar; si la BD cambió (ej. migración admin→superadmin),
+// refrescamos esos datos para que no quede una sesión "vieja" con permisos desactualizados.
+function reconcileLocalSession() {
+  if (FB()) return;
+  const u = currentUser(); if (!u || !u.username) return;
+  const rec = (DB.users || []).find(x => x.username === u.username); if (!rec) return;
+  const fresh = { username: rec.username, role: rec.role, name: rec.name, playerId: rec.playerId || null, orgId: rec.orgId || null, schoolId: rec.schoolId || null };
+  if (JSON.stringify(fresh) !== JSON.stringify({ username: u.username, role: u.role, name: u.name, playerId: u.playerId || null, orgId: u.orgId || null, schoolId: u.schoolId || null })) setUser(fresh);
+}
+// Roles: superadmin (edita todo), admin (de una escuela), player.
+const isSuperadmin = () => { const u = currentUser(); return !!(u && u.role === 'superadmin'); };
+const isSchoolAdmin = () => { const u = currentUser(); return !!(u && u.role === 'admin'); };
+const isAdmin = () => { const u = currentUser(); return !!(u && (u.role === 'admin' || u.role === 'superadmin')); }; // "puede administrar"
+// ---- organizaciones / escuelas ----
+const orgById = id => (DB.orgs || []).find(o => o.id === id) || null;
+const schoolById = (orgId, schoolId) => { const o = orgById(orgId); return o ? (o.schools || []).find(s => s.id === schoolId) || null : null; };
+const orgName = id => { const o = orgById(id); return o ? o.name : '—'; };
+const schoolName = (orgId, schoolId) => { const s = schoolById(orgId, schoolId); return s ? s.name : '—'; };
+const schoolLogo = (orgId, schoolId) => { const s = schoolById(orgId, schoolId); return (s && s.logo) || DEFAULT_SCHOOL_LOGO; };
+// Marca visual del logo (emoji o imagen) — círculo chiquito bajo la foto del jugador.
+function schoolBadgeHtml(p) {
+  if (!p || !p.schoolId) return '';
+  const logo = schoolLogo(p.orgId, p.schoolId), title = esc(schoolName(p.orgId, p.schoolId));
+  const inner = /^(data:|https?:)/.test(logo) ? `<img src="${logo}" alt=""/>` : esc(logo);
+  return `<span class="school-badge" title="${title}">${inner}</span>`;
+}
+// Jugadores del contexto: de una escuela / de toda la organización (sin pendientes salvo que se pida).
+const playersOfSchool = (schoolId, orgId) => (DB.players || []).filter(p => !p.pending && p.schoolId === schoolId && (!orgId || p.orgId === orgId));
+const playersOfOrg = orgId => (DB.players || []).filter(p => !p.pending && p.orgId === orgId);
+// ¿El jugador puede inscribirse en este torneo? Abierto → toda la org; cerrado → solo su escuela.
+function inTournamentScope(t, p) { if (!t || !p) return true; if (t.orgId && p.orgId !== t.orgId) return false; return t.open ? true : p.schoolId === t.schoolId; }
+function tournamentPool(t) { return t ? (t.open ? playersOfOrg(t.orgId) : playersOfSchool(t.schoolId, t.orgId)) : (DB.players || []).filter(p => !p.pending); }
+// Contexto activo (org/escuela que se está viendo/administrando). El superadmin lo elige; admin/player = el suyo.
+let _ctxOrg = null, _ctxSchool = null;
+function ctxOrgId() { const u = currentUser(); if (!u) return null; if (u.role === 'superadmin') return _ctxOrg || ((DB.orgs[0] || {}).id || null); return u.orgId || null; }
+function ctxSchoolId() { const u = currentUser(); if (!u) return null; if (u.role === 'superadmin') { const o = orgById(ctxOrgId()); return _ctxSchool || (o && o.schools[0] ? o.schools[0].id : null); } return u.schoolId || null; }
+function setCtx(orgId, schoolId) { _ctxOrg = orgId || null; const o = orgById(_ctxOrg); _ctxSchool = (schoolId && schoolById(_ctxOrg, schoolId)) ? schoolId : (o && o.schools[0] ? o.schools[0].id : null); render(); }
+// Selectores org/escuela reutilizables (la escuela se actualiza al cambiar la org).
+const orgSelectHtml = (id, sel, onchange) => `<select id="${id}"${onchange ? ` onchange="${onchange}"` : ''}>${(DB.orgs || []).map(o => `<option value="${o.id}" ${o.id === sel ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}</select>`;
+function schoolOptionsHtml(orgId, schoolId) { const o = orgById(orgId) || (DB.orgs || [])[0]; return (o ? o.schools : []).map(s => `<option value="${s.id}" ${s.id === schoolId ? 'selected' : ''}>${esc(s.name)}</option>`).join(''); }
+function syncSchoolOptions(orgSel, schoolSel) { const sel = $('#' + schoolSel); if (sel) sel.innerHTML = schoolOptionsHtml($('#' + orgSel).value, null); }
 // Colaborador de un torneo: jugador designado por el admin con permisos de edición sobre ese torneo.
 const isCollaboratorOf = t => { const u = currentUser(); return !!(u && u.playerId && t && (t.collaborators || []).includes(u.playerId)); };
 const canEditT = t => isAdmin() || isCollaboratorOf(t);          // permisos operativos sobre un torneo
@@ -517,11 +583,12 @@ function entName(cat, id) {
   return cat.format === 'double' ? ns.join(' / ') : ns[0];
 }
 function avatar(p, cls = 'avatar') {
+  const badge = schoolBadgeHtml(p);
   if (p && p.photo) {
     const clk = p.id ? ` avatar-clk" onclick="event.stopPropagation(); openPhoto('${p.id}')" title="Ver foto` : '';
-    return `<span class="${cls}${clk}"><img src="${p.photo}" alt=""/></span>`;
+    return `<span class="${cls}${clk}"><img src="${p.photo}" alt=""/>${badge}</span>`;
   }
-  return `<span class="${cls}">${esc(initials(p || { firstName: '?', lastName: '' })).toUpperCase()}</span>`;
+  return `<span class="${cls}">${esc(initials(p || { firstName: '?', lastName: '' })).toUpperCase()}${badge}</span>`;
 }
 // Lightbox: muestra la foto del jugador un poco más grande.
 function openPhoto(id) {
@@ -597,18 +664,37 @@ function renderChrome() {
   const mb = $('#menuBtn'); if (mb) mb.hidden = !u;   // hamburguesa solo logueado
   if (!u) closeDrawer();                               // sin sesión, drawer cerrado
   document.querySelectorAll('.admin-only').forEach(el => el.hidden = !isAdmin());
+  document.querySelectorAll('.superadmin-only').forEach(el => el.hidden = !isSuperadmin());
   document.querySelectorAll('.profile-only').forEach(el => el.hidden = !(u && u.playerId)); // Perfil solo para cuentas de jugador
   document.querySelectorAll('.news-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.news)); // Noticias solo si la feature está activa
   document.querySelectorAll('.doubles-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.doublesRanking)); // Ranking de dobles según feature
+  document.querySelectorAll('.schoolrank-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.schoolRanking)); // Ranking de escuelas: lo ven TODOS si el superadmin lo habilitó
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
   const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
-  if (altas) { const n = DB.players.filter(p => p.pending).length; altas.innerHTML = `🙋 Altas${n ? ` <span class="navcount">${n}</span>` : ''}`; }
-  $('#userArea').innerHTML = u ? `<span class="chip ${u.role === 'admin' ? 'admin' : ''}">${u.role === 'admin' ? '🛠️ ' : '🎾 '}${esc(u.name)}</span>
+  if (altas) { const n = scopedPending().length; altas.innerHTML = `🙋 Altas${n ? ` <span class="navcount">${n}</span>` : ''}`; }
+  renderCtxBar();
+  const chip = u ? (isSuperadmin() ? '👑 ' : u.role === 'admin' ? '🛠️ ' : '🎾 ') : '';
+  $('#userArea').innerHTML = u ? `<span class="chip ${isAdmin() ? 'admin' : ''}">${chip}${esc(u.name)}</span>
      <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>` : '';
   const approved = DB.players.filter(p => !p.pending).length;
   $('#storeInfo').textContent = `${approved} jugadores · ${DB.tournaments.length} torneos`;
 }
+// Barra de contexto: solo el superadmin elige qué org/escuela administra.
+function renderCtxBar() {
+  const el = $('#ctxBar'); if (!el) return;
+  if (!isSuperadmin()) { el.innerHTML = ''; return; }
+  const oid = ctxOrgId(), sid = ctxSchoolId();
+  el.innerHTML = `<div class="ctx-bar">
+    <div class="ctx-title">👑 Administrando</div>
+    ${orgSelectHtml('ctxOrg', oid, 'ctxPickOrg(this.value)')}
+    <select id="ctxSchool" onchange="ctxPickSchool(this.value)">${schoolOptionsHtml(oid, sid)}</select>
+  </div>`;
+}
+function ctxPickOrg(oid) { setCtx(oid); }
+function ctxPickSchool(sid) { setCtx(ctxOrgId(), sid); }
+// Solicitudes de alta (pendientes) del contexto actual (escuela del admin / seleccionada por superadmin).
+function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (DB.players || []).filter(p => p.pending && (!sid || (p.schoolId === sid && p.orgId === oid))); }
 function render() {
   renderChrome();
   applyTheme();
@@ -617,6 +703,8 @@ function render() {
   if (FB() && !_authReady) return renderSplash(app);
   if (!currentUser()) return renderLogin(app);
   if (view === 'ranking') return renderRanking(app);
+  if (view === 'orgrank') return renderOrgRanking(app);
+  if (view === 'schools') return DB.settings.schoolRanking ? renderSchoolRanking(app) : renderRanking(app);
   if (view === 'jugadores') return isAdmin() ? renderPlayers(app) : renderRanking(app);
   if (view === 'gimnasios') return isAdmin() ? renderGyms(app) : renderRanking(app);
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
@@ -687,7 +775,8 @@ async function doLogin() {
   }
   const f = DB.users.find(x => x.username === $('#lu').value.trim() && x.password === $('#lp').value);
   if (!f) { e.hidden = false; e.textContent = 'Usuario o contraseña incorrectos.'; return; }
-  setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null }); view = 'ranking'; render(); maybePaymentReminder();
+  _ctxOrg = null; _ctxSchool = null;
+  setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null, orgId: f.orgId || null, schoolId: f.schoolId || null }); view = 'ranking'; render(); maybePaymentReminder();
 }
 function setAuthMode(m) { authMode = m; render(); }
 function renderForgot(app) {
@@ -724,6 +813,8 @@ function renderRegister(app) {
         <div><label>Localidad</label>${cityFieldHtml('r_city', '')}</div>
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
         <div><label>Género</label>${genderField('r_gender', 'M')}</div>
+        <div><label>Organización</label>${orgSelectHtml('r_org', (DB.orgs[0] || {}).id, "syncSchoolOptions('r_org','r_school')")}</div>
+        <div><label>Escuela</label><select id="r_school">${schoolOptionsHtml((DB.orgs[0] || {}).id, null)}</select></div>
       </div>
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
       ${fb ? `<label>Usuario <span class="muted">(opcional, para ingresar sin el email)</span></label><input id="r_username" placeholder="ej: juanperez"/>` : ''}
@@ -756,8 +847,11 @@ async function doRegister() {
   if (pw1 !== pw2) return fail('Las contraseñas no coinciden.');
   const city = readCityField('r_city');
   if (!city) return fail('Indicá tu localidad.');
+  const orgId = ($('#r_org') && $('#r_org').value) || (DB.orgs[0] || {}).id;
+  const schoolId = ($('#r_school') && $('#r_school').value) || ((orgById(orgId) || {}).schools || [{}])[0].id;
+  if (!orgId || !schoolId) return fail('Elegí organización y escuela.');
   const photo = window.__rphoto ? window.__rphoto() : null;
-  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, gender: ($('#r_gender') && $('#r_gender').value) || guessGender(first), points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, gender: ($('#r_gender') && $('#r_gender').value) || guessGender(first), orgId, schoolId, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
   if (FB()) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cred)) return fail('Escribí un email válido (ej: nombre@gmail.com).');
     const uname = ($('#r_username') && $('#r_username').value.trim().toLowerCase()) || '';
@@ -767,7 +861,7 @@ async function doRegister() {
     try {
       const c = await window.STORE.signUp(cred, pw1);
       const uidv = c.user.uid;
-      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false, username: uname || null });
+      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false, username: uname || null, orgId, schoolId });
       await window.STORE.setPlayer(player);
       if (uname) { try { await window.STORE.setUsername(uname, { uid: uidv, email: cred }); } catch (e) {} }
       try { await window.STORE.sendVerification(); } catch (e) {}   // mail de verificación nativo
@@ -790,11 +884,12 @@ async function doRegister() {
 function logout() { _payReminderDone = false; authMode = 'login'; view = 'ranking'; if (FB()) { window.STORE.signOut(); } else { setUser(null); render(); } }
 
 /* ---------- ranking ---------- */
-function renderRanking(app) {
-  let html = `<div class="page-title"><h1>🏆 Ranking</h1></div><p class="page-sub">Tocá una categoría para ver u ocultar su ranking.</p><div class="rank-tiles">`;
+// Tiles de ranking por categoría a partir de un conjunto de jugadores dado.
+function rankingTilesHtml(basePlayers) {
+  let html = `<div class="rank-tiles">`;
   CATS.forEach(cat => {
     const open = rankOpen.has(cat);
-    const list = DB.players.filter(p => p.category === cat && !p.pending).sort((a, b) => b.points - a.points);
+    const list = basePlayers.filter(p => p.category === cat).sort((a, b) => b.points - a.points);
     html += `<div class="rank-tile${open ? ' open' : ''}">
       <button class="rank-tilehdr" onclick="rankToggle('${cat}')">
         <span class="cat-badge ${catClass(cat)}">${cat}</span>
@@ -811,8 +906,43 @@ function renderRanking(app) {
     }
     html += `</div>`;
   });
-  html += `</div>`;
-  app.innerHTML = html;
+  return html + `</div>`;
+}
+// Ranking intraescuela: solo los jugadores de la escuela del contexto. Cada escuela ve solo el suyo.
+function renderRanking(app) {
+  const oid = ctxOrgId(), sid = ctxSchoolId();
+  const list = playersOfSchool(sid, oid);
+  app.innerHTML = `<div class="page-title"><h1>🏆 Ranking · ${esc(schoolName(oid, sid))}</h1></div>
+    <p class="page-sub">Ranking de tu escuela (${esc(orgName(oid))}). Tocá una categoría para ver u ocultar su ranking.</p>
+    ${rankingTilesHtml(list)}`;
+}
+// Ranking general de la organización: todos los jugadores de la org.
+function renderOrgRanking(app) {
+  const oid = ctxOrgId();
+  const list = playersOfOrg(oid);
+  app.innerHTML = `<div class="page-title"><h1>🌐 Ranking general · ${esc(orgName(oid))}</h1></div>
+    <p class="page-sub">Todos los jugadores de la organización, sin importar la escuela. Tocá una categoría para verla.</p>
+    ${rankingTilesHtml(list)}`;
+}
+// Ranking de escuelas (solo superadmin): suma de los puntos ganados en torneos ABIERTOS por los jugadores de cada escuela.
+function renderSchoolRanking(app) {
+  const oid = ctxOrgId(), o = orgById(oid);
+  const rows = (o ? o.schools : []).map(s => {
+    const players = playersOfSchool(s.id, oid);
+    const total = players.reduce((acc, p) => acc + (p.openPoints || 0), 0);
+    return { s, total, count: players.length };
+  }).sort((a, b) => b.total - a.total);
+  let html = `<div class="page-title"><h1>🏫 Ranking de escuelas · ${esc(orgName(oid))}</h1></div>
+    <p class="page-sub">Suma de los puntos que los jugadores de cada escuela ganaron en <b>torneos abiertos</b>.</p><div class="rank-tiles">`;
+  if (!rows.length) html += `<div class="empty">Esta organización no tiene escuelas.</div>`;
+  rows.forEach((r, i) => {
+    const logo = schoolLogo(oid, r.s.id);
+    const badge = /^(data:|https?:)/.test(logo) ? `<span class="avatar"><img src="${logo}" alt=""/></span>` : `<span class="avatar">${esc(logo)}</span>`;
+    html += `<div class="player-row"><span class="pos">${i + 1}</span>${badge}
+      <div class="meta"><div class="name">${esc(r.s.name)}</div><div class="sub">${r.count} jugador${r.count === 1 ? '' : 'es'}</div></div>
+      <div class="pts">${r.total}<small> pts</small></div></div>`;
+  });
+  app.innerHTML = html + `</div>`;
 }
 function rankToggle(cat) { if (rankOpen.has(cat)) rankOpen.delete(cat); else rankOpen.add(cat); render(); }
 function renderDoublesRanking(app) {
@@ -1036,17 +1166,18 @@ async function recheckVerification() {
 
 /* ---------- jugadores (admin) ---------- */
 function renderPlayers(app) {
-  const active = DB.players.filter(p => !p.pending);
+  const oid = ctxOrgId(), sid = ctxSchoolId();
+  const active = playersOfSchool(sid, oid);
   const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
     <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(u && (u.username || u.email)) ? ` · 👤 ${esc(u.username || u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
     <button class="btn btn-ghost btn-sm" onclick="delPlayer('${p.id}')">🗑️</button></div>`; }).join('');
-  const pend = DB.players.filter(p => p.pending).length;
-  app.innerHTML = `<div class="section-head"><div class="page-title"><h1>👥 Jugadores</h1></div>
+  const pend = scopedPending().length;
+  app.innerHTML = `<div class="section-head"><div class="page-title"><h1>👥 Jugadores · ${esc(schoolName(oid, sid))}</h1></div>
     <button class="btn btn-primary" onclick="playerForm()">➕ Inscribir jugador</button></div>
-    <p class="page-sub">${active.length} jugadores.${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores.</div>'}`;
+    <p class="page-sub">${active.length} jugadores de ${esc(schoolName(oid, sid))} (${esc(orgName(oid))}).${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores en esta escuela.</div>'}`;
 }
 function playerForm(id) {
   const p = id ? playerById(id) : { firstName: '', lastName: '', dob: '', city: CITIES[0], category: '4ta', points: NEW_PLAYER_POINTS, photo: null };
@@ -1082,7 +1213,7 @@ function savePlayer(id) {
   if (emailInp && !emailInp.disabled) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
   if (emailInp && !emailInp.disabled && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { const e = $('#ferr'); e.hidden = false; e.textContent = 'El email no es válido (ej: nombre@gmail.com).'; return; }
   let target;
-  if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), ...data }; DB.players.push(target); }
+  if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), orgId: ctxOrgId(), schoolId: ctxSchoolId(), openPoints: 0, ...data }; DB.players.push(target); } // el admin solo da de alta en su escuela (contexto)
   syncCategory(target);  // categoría derivada de los puntos
   if (!FB()) ensurePlayerUsers();   // en modo local: crea la cuenta del nuevo jugador (user = inicial+apellido)
   save(DB); closeModal(); render();
@@ -1104,14 +1235,14 @@ function delPlayer(id) {
 /* ---------- altas / aprobaciones (admin) ---------- */
 // Jugadores que se autorregistraron y esperan aprobación del admin.
 function renderApprovals(app) {
-  const pend = DB.players.filter(p => p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  const pend = scopedPending().sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const rows = pend.map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
     <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}${u && FB() ? (u.emailVerified ? ' · ✅ email verificado' : ' · ✉️ sin verificar') : ''}</div></div>
     <label class="ap-pts">Puntaje inicial<input id="ap_${p.id}" type="number" min="0" value="${p.points}"/></label>
     <button class="btn btn-primary btn-sm" onclick="approvePlayer('${p.id}')">✅ Aprobar</button>
     <button class="btn btn-ghost btn-sm" onclick="rejectPlayer('${p.id}')">🗑️ Rechazar</button></div>`; }).join('');
-  app.innerHTML = `<div class="page-title"><h1>🙋 Altas de jugadores</h1></div>
-    <p class="page-sub">Jugadores que se registraron por su cuenta y esperan tu aprobación. Ajustá el <b>puntaje inicial</b> según su nivel antes de aprobar (la categoría se calcula sola).</p>
+  app.innerHTML = `<div class="page-title"><h1>🙋 Altas · ${esc(schoolName(ctxOrgId(), ctxSchoolId()))}</h1></div>
+    <p class="page-sub">Jugadores de tu escuela que se registraron por su cuenta y esperan tu aprobación. Ajustá el <b>puntaje inicial</b> según su nivel antes de aprobar (la categoría se calcula sola).</p>
     ${rows || '<div class="empty">No hay solicitudes pendientes. 🎉</div>'}`;
 }
 function approvePlayer(id) {
@@ -1382,6 +1513,9 @@ function renderSettings(app) {
       ${settingRow('👥 Ranking de dobles',
         'Habilitar el ranking de dobles (por pareja) y que los torneos de dobles sumen puntos. El puntaje de la pareja para el cálculo es el promedio del ranking individual de sus integrantes.',
         s.doublesRanking, 'toggleDoublesRanking')}
+      ${isSuperadmin() ? settingRow('🏫 Ranking de escuelas',
+        'Habilitar el ranking de escuelas (suma de los puntos ganados en torneos abiertos por los jugadores de cada escuela). Solo el superadmin lo ve. Aparece en el menú de Rankings.',
+        s.schoolRanking, 'toggleSchoolRanking') : ''}
     </div>`;
 }
 // Alterna un ajuste booleano de DB.settings y vuelve a renderizar.
@@ -1396,6 +1530,7 @@ function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
 function toggleNews() { toggleSetting('news'); }
 function toggleReglamento() { toggleSetting('reglamento'); }
 function toggleDoublesRanking() { toggleSetting('doublesRanking'); }
+function toggleSchoolRanking() { if (!isSuperadmin()) return; toggleSetting('schoolRanking'); }
 
 /* ---------- noticias ---------- */
 const newsBodyHtml = body => esc(body || '').replace(/\n/g, '<br>');
@@ -1545,6 +1680,7 @@ function renderAppearance(app) {
             <button class="btn btn-accent btn-sm" type="button">Resaltado</button></div>
         </div>
       </div>
+      ${schoolLogoCardHtml()}
     </div>
     <div class="theme-actions">
       <span id="themeDirtyNote" class="dirty-note"></span>
@@ -1555,11 +1691,57 @@ function renderAppearance(app) {
   applyTheme();             // refleja el borrador en la barra/botones/vista previa
   updateThemeDirtyUI();     // estado de los botones y la nota de "cambios sin publicar"
 }
+// Escuelas que el usuario puede personalizar: superadmin → las de la org del contexto; admin → solo la suya.
+function editableSchools() {
+  const oid = ctxOrgId(), o = orgById(oid); if (!o) return [];
+  if (isSuperadmin()) return o.schools.map(s => ({ orgId: oid, school: s }));
+  const sid = ctxSchoolId(), s = schoolById(oid, sid); return s ? [{ orgId: oid, school: s }] : [];
+}
+// Estado de las escuelas editables: lo guardado en DB vs. el borrador en edición (igual lógica que el tema).
+function savedSchools() { const m = {}; editableSchools().forEach(({ orgId, school }) => { m[school.id] = { orgId, name: school.name, logo: school.logo || DEFAULT_SCHOOL_LOGO }; }); return m; }
+const schoolsOf = () => schoolDraft || savedSchools();
+const schoolsDirty = () => JSON.stringify(schoolsOf()) !== JSON.stringify(savedSchools());
+function ensureSchoolDraft() { if (!schoolDraft) schoolDraft = JSON.parse(JSON.stringify(savedSchools())); return schoolDraft; }
+// Tarjeta de Apariencia: nombre + logo (imagen) por escuela. Se aplican al tocar “Publicar cambios”.
+function schoolLogoCardHtml() {
+  const draft = schoolsOf();
+  const rows = editableSchools().map(({ orgId, school }) => {
+    const d = draft[school.id] || { name: school.name, logo: school.logo || DEFAULT_SCHOOL_LOGO };
+    const isImg = /^(data:|https?:)/.test(d.logo);
+    const preview = isImg ? `<span class="school-logo-prev"><img src="${d.logo}" alt=""/></span>` : `<span class="school-logo-prev">${esc(d.logo)}</span>`;
+    return `<div class="setting-row" style="flex-direction:column;align-items:stretch;gap:10px">
+      <div class="setting-name" style="display:flex;align-items:center;gap:8px">${preview} <span class="muted">${esc(orgName(orgId))}</span></div>
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Nombre de la escuela</label>
+        <input id="sname_${school.id}" value="${esc(d.name)}" maxlength="40" oninput="setSchoolName('${school.id}', this.value)"/>
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Logo (imagen)</label>
+        <label class="btn btn-ghost btn-sm">🖼️ ${isImg ? 'Cambiar imagen' : 'Subir imagen'}<input type="file" accept="image/*" hidden onchange="uploadSchoolLogo('${orgId}','${school.id}', this)"></label>
+        <div class="setting-desc" style="margin-top:6px">Se muestra como círculo abajo a la derecha de la foto de cada jugador de esta escuela.</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card">
+    <h3 style="margin:0 0 12px">🏫 Escuelas</h3>
+    <p class="setting-desc" style="margin:-6px 0 10px">Cambiá el nombre y el logo. Los cambios recién se aplican cuando tocás <b>Publicar cambios</b>.</p>
+    ${rows || '<div class="empty">No hay escuelas para configurar.</div>'}
+  </div>`;
+}
+function setSchoolName(schoolId, val) {
+  const d = ensureSchoolDraft(); if (!d[schoolId]) return;
+  d[schoolId].name = String(val || '').slice(0, 40);
+  updateThemeDirtyUI(); // sin re-render: no interrumpe lo que está escribiendo
+}
+function uploadSchoolLogo(orgId, schoolId, input) {
+  const f = input && input.files && input.files[0]; if (!f) return;
+  readPhoto(f, data => { if (!data) return; const d = ensureSchoolDraft(); if (d[schoolId]) { d[schoolId].logo = data; render(); } }); // re-render para ver el preview nuevo
+}
 let themeMsg = ''; // aviso transitorio en Apariencia (ej. tras publicar)
 function ensureTheme() { if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS); if (!DB.settings.theme) DB.settings.theme = Object.assign({}, DEFAULT_THEME); }
 // Actualiza la nota de cambios y habilita/inhabilita Publicar/Descartar sin re-renderizar todo.
 function updateThemeDirtyUI() {
-  const dirty = themeDirty(), note = $('#themeDirtyNote');
+  const dirty = themeDirty() || schoolsDirty(), note = $('#themeDirtyNote');
   if (note) { note.textContent = dirty ? '● Cambios sin publicar' : 'Sin cambios pendientes'; note.classList.toggle('on', dirty); }
   ['#btnPublishTheme', '#btnDiscardTheme'].forEach(s => { const b = $(s); if (b) b.disabled = !dirty; });
 }
@@ -1569,24 +1751,27 @@ function setThemeField(key, val) {
   applyTheme(); updateThemeDirtyUI();
 }
 function resetTheme() { themeDraft = Object.assign({}, DEFAULT_THEME); render(); } // carga los valores de fábrica en el borrador
-function discardTheme() { themeDraft = null; render(); }                          // descarta el borrador y vuelve a lo guardado
+function discardTheme() { themeDraft = null; schoolDraft = null; render(); }       // descarta el borrador (tema + escuelas) y vuelve a lo guardado
 function publishTheme() {
-  if (!themeDirty()) return;
+  if (!themeDirty() && !schoolsDirty()) return;
   ensureTheme();
-  DB.settings.theme = Object.assign({}, themeOf());
-  themeDraft = null; save(DB);
+  if (themeDraft) DB.settings.theme = Object.assign({}, themeOf());
+  if (schoolDraft) Object.entries(schoolDraft).forEach(([sid, d]) => { const s = schoolById(d.orgId, sid); if (s) { s.name = (d.name || '').trim() || s.name; s.logo = d.logo || DEFAULT_SCHOOL_LOGO; } });
+  themeDraft = null; schoolDraft = null; save(DB);
   themeMsg = '✅ Cambios publicados. Ya los ve todo el club.';
   render();
 }
 // Selector de emojis anclado al botón (reutiliza el popover de mesas).
-function openEmojiPicker(ev) {
+function openEmojiPicker(ev, target) {
   ev.stopPropagation();
+  window.__emojiTarget = target || 'themeEmoji';
   const cells = EMOJIS.map(e => `<button type="button" class="emoji-opt" onclick="pickEmoji('${e}')">${e}</button>`).join('');
   showPopover(ev.currentTarget, `<h4>Elegí un emoji</h4><div class="emoji-grid">${cells}</div>`);
 }
 function pickEmoji(e) {
-  const inp = $('#themeEmoji'); if (inp) inp.value = e;
-  setThemeField('emoji', e);
+  const tgt = window.__emojiTarget || 'themeEmoji', inp = $('#' + tgt); if (inp) inp.value = e;
+  if (tgt === 'themeEmoji') setThemeField('emoji', e);
+  else if (inp) inp.dispatchEvent(new Event('input')); // dispara el oninput (ej. logo de escuela)
   closePopover();
 }
 
@@ -1677,8 +1862,11 @@ function pastCardHtml(t) {
       ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function renderTournaments(app) {
+  const oid = ctxOrgId(), sid = ctxSchoolId();
+  // visibles del contexto: misma org y (abierto a la org · de mi escuela · soy superadmin)
+  const inScope = t => t.orgId === oid && (isSuperadmin() || t.open || t.schoolId === sid);
   // los borradores (no publicados) solo los ve el admin
-  const all = DB.tournaments.filter(t => t.published || isAdmin()).slice().sort(byDateDesc);
+  const all = DB.tournaments.filter(t => inScope(t) && (t.published || isAdmin())).slice().sort(byDateDesc);
   const upcoming = all.filter(t => !isPastTournament(t));
   const past = all.filter(t => isPastTournament(t));
   const upCards = upcoming.map(upcomingCardHtml).join('');
@@ -1754,6 +1942,16 @@ function tournamentForm() {
     <label>Cantidad de mesas disponibles</label>
     <input id="t_tables" type="number" min="1" value="4"/>
     <p class="hint" style="margin-top:4px">Mesas físicas del torneo. Después podés cambiarla, incluso con el torneo en juego.</p>
+    ${isSuperadmin() ? `<div class="grid2">
+      <div><label>Organización</label>${orgSelectHtml('t_org', ctxOrgId(), "syncSchoolOptions('t_org','t_school')")}</div>
+      <div><label>Escuela</label><select id="t_school">${schoolOptionsHtml(ctxOrgId(), ctxSchoolId())}</select></div>
+    </div>` : `<input type="hidden" id="t_org" value="${ctxOrgId()}"/><input type="hidden" id="t_school" value="${ctxSchoolId()}"/>`}
+    <label>Tipo de torneo</label>
+    <select id="t_open">
+      <option value="open">Abierto — se puede inscribir cualquier jugador de la organización</option>
+      <option value="closed">Cerrado — solo jugadores de la escuela (${esc(schoolName(ctxOrgId(), ctxSchoolId()))})</option>
+    </select>
+    <p class="hint" style="margin-top:4px">Los torneos <b>abiertos</b> suman puntos al ranking de escuelas; los <b>cerrados</b> son internos de la escuela.</p>
     <label>Lugar (gimnasio)</label>
     <select id="t_gym">${(DB.gyms || []).length ? (DB.gyms || []).map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('') : '<option value="">— sin gimnasios cargados —</option>'}</select>
     <p class="hint" style="margin-top:4px">¿Falta un gimnasio? Agregalo en la sección <b>🏟️ Gimnasios</b>.</p>
@@ -1779,7 +1977,11 @@ function saveTournament() {
   const categorias = picked.map(nm => newCategoryFromCatalog(nm)); // heredan reglas del catálogo global
   const tableCount = Math.max(1, parseInt($('#t_tables').value, 10) || 1);
   const collaborators = [...(window.__collabSel || [])];
-  const tnew = { id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, enrollClosed: false, published: false, categorias };
+  const orgId = ($('#t_org') && $('#t_org').value) || ctxOrgId();
+  let schoolId = ($('#t_school') && $('#t_school').value) || ctxSchoolId();
+  if (!schoolById(orgId, schoolId)) schoolId = ((orgById(orgId) || {}).schools || [{}])[0].id; // coherencia org/escuela
+  const open = (($('#t_open') && $('#t_open').value) || 'open') === 'open';
+  const tnew = { id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, orgId, schoolId, open, enrollClosed: false, published: false, categorias };
   DB.tournaments.push(tnew);
   save(DB); closeModal(); view = 'torneo:' + tnew.id; render(); // abre el borrador para seguir editándolo
 }
@@ -2438,9 +2640,9 @@ function resetEnrollOverride(tid, cid) { const cat = getCat(tid, cid); cat._tid 
 
 /* ----- enroll ----- */
 function enrollModal(tid, cid) {
-  const cat = getCat(tid, cid);
+  const cat = getCat(tid, cid), t = tById(tid);
   if (cat.format === 'double') return enrollDoubles(tid, cid);
-  const opts = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => {
+  const opts = tournamentPool(t).sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => {
     const checked = cat.entrants.some(e => e.players[0] === p.id);
     const el = eligible(cat, p), age = ageFromDob(p.dob);
     return `<label class="enrow ${el.ok ? '' : 'no'}" data-name="${esc(fullName(p) + ' ' + p.city).toLowerCase()}" style="display:flex;align-items:center;gap:10px;font-weight:500;margin:6px 0">
@@ -2462,8 +2664,9 @@ function enrollFilter(inp) {
 }
 function saveEnrollSingles(tid, cid) {
   const cat = getCat(tid, cid);
+  const t = tById(tid);
   const ids = [...$('#modalCard').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value)
-    .filter(pid => eligible(cat, playerById(pid)).ok); // defensivo
+    .filter(pid => { const p = playerById(pid); return p && eligible(cat, p).ok && inTournamentScope(t, p); }); // defensivo: elegibilidad + escuela/org
   cat.entrants = ids.map(pid => cat.entrants.find(e => e.players[0] === pid) || { id: uid('e_'), players: [pid] });
   resetCat(cat); save(DB); closeModal(); render();
 }
@@ -2474,7 +2677,7 @@ function enrollDoubles(tid, cid) {
 }
 function renderDoublesModal(tid, cid) {
   const teams = window.__teams || [];
-  const optList = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  const optList = tournamentPool(tById(tid)).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const sel = id => `<select id="${id}"><option value="">— jugador —</option>${optList.map(p => `<option value="${p.id}">${esc(fullName(p))}</option>`).join('')}</select>`;
   const list = teams.map((e, i) => `<div class="bmatch"><span>${esc(playerById(e.players[0]) ? fullName(playerById(e.players[0])) : '?')} / ${esc(playerById(e.players[1]) ? fullName(playerById(e.players[1])) : '?')}</span>
     <button class="btn btn-ghost btn-sm" onclick="rmTeam(${i},'${tid}','${cid}')">🗑️</button></div>`).join('');
@@ -2492,7 +2695,8 @@ function addTeam(tid, cid) {
   const cat = getCat(tid, cid), a = $('#d_a').value, b = $('#d_b').value, e = $('#derr');
   if (!a || !b || a === b) { e.hidden = false; e.textContent = 'Elegí dos jugadores distintos.'; return; }
   if (window.__teams.some(t => t.players.includes(a) || t.players.includes(b))) { e.hidden = false; e.textContent = 'Algún jugador ya está en otra pareja.'; return; }
-  for (const pid of [a, b]) { const el = eligible(cat, playerById(pid)); if (!el.ok) { e.hidden = false; e.textContent = '⛔ ' + el.reason; return; } }
+  const t = tById(tid);
+  for (const pid of [a, b]) { const p = playerById(pid); const el = eligible(cat, p); if (!el.ok) { e.hidden = false; e.textContent = '⛔ ' + el.reason; return; } if (!inTournamentScope(t, p)) { e.hidden = false; e.textContent = '⛔ Ese jugador no pertenece a la escuela de este torneo cerrado.'; return; } }
   const gk = pairGenderOk(cat, a, b); if (!gk.ok) { e.hidden = false; e.textContent = '⛔ ' + gk.reason; return; }
   window.__teams.push({ id: uid('e_'), players: [a, b] });
   renderDoublesModal(tid, cid);
@@ -2508,8 +2712,9 @@ function selfEnrollModal(tid, cid) {
   const u = currentUser(), me = u && u.playerId ? playerById(u.playerId) : null;
   if (me && me.pending) { openModal(`<h3>Anotarme — ${esc(cat.name)}</h3><div class="banner">⏳ Tu cuenta está pendiente de aprobación por el admin. Cuando te aprueben vas a poder anotarte.</div><div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`); return; }
   if (FB() && me && currentUser().emailVerified === false) { openModal(`<h3>Anotarme — ${esc(cat.name)}</h3><div class="banner">📧 Verificá tu email antes de anotarte. Tenés el link en tu casilla; podés reenviarlo desde 👤 Perfil.</div><div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`); return; }
+  const t = tById(tid);
   const enrolledIds = new Set(cat.entrants.flatMap(e => e.players));
-  const availFor = exclude => DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)))
+  const availFor = exclude => tournamentPool(t).sort((a, b) => fullName(a).localeCompare(fullName(b)))
     .filter(p => !enrolledIds.has(p.id) && p.id !== exclude && eligible(cat, p).ok);
   const sel = (id, list) => `<select id="${id}"><option value="">— elegí —</option>${list.map(p => `<option value="${p.id}">${esc(fullName(p))} · ${p.category}</option>`).join('')}</select>`;
   const close = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
@@ -2545,10 +2750,13 @@ function saveSelfEnroll(tid, cid) {
   if (!a || (cat.format === 'double' && !b)) { e.hidden = false; e.textContent = 'Elegí jugador(es).'; return; }
   if (cat.format === 'double' && a === b) { e.hidden = false; e.textContent = 'Tenés que elegir dos jugadores distintos.'; return; }
   const ids = cat.format === 'double' ? [a, b] : [a];
+  const t = tById(tid);
   const enrolledIds = new Set(cat.entrants.flatMap(x => x.players));
   for (const pid of ids) {
     if (enrolledIds.has(pid)) { e.hidden = false; e.textContent = `${fullName(playerById(pid))} ya está anotado.`; return; }
-    const el = eligible(cat, playerById(pid)); if (!el.ok) { e.hidden = false; e.textContent = '⛔ ' + el.reason; return; }
+    const p = playerById(pid);
+    const el = eligible(cat, p); if (!el.ok) { e.hidden = false; e.textContent = '⛔ ' + el.reason; return; }
+    if (!inTournamentScope(t, p)) { e.hidden = false; e.textContent = '⛔ Este torneo es cerrado: solo jugadores de la escuela pueden anotarse.'; return; }
   }
   if (cat.format === 'double') { const gk = pairGenderOk(cat, a, b); if (!gk.ok) { e.hidden = false; e.textContent = '⛔ ' + gk.reason; return; } }
   cat.entrants.push({ id: uid('e_'), players: ids });
@@ -2803,6 +3011,7 @@ function placements(cat) {
 }
 function awardPoints(tid, cid) {
   const cat = getCat(tid, cid);
+  const t = tById(tid), tOpen = !!(t && t.open); // torneo abierto → los puntos también cuentan para el ranking de escuelas
   if (cat.closed) return;
   if (!cat.bracket || !brWinner(cat, cat.bracket.length - 1, 0)) { alert('La final todavía no tiene ganador.'); return; }
   if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { alert('Falta el resultado del partido por 3er puesto.'); return; }
@@ -2813,8 +3022,10 @@ function awardPoints(tid, cid) {
     const delta = {}, add = (id, n) => { delta[id] = (delta[id] || 0) + n; };
     eachMatch(cat, (mm, a, b) => { const e = matchEloOf(cat, mm, a, b); if (e) { add(e.winId, e.n); add(e.loseId, -e.n); } });
     // 2) Podio (solo 1°–4°), escalado del valor del torneo (tope 20): campeón V, finalista V/2, 3° V/3, 4° V/4.
-    const V = Math.min(TOURNEY_MAX, cat.championPoints || 0), map = placements(cat);
-    Object.entries(map).forEach(([eid, div]) => { if (div <= 4) add(eid, Math.round(V / div)); });
+    //    `podium` guarda SOLO estos puntos (haber llegado al menos a semifinal), sin los cruces Elo:
+    //    es lo que suma al ranking de escuelas en torneos abiertos.
+    const V = Math.min(TOURNEY_MAX, cat.championPoints || 0), map = placements(cat), podium = {};
+    Object.entries(map).forEach(([eid, div]) => { if (div <= 4) { const pp = Math.round(V / div); add(eid, pp); podium[eid] = (podium[eid] || 0) + pp; } });
     // 3) Aplicar con topes: >1100 sumas a la mitad, <100 restas a la mitad, nunca <0.
     //    Dobles → al ranking de la PAREJA; singles → al ranking individual de cada jugador.
     const cap = (cur, net) => { let d = net; if (cur > SCORE_CAP_HI && d > 0) d = Math.floor(d * 0.5); if (cur < SCORE_CAP_LO && d < 0) d = -Math.floor(Math.abs(d) * 0.5); return Math.max(0, cur + d) - cur; };
@@ -2828,6 +3039,8 @@ function awardPoints(tid, cid) {
         e.players.forEach(pid => {
           const p = playerById(pid); if (!p) return;
           applied = cap(p.points, net); p.points += applied; syncCategory(p);
+          // Ranking de escuelas: SOLO los puntos de podio (semifinal+) y solo en torneos abiertos. No suma los cruces Elo.
+          if (tOpen && podium[eid]) p.openPoints = (p.openPoints || 0) + podium[eid];
         });
       }
       cat.awarded[eid] = applied;
@@ -2843,7 +3056,7 @@ function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d)
 function toggleRankGroup() { const g = $('#rankGroup'); if (g) g.classList.toggle('collapsed'); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
@@ -2877,7 +3090,7 @@ async function ensureData() {
 async function boot() {
   applyCachedTheme(); // pinta el tema publicado al instante (sirve para el login, antes de autenticar)
   if (!FB()) { // modo local (sin Firebase configurado): comportamiento de siempre
-    DB = load(); applyMigrations(); runDataMigrations(); save(DB); render(); maybePaymentReminder(); return;
+    DB = load(); applyMigrations(); runDataMigrations(); reconcileLocalSession(); save(DB); render(); maybePaymentReminder(); return;
   }
   render(); // login / cargando mientras resuelve la sesión
   // Traer el tema publicado SIN login para pintar la apariencia actual en la pantalla de inicio
@@ -2893,8 +3106,9 @@ async function boot() {
     if (fbUser) {
       const ud = await window.STORE.getUserDoc(fbUser.uid);
       _session = ud
-        ? { uid: fbUser.uid, email: fbUser.email, role: ud.role || 'player', name: ud.name || fbUser.email, playerId: ud.playerId || null, emailVerified: !!fbUser.emailVerified }
-        : { uid: fbUser.uid, email: fbUser.email, role: 'player', name: fbUser.email, playerId: null, emailVerified: !!fbUser.emailVerified };
+        ? { uid: fbUser.uid, email: fbUser.email, role: ud.role || 'player', name: ud.name || fbUser.email, playerId: ud.playerId || null, orgId: ud.orgId || null, schoolId: ud.schoolId || null, emailVerified: !!fbUser.emailVerified }
+        : { uid: fbUser.uid, email: fbUser.email, role: 'player', name: fbUser.email, playerId: null, orgId: null, schoolId: null, emailVerified: !!fbUser.emailVerified };
+      _ctxOrg = null; _ctxSchool = null;
       // reflejar la verificación en el doc para que el admin la vea en Altas
       if (ud && fbUser.emailVerified && !ud.emailVerified) { try { await window.STORE.setUserDoc(fbUser.uid, { emailVerified: true }); } catch (e) {} }
       _loaded = false; await ensureData();
