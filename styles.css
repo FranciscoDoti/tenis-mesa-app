@@ -237,6 +237,21 @@ ul.awarded li:last-child{border-bottom:0}
 .theme-preview .tp-label{font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px}
 .tp-bar{display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px; color:#fff; font-size:18px;
   background:linear-gradient(120deg,var(--table),var(--table-dark))}
+/* campo de emoji con botón de selector al final */
+.emoji-field{display:flex; gap:8px; align-items:stretch; max-width:220px}
+.emoji-field input{flex:1; min-width:0; font-size:20px; text-align:center}
+.emoji-pick-btn{flex:0 0 auto; width:44px; border:1px solid var(--line); border-radius:10px; background:#fff;
+  font-size:20px; cursor:pointer; transition:background .12s, border-color .12s}
+.emoji-pick-btn:hover{background:#f1f8f3; border-color:var(--table)}
+.emoji-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; max-height:240px; overflow-y:auto; margin-top:6px}
+.emoji-opt{border:0; background:transparent; border-radius:8px; font-size:22px; line-height:1; padding:6px 0; cursor:pointer; transition:background .1s}
+.emoji-opt:hover{background:#eef4f0}
+/* barra de acciones (publicar / descartar) */
+.theme-actions{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:18px; padding:14px 16px;
+  border:1px solid var(--line); border-radius:var(--radius); background:var(--card); box-shadow:var(--shadow);
+  position:sticky; bottom:12px; z-index:5}
+.theme-actions .dirty-note{margin-right:auto; font-size:13px; font-weight:700; color:var(--muted)}
+.theme-actions .dirty-note.on{color:var(--paddle)}
 
 /* ---------- mesa por partido ---------- */
 .mesa-sel{flex:0 0 auto; width:auto; padding:4px 6px; font-size:12px; font-weight:600; border-radius:8px}

@@ -209,17 +209,87 @@ function save(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch
 /* ---------------- apariencia / tema ---------------- */
 // Tema editable por el admin. Los colores se aplican como variables CSS en :root;
 // la fuente y el emoji principal se reflejan en vivo. Todo se guarda en DB.settings.theme.
-const DEFAULT_THEME = { bg: '#f4f6f8', card: '#ffffff', table: '#1e6b3a', ball: '#ff7a1a', paddle: '#c1121f', ink: '#1d2433', font: 'system', emoji: '🏓' };
-// Fuentes disponibles (stacks de fuentes presentes en la mayoría de los dispositivos, sin descargas externas).
+const DEFAULT_THEME = { bg: '#f4f6f8', card: '#ffffff', table: '#1e6b3a', ball: '#ff7a1a', paddle: '#c1121f', ink: '#1d2433', muted: '#6b7280', line: '#e6e9ee', ok: '#16a34a', font: 'system', emoji: '🏓' };
+// Fuentes disponibles. Son stacks con fuentes de sistema (Windows/macOS/Android/Linux) y un genérico
+// al final, así que en cada dispositivo se usa la que esté presente (sin descargas externas).
 const FONTS = {
   system: { label: 'Sistema (predeterminada)', stack: '"Segoe UI",system-ui,-apple-system,Roboto,sans-serif' },
-  rounded: { label: 'Redondeada', stack: '"Trebuchet MS","Segoe UI",system-ui,sans-serif' },
-  serif: { label: 'Serif clásica', stack: 'Georgia,"Times New Roman",serif' },
-  mono: { label: 'Monoespaciada', stack: '"Courier New",ui-monospace,monospace' },
-  wide: { label: 'Ancha', stack: 'Verdana,Geneva,sans-serif' },
+  // —— Sans serif ——
+  arial: { label: 'Arial', stack: 'Arial,Helvetica,sans-serif' },
+  helvetica: { label: 'Helvetica Neue', stack: '"Helvetica Neue",Helvetica,Arial,sans-serif' },
+  verdana: { label: 'Verdana', stack: 'Verdana,Geneva,sans-serif' },
+  tahoma: { label: 'Tahoma', stack: 'Tahoma,Geneva,Verdana,sans-serif' },
+  trebuchet: { label: 'Trebuchet MS', stack: '"Trebuchet MS",Helvetica,sans-serif' },
+  segoe: { label: 'Segoe UI', stack: '"Segoe UI",Tahoma,sans-serif' },
+  calibri: { label: 'Calibri', stack: 'Calibri,"Segoe UI",sans-serif' },
+  candara: { label: 'Candara', stack: 'Candara,"Segoe UI",sans-serif' },
+  corbel: { label: 'Corbel', stack: 'Corbel,"Segoe UI",sans-serif' },
+  gillsans: { label: 'Gill Sans', stack: '"Gill Sans","Gill Sans MT",Calibri,sans-serif' },
+  franklin: { label: 'Franklin Gothic', stack: '"Franklin Gothic Medium","Arial Narrow",Arial,sans-serif' },
+  centurygothic: { label: 'Century Gothic', stack: '"Century Gothic","Apple Gothic",sans-serif' },
+  optima: { label: 'Optima', stack: 'Optima,Segoe,"Segoe UI",Candara,sans-serif' },
+  futura: { label: 'Futura', stack: 'Futura,"Trebuchet MS",Arial,sans-serif' },
+  avantgarde: { label: 'Avant Garde', stack: '"Century Gothic","URW Gothic L",sans-serif' },
+  lucidasans: { label: 'Lucida Sans', stack: '"Lucida Sans Unicode","Lucida Grande",sans-serif' },
+  geneva: { label: 'Geneva', stack: 'Geneva,Tahoma,Verdana,sans-serif' },
+  dejavusans: { label: 'DejaVu Sans', stack: '"DejaVu Sans",Verdana,sans-serif' },
+  roboto: { label: 'Roboto', stack: 'Roboto,"Segoe UI",sans-serif' },
+  opensans: { label: 'Open Sans', stack: '"Open Sans","Segoe UI",sans-serif' },
+  notosans: { label: 'Noto Sans', stack: '"Noto Sans","Segoe UI",sans-serif' },
+  ubuntu: { label: 'Ubuntu', stack: 'Ubuntu,"Segoe UI",sans-serif' },
+  cantarell: { label: 'Cantarell', stack: 'Cantarell,"Segoe UI",sans-serif' },
+  segoeprint: { label: 'Segoe Print', stack: '"Segoe Print","Segoe UI",sans-serif' },
+  sansgeneric: { label: 'Sans serif (genérica)', stack: 'sans-serif' },
+  // —— Serif ——
+  georgia: { label: 'Georgia', stack: 'Georgia,"Times New Roman",serif' },
+  times: { label: 'Times New Roman', stack: '"Times New Roman",Times,serif' },
+  garamond: { label: 'Garamond', stack: 'Garamond,Baskerville,"Baskerville Old Face",serif' },
+  baskerville: { label: 'Baskerville', stack: 'Baskerville,"Baskerville Old Face",Georgia,serif' },
+  palatino: { label: 'Palatino', stack: '"Palatino Linotype","Book Antiqua",Palatino,serif' },
+  bookantiqua: { label: 'Book Antiqua', stack: '"Book Antiqua",Palatino,serif' },
+  cambria: { label: 'Cambria', stack: 'Cambria,Georgia,serif' },
+  constantia: { label: 'Constantia', stack: 'Constantia,Georgia,serif' },
+  didot: { label: 'Didot', stack: 'Didot,"Bodoni MT",Georgia,serif' },
+  bodoni: { label: 'Bodoni MT', stack: '"Bodoni MT",Didot,serif' },
+  rockwell: { label: 'Rockwell', stack: 'Rockwell,"Courier Bold",Georgia,serif' },
+  hoefler: { label: 'Hoefler Text', stack: '"Hoefler Text",Georgia,serif' },
+  perpetua: { label: 'Perpetua', stack: 'Perpetua,Baskerville,serif' },
+  goudy: { label: 'Goudy Old Style', stack: '"Goudy Old Style",Garamond,serif' },
+  bigcaslon: { label: 'Big Caslon', stack: '"Big Caslon","Book Antiqua",serif' },
+  lucidabright: { label: 'Lucida Bright', stack: '"Lucida Bright",Georgia,serif' },
+  merriweather: { label: 'Merriweather', stack: 'Merriweather,Georgia,serif' },
+  playfair: { label: 'Playfair Display', stack: '"Playfair Display",Georgia,serif' },
+  serifgeneric: { label: 'Serif (genérica)', stack: 'serif' },
+  // —— Monoespaciadas ——
+  courier: { label: 'Courier New', stack: '"Courier New",Courier,monospace' },
+  consolas: { label: 'Consolas', stack: 'Consolas,"Lucida Console",monospace' },
+  lucidaconsole: { label: 'Lucida Console', stack: '"Lucida Console",Monaco,monospace' },
+  monaco: { label: 'Monaco', stack: 'Monaco,Consolas,monospace' },
+  menlo: { label: 'Menlo', stack: 'Menlo,Monaco,"Courier New",monospace' },
+  cascadia: { label: 'Cascadia Code', stack: '"Cascadia Code",Consolas,monospace' },
+  dejavumono: { label: 'DejaVu Sans Mono', stack: '"DejaVu Sans Mono","Courier New",monospace' },
+  sourcecode: { label: 'Source Code Pro', stack: '"Source Code Pro",Consolas,monospace' },
+  firacode: { label: 'Fira Code', stack: '"Fira Code",Consolas,monospace' },
+  monogeneric: { label: 'Monoespaciada (genérica)', stack: 'monospace' },
+  // —— Decorativas / manuscritas ——
+  comicsans: { label: 'Comic Sans MS', stack: '"Comic Sans MS","Comic Sans",cursive' },
+  impact: { label: 'Impact', stack: 'Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif' },
+  copperplate: { label: 'Copperplate', stack: 'Copperplate,"Copperplate Gothic Light",fantasy' },
+  papyrus: { label: 'Papyrus', stack: 'Papyrus,fantasy' },
+  brushscript: { label: 'Brush Script', stack: '"Brush Script MT",cursive' },
+  luminari: { label: 'Luminari', stack: 'Luminari,fantasy' },
+  chalkduster: { label: 'Chalkduster', stack: 'Chalkduster,fantasy' },
+  bradley: { label: 'Bradley Hand', stack: '"Bradley Hand",cursive' },
+  snell: { label: 'Snell Roundhand', stack: '"Snell Roundhand",cursive' },
+  segoescript: { label: 'Segoe Script', stack: '"Segoe Script",cursive' },
+  inkfree: { label: 'Ink Free', stack: '"Ink Free",cursive' },
+  cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
 const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, theme: DEFAULT_THEME };
+// Borrador de tema mientras el admin edita Apariencia (null = sin cambios pendientes).
+// La vista previa usa el borrador; el sitio recién cambia para todos al "Publicar".
+let themeDraft = null;
 // Aclara/oscurece un color hex (amt en [-1,1]) — usado para derivar --table-dark.
 function shadeHex(hex, amt) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) return hex;
@@ -228,9 +298,14 @@ function shadeHex(hex, amt) {
   r = f(r); g = f(g); b = f(b);
   return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
 }
-const themeOf = () => Object.assign({}, DEFAULT_THEME, (DB.settings && DB.settings.theme) || {});
+// Tema guardado (el que ve todo el mundo) y tema "en edición" (borrador o guardado).
+const savedThemeOf = () => Object.assign({}, DEFAULT_THEME, (DB.settings && DB.settings.theme) || {});
+const themeOf = () => Object.assign({}, DEFAULT_THEME, themeDraft || (DB.settings && DB.settings.theme) || {});
+const themeDirty = () => JSON.stringify(themeOf()) !== JSON.stringify(savedThemeOf());
 function applyTheme() {
-  const t = themeOf(), r = document.documentElement.style;
+  // En la pantalla de Apariencia se previsualiza el borrador; en el resto del sitio se ve el tema guardado.
+  const t = (view === 'apariencia' && themeDraft) ? themeOf() : savedThemeOf();
+  const r = document.documentElement.style;
   r.setProperty('--bg', t.bg);
   r.setProperty('--card', t.card);
   r.setProperty('--table', t.table);
@@ -238,6 +313,9 @@ function applyTheme() {
   r.setProperty('--ball', t.ball);
   r.setProperty('--paddle', t.paddle);
   r.setProperty('--ink', t.ink);
+  r.setProperty('--muted', t.muted);
+  r.setProperty('--line', t.line);
+  r.setProperty('--ok', t.ok);
   r.setProperty('--app-font', (FONTS[t.font] || FONTS.system).stack);
   const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute('content', t.table);
   document.querySelectorAll('.app-emoji').forEach(el => { el.textContent = t.emoji; });
@@ -895,36 +973,53 @@ function togglePayments() { toggleSetting('paymentsEnabled'); }
 function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
 
 /* ---------- apariencia (admin) ---------- */
+// Emojis sugeridos para el ícono del club (se pueden elegir desde el selector).
+const EMOJIS = ('🏓 🎾 ⚽ 🏀 🏐 🏏 🏸 🥎 ⚾ 🏑 🏒 🥍 🥅 🎯 🎱 🥊 🥋 🤺 🏆 🥇 🥈 🥉 🏅 🎖 👑 ' +
+  '🔥 ⭐ 🌟 ✨ ⚡ 💥 🎉 🎊 🎈 🎁 🚀 💪 🤜 🤛 👊 ✊ 👍 👏 🙌 🙏 🤝 ' +
+  '😀 😃 😄 😁 😆 😅 😂 🙂 😉 😊 😎 🤩 🥳 😇 🤓 🧐 🤖 👻 👽 🦾 ' +
+  '🐯 🦁 🐶 🐱 🐺 🦊 🐼 🐨 🐵 🦍 🐲 🐉 🦅 🦉 🐢 🐍 🦈 🐬 🦄 🐝 ' +
+  '🍕 🍔 🍟 🌮 🌭 🍦 🍩 🍪 🍺 🍻 🥤 ☕ 🧉 🏝 🏔 🌋 🌈 🌙 ⛰ 🎪 ' +
+  '💯 ✅ ❎ ⚙ 🔧 🔨 🛠 🎮 🕹 🎲 🃏 🎬 🎵 🎸 🥁 📣 📢 🔔 💎 🏵 ' +
+  '🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔶 🔷 🟧 🟩 🟦 🟪 ⬛ ⬜').split(/\s+/).filter(Boolean);
 function renderAppearance(app) {
+  if (!themeDraft) themeDraft = Object.assign({}, savedThemeOf()); // arranca el borrador desde lo guardado
   const t = themeOf();
+  const msg = themeMsg; themeMsg = '';
   const colorRow = (key, name, desc) => `<div class="setting-row">
       <div class="setting-text"><div class="setting-name">${name}</div><div class="setting-desc">${desc}</div></div>
       <input class="color-input" type="color" value="${esc(t[key])}" aria-label="${esc(name)}" oninput="setThemeField('${key}', this.value)"/>
     </div>`;
-  const fontOpts = Object.entries(FONTS).map(([k, f]) => `<option value="${k}" ${t.font === k ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
+  const fontOpts = Object.entries(FONTS).map(([k, f]) => `<option value="${k}" ${t.font === k ? 'selected' : ''} style="font-family:${esc(f.stack)}">${esc(f.label)}</option>`).join('');
   app.innerHTML = `<div class="page-title"><h1>🎨 Apariencia</h1></div>
-    <p class="page-sub">Personalizá colores, fuente e ícono del sitio. Los cambios se aplican y guardan al instante.</p>
+    <p class="page-sub">Previsualizá los cambios acá. El sitio recién cambia para todos cuando tocás <b>Publicar cambios</b>.</p>
+    ${msg ? `<div class="banner ok">${esc(msg)}</div>` : ''}
     <div class="appearance-grid">
       <div class="card">
         <h3 style="margin:0 0 12px">🎨 Colores</h3>
         ${colorRow('table', 'Color principal', 'Encabezado, barra superior y acentos del club.')}
         ${colorRow('ball', 'Color de resaltado', 'Botones activos y elementos destacados (naranja por defecto).')}
         ${colorRow('paddle', 'Color de acción', 'Botones principales (rojo por defecto).')}
+        ${colorRow('ok', 'Color de éxito', 'Confirmaciones e interruptores activados (verde por defecto).')}
         ${colorRow('bg', 'Fondo', 'Color de fondo general de las páginas.')}
         ${colorRow('card', 'Tarjetas', 'Fondo de las tarjetas y paneles.')}
         ${colorRow('ink', 'Texto', 'Color del texto principal.')}
+        ${colorRow('muted', 'Texto secundario', 'Subtítulos, descripciones y notas.')}
+        ${colorRow('line', 'Bordes', 'Líneas y bordes de tarjetas y campos.')}
       </div>
       <div class="card">
         <h3 style="margin:0 0 12px">🔤 Fuente e ícono</h3>
         <div class="setting-text" style="margin-bottom:16px">
           <div class="setting-name">Tipografía</div>
-          <div class="setting-desc">Fuente usada en todo el sitio.</div>
-          <select id="themeFont" style="margin-top:8px" onchange="setThemeField('font', this.value)">${fontOpts}</select>
+          <div class="setting-desc">Fuente usada en todo el sitio (${Object.keys(FONTS).length} opciones).</div>
+          <select id="themeFont" style="margin-top:8px; font-family:${esc((FONTS[t.font] || FONTS.system).stack)}" onchange="setThemeField('font', this.value)">${fontOpts}</select>
         </div>
         <div class="setting-text">
           <div class="setting-name">Ícono principal</div>
-          <div class="setting-desc">Emoji que representa al club (se ve en la pantalla de inicio). Pegá un emoji.</div>
-          <input id="themeEmoji" style="margin-top:8px; max-width:120px" maxlength="4" value="${esc(t.emoji)}" oninput="setThemeField('emoji', this.value)"/>
+          <div class="setting-desc">Emoji que representa al club (barra superior y pantalla de inicio). Escribí/pegá uno o tocá 😀 para elegirlo.</div>
+          <div class="emoji-field" style="margin-top:8px">
+            <input id="themeEmoji" maxlength="8" value="${esc(t.emoji)}" oninput="setThemeField('emoji', this.value)"/>
+            <button type="button" class="emoji-pick-btn" onclick="openEmojiPicker(event)" title="Elegir emoji">😀</button>
+          </div>
         </div>
         <div class="theme-preview">
           <div class="tp-label">Vista previa</div>
@@ -934,20 +1029,48 @@ function renderAppearance(app) {
         </div>
       </div>
     </div>
-    <div class="row" style="margin-top:18px"><button class="btn btn-ghost" onclick="resetTheme()">↩️ Restaurar valores por defecto</button></div>`;
-  // refleja los colores actuales en la barra/botones de vista previa
-  applyTheme();
+    <div class="theme-actions">
+      <span id="themeDirtyNote" class="dirty-note"></span>
+      <button class="btn btn-ghost" onclick="resetTheme()">↩️ Restaurar por defecto</button>
+      <button id="btnDiscardTheme" class="btn btn-ghost" onclick="discardTheme()">✖️ Descartar cambios</button>
+      <button id="btnPublishTheme" class="btn btn-primary" onclick="publishTheme()">✅ Publicar cambios</button>
+    </div>`;
+  applyTheme();             // refleja el borrador en la barra/botones/vista previa
+  updateThemeDirtyUI();     // estado de los botones y la nota de "cambios sin publicar"
 }
+let themeMsg = ''; // aviso transitorio en Apariencia (ej. tras publicar)
 function ensureTheme() { if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS); if (!DB.settings.theme) DB.settings.theme = Object.assign({}, DEFAULT_THEME); }
-function setThemeField(key, val) {
-  ensureTheme();
-  DB.settings.theme[key] = (key === 'emoji') ? (String(val || '').trim().slice(0, 4) || DEFAULT_THEME.emoji) : val;
-  applyTheme(); save(DB);
+// Actualiza la nota de cambios y habilita/inhabilita Publicar/Descartar sin re-renderizar todo.
+function updateThemeDirtyUI() {
+  const dirty = themeDirty(), note = $('#themeDirtyNote');
+  if (note) { note.textContent = dirty ? '● Cambios sin publicar' : 'Sin cambios pendientes'; note.classList.toggle('on', dirty); }
+  ['#btnPublishTheme', '#btnDiscardTheme'].forEach(s => { const b = $(s); if (b) b.disabled = !dirty; });
 }
-function resetTheme() {
+function setThemeField(key, val) {
+  if (!themeDraft) themeDraft = Object.assign({}, savedThemeOf());
+  themeDraft[key] = (key === 'emoji') ? (String(val || '').trim().slice(0, 8) || DEFAULT_THEME.emoji) : val;
+  applyTheme(); updateThemeDirtyUI();
+}
+function resetTheme() { themeDraft = Object.assign({}, DEFAULT_THEME); render(); } // carga los valores de fábrica en el borrador
+function discardTheme() { themeDraft = null; render(); }                          // descarta el borrador y vuelve a lo guardado
+function publishTheme() {
+  if (!themeDirty()) return;
   ensureTheme();
-  DB.settings.theme = Object.assign({}, DEFAULT_THEME);
-  applyTheme(); save(DB); render();
+  DB.settings.theme = Object.assign({}, themeOf());
+  themeDraft = null; save(DB);
+  themeMsg = '✅ Cambios publicados. Ya los ve todo el club.';
+  render();
+}
+// Selector de emojis anclado al botón (reutiliza el popover de mesas).
+function openEmojiPicker(ev) {
+  ev.stopPropagation();
+  const cells = EMOJIS.map(e => `<button type="button" class="emoji-opt" onclick="pickEmoji('${e}')">${e}</button>`).join('');
+  showPopover(ev.currentTarget, `<h4>Elegí un emoji</h4><div class="emoji-grid">${cells}</div>`);
+}
+function pickEmoji(e) {
+  const inp = $('#themeEmoji'); if (inp) inp.value = e;
+  setThemeField('emoji', e);
+  closePopover();
 }
 
 /* ---------- torneos ---------- */
@@ -1744,7 +1867,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, openTablePopover, assignTableFromPopover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
