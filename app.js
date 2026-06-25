@@ -625,7 +625,7 @@ function render() {
   if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return DB.settings.news ? renderNoticias(app) : renderRanking(app);
-  if (view === 'dobles') return DB.settings.doublesRanking ? renderDoublesRanking(app) : renderRanking(app);
+  if (view === 'dobles') return renderDoublesRanking(app); // el menú ya se oculta si la feature está apagada
   if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
@@ -818,20 +818,29 @@ function rankToggle(cat) { if (rankOpen.has(cat)) rankOpen.delete(cat); else ran
 function renderDoublesRanking(app) {
   const byCat = {};
   (DB.settings.pairs || []).forEach(pr => { const cn = pr.catName || 'Dobles'; (byCat[cn] = byCat[cn] || []).push(pr); });
-  const cats = Object.keys(byCat).sort();
+  // Categorías de dobles existentes: del catálogo + las usadas en torneos + las que ya tienen parejas.
+  const names = new Set();
+  catCatalog().forEach(c => { if (c.format === 'double') names.add(c.name); });
+  (DB.tournaments || []).forEach(t => (t.categorias || []).forEach(c => { if (c.format === 'double') names.add(c.name); }));
+  Object.keys(byCat).forEach(n => names.add(n));
+  const cats = [...names].sort();
   let html = `<div class="page-title"><h1>👥 Ranking de dobles</h1></div>
-    <p class="page-sub">Por categoría de dobles y por pareja. Una pareja entra desde el primer torneo que juega; el puntaje usa el promedio del ranking individual de cada integrante.</p>`;
-  if (!cats.length) { app.innerHTML = html + `<div class="empty">Todavía no hay parejas en el ranking. Aparecen cuando se cierra un torneo de dobles.</div>`; return; }
+    <p class="page-sub">Un ranking por cada categoría de dobles. Las parejas entran desde el primer torneo que juegan; el puntaje usa el promedio del ranking individual de cada integrante.</p>`;
+  if (!DB.settings || !DB.settings.doublesRanking) html += `<div class="banner">ℹ️ El ranking de dobles está <b>desactivado</b>. Activalo en ⚙️ Ajustes para que los torneos de dobles sumen puntos.</div>`;
+  if (!cats.length) { app.innerHTML = html + `<div class="empty">Todavía no hay categorías de dobles. Creá una en 🗂️ Categorías marcándola como <b>Dobles</b> (y, si querés, su género).</div>`; return; }
   html += `<div class="rank-tiles">`;
   cats.forEach(cn => {
+    const cc = catEntryByName(cn);
+    const gtag = (cc && cc.gender && cc.gender !== 'any') ? ` · ${GENDER_RULE_LABEL[cc.gender]}` : '';
     const key = 'dbl:' + cn, open = rankOpen.has(key);
-    const list = byCat[cn].slice().sort((a, b) => b.points - a.points);
+    const list = (byCat[cn] || []).slice().sort((a, b) => b.points - a.points);
     html += `<div class="rank-tile${open ? ' open' : ''}">
       <button class="rank-tilehdr" onclick="rankToggle('${esc(key)}')">
-        <span class="cat-badge cat-4">👥</span><span class="rt-name">${esc(cn)}</span>
+        <span class="cat-badge cat-4">👥</span><span class="rt-name">${esc(cn)}${gtag}</span>
         <span class="rt-count">${list.length}</span><span class="rt-caret">${open ? '▾' : '▸'}</span></button>`;
     if (open) {
       html += `<div class="rank-body">`;
+      if (!list.length) html += `<div class="empty">Todavía no hay parejas con puntaje en esta categoría. Aparecen al cerrar un torneo de dobles de <b>${esc(cn)}</b>.</div>`;
       list.forEach((pr, i) => {
         const avg = Math.round(pr.players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (pr.players.length || 1));
         html += `<div class="player-row"><span class="pos">${i + 1}</span>
