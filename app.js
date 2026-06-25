@@ -1259,13 +1259,27 @@ function settingRow(name, desc, on, fn) {
       <button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on}" onclick="${fn}()"><span class="knob"></span></button>
     </div>`;
 }
+// Ícono ℹ️ con tooltip (se muestra al pasar el mouse o al tocarlo; el contenido es HTML).
+function infoTip(html) {
+  return `<span class="info-tip" tabindex="0" role="button" aria-label="Cómo funciona">ℹ️<span class="info-bubble">${html}</span></span>`;
+}
+// Explicación completa de la sugerencia de mesas (reglas de prioridad).
+const TABLE_SUGGEST_HELP = `<b>Sugerencia de largado de mesas</b><br>
+  Con esto activado, en la pantalla de cada torneo aparece — para <b>admin y colaboradores</b> — un panel que sugiere qué <b>zona o llave</b> largar en cada <b>mesa libre</b>. Se actualiza a medida que se liberan mesas (al terminar un partido o toda una zona).
+  <br><b>Prioridad</b> (de mayor a menor):
+  <ol><li>Sub</li><li>Maxi</li><li>Primera</li><li>Segunda</li><li>Tercera</li><li>Cuarta</li><li>Mayores</li><li>Todo competidor</li><li>Dobles</li></ol>
+  Además:
+  <ul><li>Los <b>grupos (zonas) van antes que las llaves</b>: se intenta terminar las zonas el mismo día (la llave puede jugarse al día siguiente).</li>
+  <li>Respeta el <b>horario de inicio</b> programado de cada categoría.</li>
+  <li>Nunca propone largar a un jugador que <b>ya está jugando en otra mesa</b> (un jugador puede estar en varias categorías a la vez).</li>
+  <li>Muestra la mejor opción para cada mesa libre + hasta <b>2 alternativas</b>; tocás un botón para largar.</li></ul>`;
 function renderSettings(app) {
   const s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
   app.innerHTML = `<div class="page-title"><h1>⚙️ Ajustes</h1></div>
     <p class="page-sub">Configuración general del club. Solo el administrador puede verla y cambiarla.</p>
     <div class="card" style="max-width:620px">
-      ${settingRow('🏓 Sugerencia de mesas',
-        'Sugerir automáticamente en qué mesa se debería jugar cada partido. <b>Próximamente</b> — por ahora solo se puede activar o desactivar.',
+      ${settingRow('🏓 Sugerencia de mesas ' + infoTip(TABLE_SUGGEST_HELP),
+        'Sugiere a admin y colaboradores qué zona o llave largar en cada mesa libre del torneo, por orden de prioridad. Tocá la ℹ️ para ver todas las reglas.',
         s.tableSuggestion, 'toggleTableSuggestion')}
       ${settingRow('💳 Pagos para inscripciones',
         'Permitir cobrar la inscripción a los torneos al anotarse. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
