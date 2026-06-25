@@ -9,10 +9,8 @@
 - [x] Implementar un reglamento editable con opción de **publicar / despublicar**.
 - [x] Implementar una sección de **Noticias**.
 - [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
-- [ ] Implementar un módulo de **Reportes**.
-  - [ ] Reporte de jugadores que no pagaron.
-  - [ ] Otros reportes útiles para la organización.
-- [ ] Mostrar una notificación al usuario cuando tenga una inscripción pendiente de pago.
+- [X] Implementar un módulo de **Reportes**.
+  - [X] Reporte de jugadores que no pagaron.
 - [x] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
 - [x] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
