@@ -1823,13 +1823,13 @@ function liveMatchesOf(t) {
     (cat.groups || []).forEach((g, gi) => {
       const tbl = cat.zoneTable && cat.zoneTable[gi];
       if (tbl == null) return;
-      const pend = (cat.matches || []).filter(m => m.g === gi && !m.postponed && !matchDone(m, cat)).length;
-      if (pend) out.push({ table: tbl, catName: cat.name, label: 'Zona ' + String.fromCharCode(65 + gi), sub: `${pend} partido${pend === 1 ? '' : 's'} pendiente${pend === 1 ? '' : 's'}` });
+      const pendMatches = (cat.matches || []).filter(m => m.g === gi && !m.postponed && !matchDone(m, cat));
+      if (pendMatches.length) out.push({ kind: 'zone', table: tbl, catName: cat.name, label: 'Zona ' + String.fromCharCode(65 + gi), sub: `${pendMatches.length} partido${pendMatches.length === 1 ? '' : 's'} pendiente${pendMatches.length === 1 ? '' : 's'}`, pending: pendMatches.map(m => `${entName(cat, m.a)} vs ${entName(cat, m.b)}`) });
     });
     catMatchList(cat).forEach(({ a, b, m, phase }) => {
       if (isZoneMatch(m)) return; // ya contabilizado por su zona
       if (m.table == null || matchDone(m, cat)) return;
-      out.push({ table: m.table, catName: cat.name, label: `${entName(cat, a)} vs ${entName(cat, b)}`, sub: m.postponed ? phase + ' (aplazado)' : phase });
+      out.push({ kind: 'match', table: m.table, catName: cat.name, label: `${entName(cat, a)} vs ${entName(cat, b)}`, sub: m.postponed ? phase + ' (aplazado)' : phase });
     });
   });
   return out.sort((x, y) => x.table - y.table);
@@ -2444,10 +2444,14 @@ function renderTournament(app, tid) {
   const live = liveMatchesOf(t);
   const liveHtml = `<div class="section-head"><h2>🔴 Partidos en vivo</h2>${live.length ? `<span class="t-badge live">${live.length} en juego</span>` : ''}</div>`
     + (live.length
-      ? `<div class="live-list">` + live.map(L => `<div class="live-row">
+      ? `<div class="live-list">` + live.map(L => {
+          const isZone = L.kind === 'zone';
+          return `<div class="live-row${isZone ? ' zone' : ''}"${isZone ? ' onclick="toggleLiveZone(this)"' : ''}>
           <span class="live-mesa">🏓 Mesa ${L.table}</span>
-          <span class="live-players">${esc(L.label)}</span>
-          <span class="live-cat">${esc(L.catName)} · ${esc(L.sub)}</span></div>`).join('') + `</div>`
+          <span class="live-players">${esc(L.label)}${isZone ? ' <span class="live-caret">▸</span>' : ''}</span>
+          <span class="live-cat">${esc(L.catName)} · ${esc(L.sub)}</span>
+          ${isZone ? `<div class="live-pending">${L.pending.map(p => `<div class="live-pending-row">🏓 ${esc(p)}</div>`).join('')}</div>` : ''}</div>`;
+        }).join('') + `</div>`
       : `<p class="muted slim-empty">Sin partidos en juego. Asigná una mesa a un partido para verlo acá.</p>`);
   const tEnrollOpen = tournamentEnrollOpen(t);
   const collabNames = (t.collaborators || []).map(id => { const p = playerById(id); return p ? fullName(p) : null; }).filter(Boolean);
@@ -3102,9 +3106,17 @@ function go(v) { view = v; closeModal(); closeDrawer(); window.scrollTo(0, 0); r
 function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!d) return; const open = d.classList.toggle('open'); if (o) o.hidden = !open; }
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 function toggleRankGroup() { const g = $('#rankGroup'); if (g) g.classList.toggle('collapsed'); }
+// Expandir/colapsar una zona en "Partidos en vivo" (muestra sus partidos pendientes). Solo una abierta a la vez.
+function toggleLiveZone(el) {
+  const wasOpen = el.classList.contains('expanded');
+  document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded'));
+  if (!wasOpen) el.classList.add('expanded');
+}
+// Clic fuera de una zona → colapsa la que esté abierta.
+document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
