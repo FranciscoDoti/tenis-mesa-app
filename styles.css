@@ -216,6 +216,18 @@ ul.awarded{list-style:none; margin:0; padding:0}
 ul.awarded li{display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line)}
 ul.awarded li:last-child{border-bottom:0}
 .pts.neg{color:#c1121f}
+/* pagos de inscripción */
+.pay-btn{flex:0 0 auto; white-space:nowrap}
+.pay-btn.paid{background:#e6f6ec; color:#0a7d2c}
+.pay-tag{flex:0 0 auto; font-size:12px; font-weight:700; border-radius:999px; padding:3px 10px; white-space:nowrap}
+.pay-tag.ok{background:#e6f6ec; color:#0a7d2c}
+.pay-tag.no{background:#fdeaea; color:#c1121f}
+.pay-line{margin-top:10px; font-size:13px; font-weight:700}
+.pay-line.ok{color:#0a7d2c}
+.pay-line.no{color:#c1121f}
+.report-total{margin-top:16px; font-size:15px}
+.report-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 4px; border-bottom:1px solid var(--line)}
+.report-row:last-child{border-bottom:0}
 /* +N / −N que se gana/pierde por partido (Elo) */
 .elo-delta{display:inline-flex; gap:5px; align-items:center; flex:0 0 auto; white-space:nowrap}
 .elo-up{color:#0a7d2c; font-weight:800; font-size:12px}

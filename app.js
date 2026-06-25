@@ -57,7 +57,7 @@ function catSetsFmt(cat) {
 function catCatalog() {
   const c = DB.settings && DB.settings.categoryCatalog;
   if (Array.isArray(c) && c.length) return c;
-  return CATALOG.map(x => ({ id: 'cc_' + x.name, name: x.name, rule: x.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20 }));
+  return CATALOG.map(x => ({ id: 'cc_' + x.name, name: x.name, rule: x.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20, cost: 0 }));
 }
 const catEntryByName = name => catCatalog().find(c => c.name === name) || null;
 const catalogRule = name => (catEntryByName(name) || CATALOG.find(c => c.name === name) || {}).rule || { type: 'open' };
@@ -69,6 +69,7 @@ function newCategoryFromCatalog(nm) {
     id: uid('c_'), name: nm, format: cc.format || 'single', rule: cc.rule || catalogRule(nm),
     setsFormat, rules: { sets: setsFmtById(setsFormat).bracket, groupMin: cc.groupMin || 3, groupMax: cc.groupMax || 4 },
     championPoints: cc.championPoints != null ? cc.championPoints : 20,
+    cost: cc.cost != null ? cc.cost : 0,
     entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null,
   };
 }
@@ -397,8 +398,9 @@ function applyMigrations() {
   DB.settings.theme = Object.assign({}, DEFAULT_THEME, DB.settings.theme || {});
   // Catálogo global de categorías: se siembra una vez desde el CATALOG fijo (luego lo edita el admin).
   if (!Array.isArray(DB.settings.categoryCatalog) || !DB.settings.categoryCatalog.length) {
-    DB.settings.categoryCatalog = CATALOG.map(c => ({ id: uid('cc_'), name: c.name, rule: c.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20 }));
+    DB.settings.categoryCatalog = CATALOG.map(c => ({ id: uid('cc_'), name: c.name, rule: c.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20, cost: 0 }));
   }
+  DB.settings.categoryCatalog.forEach(c => { if (c.cost == null) c.cost = 0; }); // costo de inscripción por defecto
   if (!DB.users) DB.users = [];
   (DB.tournaments || []).forEach(t => {
     if (t.tableCount == null) t.tableCount = 4;
@@ -411,6 +413,7 @@ function applyMigrations() {
       delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
       if (c.championPoints == null) c.championPoints = 20;
       else if (c.championPoints > 20) c.championPoints = 20; // tope del valor de torneo
+      if (c.cost == null) c.cost = 0; // costo de inscripción de la categoría en este torneo
     });
   });
 }
@@ -437,6 +440,17 @@ const fullName = p => `${p.firstName} ${p.lastName}`.trim();
 const tById = id => DB.tournaments.find(t => t.id === id);
 const getCat = (tid, cid) => { const t = tById(tid); return t && t.categorias.find(c => c.id === cid); };
 const entById = (cat, id) => cat.entrants.find(e => e.id === id);
+// ---- pagos / inscripción ----
+const money = n => '$' + (Number(n) || 0).toLocaleString('es-AR');
+const catCost = cat => Number(cat && cat.cost) || 0;            // costo de inscripción de la categoría en este torneo
+const entrantOfPlayer = (cat, pid) => cat.entrants.find(e => e.players.includes(pid)); // el entrante (jugador o pareja) de un jugador
+// ¿al jugador logueado le falta pagar esta categoría? (inscripto, con costo, sin marcar pagado)
+function myPaymentStatus(cat) {
+  const u = currentUser(), myId = u && u.playerId; if (!myId) return null;
+  const e = entrantOfPlayer(cat, myId); if (!e) return null;
+  if (catCost(cat) <= 0) return null;          // sin costo → nada que pagar
+  return { paid: !!e.paid, cost: catCost(cat) };
+}
 function entName(cat, id) {
   if (id === 'BYE') return 'BYE'; if (!id) return '—';
   const e = entById(cat, id); if (!e) return '—';
@@ -510,6 +524,7 @@ function wirePhoto(id, set) {
 /* ================= VIEWS ================= */
 let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
+let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = ''; // estado de la sección Reportes
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(['1ra']); // qué categorías del ranking están desplegadas (1ra por defecto)
 let tournSearch = ''; // texto del buscador de torneos antiguos
@@ -547,6 +562,7 @@ function render() {
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
   if (view === 'apariencia') return isAdmin() ? renderAppearance(app) : renderRanking(app);
   if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
+  if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return DB.settings.news ? renderNoticias(app) : renderRanking(app);
   if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
@@ -1068,7 +1084,8 @@ function renderCatalog(app) {
     <div class="tags" style="margin-top:10px">
       <span class="tag">🎾 ${setsFmtById(c.setsFormat).label}</span>
       <span class="tag">Grupos ${c.groupMin}–${c.groupMax}</span>
-      <span class="tag">🥇 ${c.championPoints} pts</span></div>
+      <span class="tag">🥇 ${c.championPoints} pts</span>
+      <span class="tag">💲 ${c.cost ? money(c.cost) : 'sin costo'}</span></div>
     <div class="row" style="margin-top:12px">
       <button class="btn btn-ghost btn-sm" onclick="catalogEntryForm('${c.id}')">✏️ Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="delCatalogEntry('${c.id}')">🗑️</button>
@@ -1102,8 +1119,9 @@ function catalogEntryForm(id) {
       <div><label>Mín por grupo</label><input id="cc_min" type="number" min="2" value="${c ? c.groupMin : 3}"/></div>
       <div><label>Máx por grupo</label><input id="cc_max" type="number" min="2" value="${c ? c.groupMax : 4}"/></div>
       <div><label>Valor del torneo 🏆 (máx 20)</label><input id="cc_pts" type="number" min="0" max="20" value="${c ? c.championPoints : 20}"/></div>
+      <div><label>Costo de inscripción 💲</label><input id="cc_cost" type="number" min="0" step="100" value="${c && c.cost != null ? c.cost : 0}"/></div>
     </div>
-    <p class="hint">Estas reglas son los <b>valores por defecto</b>: cada torneo que use esta categoría arranca con ellas y se pueden ajustar puntualmente dentro del torneo. Cambiar el catálogo no modifica torneos ya creados.</p>
+    <p class="hint">Estas reglas son los <b>valores por defecto</b>: cada torneo que use esta categoría arranca con ellas y se pueden ajustar puntualmente dentro del torneo (incluido el costo de inscripción). Cambiar el catálogo no modifica torneos ya creados.</p>
     <div id="ccerr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveCatalogEntry('${id || ''}')">${id ? 'Guardar' : 'Crear'}</button></div>`);
@@ -1129,7 +1147,7 @@ function saveCatalogEntry(id) {
   }
   const min = parseInt($('#cc_min').value, 10) || 3, max = parseInt($('#cc_max').value, 10) || 4;
   if (min > max) { e.hidden = false; e.textContent = 'Mín por grupo no puede ser mayor que máx.'; return; }
-  const entry = { name, rule, format: $('#cc_fmt').value, setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)) };
+  const entry = { name, rule, format: $('#cc_fmt').value, setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)), cost: Math.max(0, parseInt($('#cc_cost').value, 10) || 0) };
   if (id) { const cur = list.find(x => x.id === id); if (cur) Object.assign(cur, entry); }
   else list.push(Object.assign({ id: uid('cc_') }, entry));
   save(DB); closeModal(); render();
@@ -1140,6 +1158,63 @@ function delCatalogEntry(id) {
   if (!confirm(`¿Quitar "${c.name}" del catálogo? Los torneos ya creados no se modifican.`)) return;
   DB.settings.categoryCatalog = list.filter(x => x.id !== id);
   save(DB); render();
+}
+
+/* ---------- reportes (admin): pagos de inscripción pendientes ---------- */
+function setReport(field, val) { if (field === 'tid') { reportTid = val; reportCat = ''; } else if (field === 'mode') reportMode = val; else if (field === 'cat') reportCat = val; render(); }
+function reportFilterPerson(inp) { const q = inp.value.toLowerCase(); document.querySelectorAll('.report-row[data-name], .report-person[data-name]').forEach(el => { el.style.display = el.dataset.name.includes(q) ? '' : 'none'; }); }
+function renderReportes(app) {
+  const tours = DB.tournaments.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const tOpts = `<option value="">— Elegí un torneo —</option>` + tours.map(t => `<option value="${t.id}" ${reportTid === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+  let html = `<div class="page-title"><h1>📋 Reportes</h1></div>
+    <p class="page-sub">Pagos de inscripción pendientes por torneo. Agrupá por categoría o por persona y filtrá.</p>
+    <div class="card" style="max-width:680px">
+      <label>Torneo</label><select onchange="setReport('tid', this.value)">${tOpts}</select>`;
+  const t = reportTid ? tById(reportTid) : null;
+  if (t) {
+    const allCats = t.categorias.filter(c => catCost(c) > 0);
+    const catOpts = `<option value="">Todas las categorías</option>` + allCats.map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    html += `<div class="grid2" style="margin-top:10px">
+        <div><label>Agrupar por</label><select onchange="setReport('mode', this.value)"><option value="cat" ${reportMode === 'cat' ? 'selected' : ''}>Categoría</option><option value="persona" ${reportMode === 'persona' ? 'selected' : ''}>Persona</option></select></div>
+        <div><label>Categoría</label><select onchange="setReport('cat', this.value)">${catOpts}</select></div>
+      </div>
+      <label>Buscar persona</label><input class="report-search" placeholder="🔍 Filtrar por nombre…" oninput="reportFilterPerson(this)"/>`;
+  }
+  html += `</div>`;
+  if (!t) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">Elegí un torneo para ver el reporte.</div>`; return; }
+
+  const cats = t.categorias.filter(c => catCost(c) > 0 && (!reportCat || c.id === reportCat));
+  if (!cats.length) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">No hay categorías con costo de inscripción${reportCat ? ' para ese filtro' : ' en este torneo'}.</div>`; return; }
+
+  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
+  html += `<div class="report-total">Pendiente total del torneo: <b>${money(grand)}</b></div>`;
+
+  if (reportMode === 'cat') {
+    html += cats.map(c => {
+      const unpaid = c.entrants.filter(e => !e.paid).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
+      const rows = unpaid.length
+        ? unpaid.map(e => `<div class="report-row" data-name="${esc(entName(c, e.id)).toLowerCase()}"><span>${esc(entName(c, e.id))}</span><span class="pay-tag no">${money(catCost(c))}</span></div>`).join('')
+        : `<div class="report-row"><span class="muted">Todos pagaron ✅</span></div>`;
+      return `<div class="card" style="margin-top:14px"><div class="row spread"><h3 style="margin:0">${esc(c.name)}</h3>
+        <span class="muted">${money(catCost(c))} c/u · pendiente ${money(unpaid.length * catCost(c))}</span></div>
+        <div style="margin-top:10px">${rows}</div></div>`;
+    }).join('');
+  } else {
+    const map = {};
+    cats.forEach(c => c.entrants.filter(e => !e.paid).forEach(e => e.players.forEach(pid => {
+      const p = playerById(pid); if (!p) return;
+      (map[pid] = map[pid] || { name: fullName(p), items: [], total: 0 });
+      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c) });
+      map[pid].total += catCost(c);
+    })));
+    const people = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+    html += people.length
+      ? people.map(pe => `<div class="card report-person" data-name="${esc(pe.name).toLowerCase()}" style="margin-top:14px">
+          <div class="row spread"><h3 style="margin:0">${esc(pe.name)}</h3><span class="pay-tag no">${money(pe.total)}</span></div>
+          <div style="margin-top:8px">${pe.items.map(it => `<div class="report-row"><span>${esc(it.cat)}</span><span class="muted">${money(it.cost)}</span></div>`).join('')}</div></div>`).join('')
+      : `<div class="empty" style="margin-top:14px">Nadie tiene pagos pendientes 🎉</div>`;
+  }
+  app.innerHTML = html;
 }
 
 /* ---------- ajustes (admin) ---------- */
@@ -1840,8 +1915,10 @@ function renderTournament(app, tid) {
         <span class="tag">📋 ${ruleLabel(c.rule)}</span>
         <span class="tag">${catSetsFmt(c).label}</span><span class="tag">🥇 ${c.championPoints} pts</span>
         <span class="tag">${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jugadores'}</span>
+        ${catCost(c) > 0 ? `<span class="tag">💲 ${money(catCost(c))}</span>` : ''}
         ${c.startAt ? `<span class="tag">🕒 ${fmtStartAt(c.startAt)}</span>` : ''}
         <span class="tag">${st}</span></div>
+      ${(() => { const m = myPaymentStatus(c); return m ? `<div class="pay-line ${m.paid ? 'ok' : 'no'}">${m.paid ? '✅ Inscripción pagada' : `💲 Te falta pagar ${money(m.cost)}`}</div>` : ''; })()}
       ${champ && champ !== 'BYE' ? `<div class="champ" style="margin-top:10px">🏆 ${esc(entName(c, champ))}</div>` : ''}
       <div class="row" style="margin-top:12px"><button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
         ${canEditT(t) && !c.groups ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
@@ -1889,20 +1966,24 @@ function categoriaForm(tid, cid) {
   const r = cat ? cat.rules : { sets: 5, groupMin: 3, groupMax: 4 };
   const curFmt = cat ? catSetsFmt(cat).id : 'all5';
   const setsOpts = SETS_FORMATS.map(f => `<option value="${f.id}" ${sel(curFmt, f.id)}>${f.label}</option>`).join('');
+  const defCost = cat ? (cat.cost != null ? cat.cost : 0) : ((catEntryByName(catCatalog()[0] && catCatalog()[0].name) || {}).cost || 0);
   openModal(`<h3>${cat ? 'Editar' : 'Crear'} categoría (sub-torneo)</h3>
-    <label>Categoría</label><select id="c_name">${names}</select>
+    <label>Categoría</label><select id="c_name" onchange="catCostSuggest()">${names}</select>
     <div class="grid2">
       <div><label>Formato</label><select id="c_fmt"><option value="single" ${cat ? sel(cat.format, 'single') : 'selected'}>Singles 👤</option><option value="double" ${cat ? sel(cat.format, 'double') : ''}>Dobles 👥</option></select></div>
       <div><label>Sets por fase</label><select id="c_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
       <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
       <div><label>Valor del torneo 🏆 (máx 20)</label><input id="c_pts" type="number" min="0" max="20" value="${cat ? cat.championPoints : 20}"/></div>
+      <div><label>Costo de inscripción 💲</label><input id="c_cost" type="number" min="0" step="100" value="${defCost}"/></div>
     </div>
     <p class="hint">Solo cobran el <b>podio</b>: 🥇 valor · 🥈 ½ · 🥉 ⅓ · 4º ¼. Además cada partido suma/resta puntos por nivel (Elo). <b>Solo puntúan singles de Primera/Segunda/Tercera/Cuarta</b> — dobles y categorías por edad no mueven el ranking.${cat && cat.entrants.length ? ' <br>⚠️ Si cambiás el formato (singles/dobles) se borran los inscriptos actuales.' : ''}</p>
     <div id="cerr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveCategoria('${tid}','${cid || ''}')">${cat ? 'Guardar' : 'Crear'}</button></div>`);
 }
+// Al cambiar la categoría en el form, sugiere el costo por defecto del catálogo.
+function catCostSuggest() { const cc = catEntryByName($('#c_name').value), inp = $('#c_cost'); if (cc && inp) inp.value = cc.cost || 0; }
 function saveCategoria(tid, cid) {
   const t = tById(tid), name = $('#c_name').value;
   const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
@@ -1910,17 +1991,25 @@ function saveCategoria(tid, cid) {
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
   const format = $('#c_fmt').value, setsFormat = $('#c_setsfmt').value;
   const rules = { sets: setsFmtById(setsFormat).bracket, groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
+  const cost = Math.max(0, parseInt($('#c_cost').value, 10) || 0);
   if (cid) {
     const cat = getCat(tid, cid); if (!cat) return;
     if (cat.groups) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: los partidos ya empezaron.'; return; }
     if (cat.format !== format) cat.entrants = []; // cambia singles/dobles → se limpian inscriptos
-    cat.name = name; cat.format = format; cat.rule = catalogRule(name); cat.rules = rules; cat.setsFormat = setsFormat; cat.championPoints = championPoints;
+    cat.name = name; cat.format = format; cat.rule = catalogRule(name); cat.rules = rules; cat.setsFormat = setsFormat; cat.championPoints = championPoints; cat.cost = cost;
   } else {
-    t.categorias.push({ id: uid('c_'), name, format, rule: catalogRule(name), setsFormat, rules, championPoints, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
+    t.categorias.push({ id: uid('c_'), name, format, rule: catalogRule(name), setsFormat, rules, championPoints, cost, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
   }
   save(DB); closeModal(); render();
 }
 function delCategoria(tid, cid) { const t = tById(tid); if (confirm('¿Eliminar categoría?')) { t.categorias = t.categorias.filter(c => c.id !== cid); save(DB); render(); } }
+// Marca/desmarca el pago de un entrante (solo admin/colaborador).
+function togglePaid(tid, cid, entId) {
+  const cat = getCat(tid, cid); if (!cat) return; cat._tid = tid;
+  if (!canEditCat(cat)) return;
+  const e = entById(cat, entId); if (!e) return;
+  e.paid = !e.paid; save(DB); render();
+}
 
 /* ----- horario de comienzo de la categoría (lo setean admin/colaboradores) ----- */
 function fmtStartAt(s) {
@@ -1952,15 +2041,21 @@ function entrantsListHtml(cat) {
   if (!cat.entrants.length) return `<div class="empty">Todavía no hay ${cat.format === 'double' ? 'parejas' : 'jugadores'} inscriptos.</div>`;
   const u = currentUser(), myId = u && u.playerId;
   const list = cat.entrants.slice().sort((a, b) => entName(cat, a.id).localeCompare(entName(cat, b.id)));
+  const cost = catCost(cat), canPay = canEditCat(cat);
   return list.map((e, i) => {
     const mine = myId && e.players.includes(myId);
     const p = playerById(e.players[0]);
     const sub = cat.format === 'double'
       ? e.players.map(pid => { const pp = playerById(pid); return pp ? `${esc(fullName(pp))} (${pp.category})` : '?'; }).join(' + ')
       : (p ? `${p.category} · 📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}` : '');
+    let pay = '';
+    if (cost > 0) {
+      if (canPay) pay = `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`;
+      else if (mine) pay = `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagaste' : `💲 Falta pagar ${money(cost)}`}</span>`;
+    }
     return `<div class="player-row"><span class="pos">${i + 1}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
       <div class="meta"><div class="name">${esc(entName(cat, e.id))}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
-      <div class="sub">${sub}</div></div></div>`;
+      <div class="sub">${sub}</div></div>${pay}</div>`;
   }).join('');
 }
 function renderCategoria(app, tid, cid) {
@@ -1974,8 +2069,17 @@ function renderCategoria(app, tid, cid) {
       <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
       <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
       <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
+      ${catCost(cat) > 0 ? `<span class="tag">💲 ${money(catCost(cat))}</span>` : ''}
       ${cat.startAt ? `<span class="tag">🕒 ${fmtStartAt(cat.startAt)}</span>` : ''}
       <span class="tag ${enr.open ? 'tag-open' : 'tag-closed'}">${enr.label}</span></div>`;
+  // Estado de pago del jugador logueado (si está inscripto y la categoría tiene costo)
+  const mps = myPaymentStatus(cat);
+  if (mps) html += `<div class="banner ${mps.paid ? 'ok' : ''}" style="margin:12px 0">${mps.paid ? '✅ Ya pagaste tu inscripción a esta categoría.' : `💲 Te falta pagar la inscripción de esta categoría: <b>${money(mps.cost)}</b>.`}</div>`;
+  // Resumen de pagos para admin/colaborador
+  if (canEditCat(cat) && catCost(cat) > 0) {
+    const paid = cat.entrants.filter(e => e.paid).length, pend = cat.entrants.length - paid;
+    html += `<p class="page-sub" style="margin:8px 0 0">💲 Pagaron <b>${paid}</b> de ${cat.entrants.length} · pendiente <b>${money(pend * catCost(cat))}</b></p>`;
+  }
 
   if (canEditCat(cat)) {
     const finalDone = cat.bracket && brWinner(cat, cat.bracket.length - 1, 0);
@@ -2421,7 +2525,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
