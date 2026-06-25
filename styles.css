@@ -138,6 +138,10 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .groups{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; margin-top:14px}
 .group-card{border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff}
 .group-card h4{margin:0; padding:10px 12px; background:var(--table); color:#fff; font-size:14px}
+.zone-bar{display:flex; justify-content:center; padding:8px 8px 0}
+.zone-bar .start-btn,.zone-bar .mesa-badge{width:100%; text-align:center; justify-content:center}
+.wo-tag{flex:0 0 auto; font-size:10px; font-weight:800; color:#8a5400; background:#fff3e0; border:1px solid #ffd8a8; border-radius:6px; padding:0 5px}
+.post-tag{flex:0 0 auto; font-size:11px; font-weight:700; color:var(--muted)}
 .group-card ul{list-style:none; margin:0; padding:6px}
 .group-card li{display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px}
 .group-card li:nth-child(odd){background:#f7f9fb}

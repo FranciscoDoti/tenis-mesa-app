@@ -1224,13 +1224,22 @@ function dateRangeLabel(t) {
   }
   return fmtDate(t.date);
 }
-// Partidos "en vivo" de un torneo = ya tienen mesa asignada y todavía no terminaron.
+// "En vivo" = mesas en uso. Una zona largada con partidos pendientes ocupa una sola fila;
+// la llave / 3er puesto / aplazados aparecen como partidos individuales.
 function liveMatchesOf(t) {
   const out = [];
   t.categorias.forEach(cat => {
     cat._tid = t.id;
+    (cat.groups || []).forEach((g, gi) => {
+      const tbl = cat.zoneTable && cat.zoneTable[gi];
+      if (tbl == null) return;
+      const pend = (cat.matches || []).filter(m => m.g === gi && !m.postponed && !matchDone(m, cat)).length;
+      if (pend) out.push({ table: tbl, catName: cat.name, label: 'Zona ' + String.fromCharCode(65 + gi), sub: `${pend} partido${pend === 1 ? '' : 's'} pendiente${pend === 1 ? '' : 's'}` });
+    });
     catMatchList(cat).forEach(({ a, b, m, phase }) => {
-      if (m && m.table != null && !matchDone(m, cat)) out.push({ catName: cat.name, table: m.table, phase, a: entName(cat, a), b: entName(cat, b) });
+      if (isZoneMatch(m)) return; // ya contabilizado por su zona
+      if (m.table == null || matchDone(m, cat)) return;
+      out.push({ table: m.table, catName: cat.name, label: `${entName(cat, a)} vs ${entName(cat, b)}`, sub: m.postponed ? phase + ' (aplazado)' : phase });
     });
   });
   return out.sort((x, y) => x.table - y.table);
@@ -1460,13 +1469,35 @@ function saveTournamentEdit(tid) {
   t.name = name; t.date = date; t.dateEnd = dateEnd; t.gymId = $('#et_gym').value || null;
   save(DB); closeModal(); render();
 }
-// Mesas ocupadas del torneo = asignadas a partidos en curso (sin terminar), de cualquier categoría.
-// exceptMm permite excluir el propio partido al editar su mesa.
+// ¿Es un partido de zona (grupo) que se juega en la mesa de la zona? (los aplazados pasan a individual)
+const isZoneMatch = m => !!(m && m.g != null && !m.postponed);
+// Mesa efectiva de un partido: la de su zona si es de grupo (no aplazado); si no, la individual (m.table).
+function matchTableOf(cat, m) {
+  if (!m) return null;
+  if (isZoneMatch(m)) { const zt = cat.zoneTable; return zt && zt[m.g] != null ? zt[m.g] : null; }
+  return m.table != null ? m.table : null;
+}
+// Partidos con mesa individual: llave, 3er puesto y partidos de grupo aplazados.
+function catIndividualMatches(cat) {
+  const out = [];
+  (cat.matches || []).forEach(m => { if (m.postponed) out.push(m); });
+  if (cat.bracket) cat.bracket.forEach(round => round.forEach(mm => out.push(mm)));
+  if (cat.thirdPlace) out.push(cat.thirdPlace);
+  return out;
+}
+// Mesas ocupadas del torneo (de cualquier categoría). exceptMm excluye el propio partido al re-asignar.
+// Una mesa de zona queda ocupada mientras la zona tenga partidos no aplazados y sin terminar.
 function occupiedTablesOf(t, exceptMm) {
   const set = new Set();
   t.categorias.forEach(cat => {
     cat._tid = t.id;
-    catMatchList(cat).forEach(({ m }) => { if (m && m !== exceptMm && m.table != null && !matchDone(m, cat)) set.add(m.table); });
+    (cat.groups || []).forEach((g, gi) => {
+      const tbl = cat.zoneTable && cat.zoneTable[gi];
+      if (tbl == null) return;
+      const pending = (cat.matches || []).some(m => m.g === gi && !m.postponed && m !== exceptMm && !matchDone(m, cat));
+      if (pending) set.add(tbl);
+    });
+    catIndividualMatches(cat).forEach(m => { if (m && m !== exceptMm && m.table != null && !matchDone(m, cat)) set.add(m.table); });
   });
   return set;
 }
@@ -1483,7 +1514,10 @@ function startControl(cat, kind, gidx, r, m, mm) {
 function resultBtn(cat, kind, gidx, r, m, mm, done, cls, editLabel) {
   const args = `'${cat._tid}','${cat.id}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
   if (done) return `<button class="${cls}" onclick="resultModal(${args})">${editLabel}</button>`;
-  if (!(mm && mm.table != null)) return `<button class="${cls}" disabled title="Primero iniciá el partido: tocá «Iniciar» y elegí una mesa.">Cargar</button>`;
+  if (matchTableOf(cat, mm) == null) {
+    const tip = isZoneMatch(mm) ? 'Largá la zona primero (botón «Largar zona»).' : 'Iniciá el partido: tocá «Iniciar» y elegí una mesa.';
+    return `<button class="${cls}" disabled title="${tip}">Cargar</button>`;
+  }
   return `<button class="${cls}" onclick="resultModal(${args})">Cargar</button>`;
 }
 // Popover anclado al botón para elegir/mover la mesa (entre TODAS las mesas del torneo).
@@ -1521,6 +1555,73 @@ function setMatchTable(tid, cid, kind, gidx, r, m, val) {
   if (num != null && occupiedTablesOf(tById(tid), mm).has(num)) { alert(`La mesa ${num} ya está ocupada por otro partido en curso. Esperá a que se libere.`); render(); return; }
   mm.table = num;
   save(DB); render();
+}
+
+/* ---- largado de ZONA (grupo): toda la zona se juega en la misma mesa ---- */
+function zoneControl(cat, gi) {
+  const zt = cat.zoneTable && cat.zoneTable[gi] != null ? cat.zoneTable[gi] : null;
+  if (!canEditCat(cat)) return zt != null ? `<span class="mesa-badge">🏓 Mesa ${zt}</span>` : '';
+  const args = `event,'${cat._tid}','${cat.id}',${gi}`;
+  if (zt == null) return `<button class="btn btn-primary btn-sm start-btn" onclick="openZonePopover(${args})">▶️ Largar zona</button>`;
+  return `<button class="mesa-badge mesa-badge-btn" onclick="openZonePopover(${args})" title="Mover la zona de mesa o liberarla">🏓 Mesa ${zt} ⚙️</button>`;
+}
+function openZonePopover(ev, tid, cid, gi) {
+  ev.stopPropagation();
+  const cat = getCat(tid, cid); cat._tid = tid;
+  const t = tById(tid), max = tableCountOf(t);
+  const occ = occupiedTablesOf(t);
+  const cur = cat.zoneTable && cat.zoneTable[gi] != null ? cat.zoneTable[gi] : null;
+  if (cur != null) occ.delete(cur); // la mesa actual de la zona es seleccionable (no "ocupada" para sí misma)
+  const top = Math.max(max, cur || 0);
+  let cells = '';
+  for (let i = 1; i <= top; i++) {
+    const busy = occ.has(i), isCur = cur === i, tag = busy ? '<small>ocupada</small>' : isCur ? '<small>actual</small>' : '';
+    cells += `<button class="table-opt${isCur ? ' current' : ''}${busy ? ' busy' : ''}" ${busy ? 'disabled' : ''} onclick="assignZoneTable('${tid}','${cid}',${gi},${i})">🏓<span>Mesa ${i}</span>${tag}</button>`;
+  }
+  const liberar = cur != null ? `<button class="btn btn-ghost btn-sm pop-free" onclick="assignZoneTable('${tid}','${cid}',${gi},0)">⏹️ Liberar mesa de la zona</button>` : '';
+  showPopover(ev.currentTarget, `<h4>${cur != null ? 'Mover zona de mesa' : 'Largar zona ' + String.fromCharCode(65 + gi)}</h4>
+    <div class="pop-sub">Todos los partidos de la zona se juegan en esta mesa hasta terminar.</div>
+    <div class="table-grid">${cells}</div>${liberar}`);
+}
+function assignZoneTable(tid, cid, gi, tableNum) {
+  closePopover();
+  const cat = getCat(tid, cid); cat._tid = tid;
+  if (!cat.zoneTable) cat.zoneTable = {};
+  const num = tableNum > 0 ? tableNum : null;
+  if (num == null) { delete cat.zoneTable[gi]; save(DB); render(); return; }
+  const occ = occupiedTablesOf(tById(tid)); if (cat.zoneTable[gi] != null) occ.delete(cat.zoneTable[gi]);
+  if (occ.has(num)) { alert(`La mesa ${num} ya está ocupada. Esperá a que se libere.`); render(); return; }
+  cat.zoneTable[gi] = num; save(DB); render();
+}
+// Aplazar un partido de grupo: lo saca de la mesa de la zona (libera la mesa para ese partido) y pasa a largado individual.
+function postponeMatch(tid, cid, idx) { const cat = getCat(tid, cid); const m = cat.matches && cat.matches[idx]; if (!m) return; m.postponed = true; m.table = null; save(DB); render(); }
+function resumeMatch(tid, cid, idx) { const cat = getCat(tid, cid); const m = cat.matches && cat.matches[idx]; if (!m) return; m.postponed = false; m.table = null; save(DB); render(); }
+
+/* ---- no se presentó (walkover): el rival gana need(cat)-0 ---- */
+function noShowBtn(cat, kind, gidx, r, m) {
+  const args = `'${cat._tid}','${cat.id}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
+  return `<button class="btn btn-ghost btn-sm" onclick="noShowModal(${args})" title="Cargar como no presentado (pierde por no presentación)">🚷</button>`;
+}
+function noShowModal(tid, cid, kind, gidx, r, m) {
+  const cat = getCat(tid, cid); cat._tid = tid;
+  const { a, b } = locateMatch(cat, kind, gidx, r, m);
+  if (!a || !b || a === 'BYE' || b === 'BYE') { alert('Faltan definir los dos participantes.'); return; }
+  const args = `'${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
+  openModal(`<h3>No se presentó</h3>
+    <p class="muted" style="margin:0 0 12px">Elegí quién <b>no se presentó</b>. El rival gana ${need(cat)}-0.</p>
+    <div class="row" style="gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="applyWalkover(${args},'a')">🚷 ${esc(entName(cat, a))}</button>
+      <button class="btn btn-ghost" onclick="applyWalkover(${args},'b')">🚷 ${esc(entName(cat, b))}</button>
+    </div>
+    <div class="row" style="margin-top:16px"><button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancelar</button></div>`);
+}
+function applyWalkover(tid, cid, kind, gidx, r, m, absentSide) {
+  const cat = getCat(tid, cid); cat._tid = tid;
+  const { mm } = locateMatch(cat, kind, gidx, r, m);
+  const n = need(cat), winSide = absentSide === 'a' ? 'b' : 'a';
+  mm.sets = Array.from({ length: n }, () => winSide === 'a' ? [11, 0] : [0, 11]);
+  mm.walkover = winSide; if (mm.postponed) mm.postponed = false;
+  save(DB); closeModal(); render();
 }
 // ---- popover genérico (no es modal: anclado, sin oscurecer la pantalla) ----
 function closePopover() { const h = $('#popHost'); if (h) h.remove(); }
@@ -1564,8 +1665,8 @@ function renderTournament(app, tid) {
     + (live.length
       ? `<div class="live-list">` + live.map(L => `<div class="live-row">
           <span class="live-mesa">🏓 Mesa ${L.table}</span>
-          <span class="live-players">${esc(L.a)} <span class="muted">vs</span> ${esc(L.b)}</span>
-          <span class="live-cat">${esc(L.catName)} · ${esc(L.phase)}</span></div>`).join('') + `</div>`
+          <span class="live-players">${esc(L.label)}</span>
+          <span class="live-cat">${esc(L.catName)} · ${esc(L.sub)}</span></div>`).join('') + `</div>`
       : `<div class="empty">No hay partidos en juego ahora. Cuando le asignes una mesa a un partido, aparece acá como “en vivo”.</div>`);
   const tEnrollOpen = tournamentEnrollOpen(t);
   const collabNames = (t.collaborators || []).map(id => { const p = playerById(id); return p ? fullName(p) : null; }).filter(Boolean);
@@ -1869,17 +1970,26 @@ function groupCardHtml(cat, gi) {
   const st = groupStandings(cat, gi);
   const rows = st.map((s, i) => `<li><span${i < 2 ? ' style="font-weight:700"' : ''}>${esc(entName(cat, s.id))}</span>
     <span class="muted" style="margin-left:auto;font-size:12px">${s.pg}G · ${s.sf}-${s.sc}${i < 2 ? ' ✅' : ''}</span></li>`).join('');
+  const zoneStarted = cat.zoneTable && cat.zoneTable[gi] != null;
   const ms = cat.matches.filter(m => m.g === gi).map(m => {
     const idx = cat.matches.indexOf(m), r = matchResult(m), done = matchDone(m, cat), w = matchWinnerSide(m, cat);
-    const mesa = done ? '' : startControl(cat, 'group', idx, null, null, m);
+    const wo = m.walkover ? ' <span class="wo-tag">W.O.</span>' : '';
+    let ctl = '';
+    if (canEditCat(cat) && !done) {
+      if (m.postponed) ctl = `<span class="post-tag">⏸ Aplazado</span>${startControl(cat, 'group', idx, null, null, m)}<button class="btn btn-ghost btn-sm" onclick="resumeMatch('${cat._tid}','${cat.id}',${idx})" title="Volver a la mesa de la zona">↩️</button>`;
+      else if (zoneStarted) ctl = `<button class="btn btn-ghost btn-sm" onclick="postponeMatch('${cat._tid}','${cat.id}',${idx})" title="Aplazar: saca este partido de la mesa de la zona">⏸ Aplazar</button>`;
+    }
     return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${esc(entName(cat, m.a))}</span>
-      <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>
+      <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>${wo}
       <span class="${w === 'b' ? 'win' : ''}">${esc(entName(cat, m.b))}</span>
       ${canEditCat(cat) ? resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️') : ''}
+      ${canEditCat(cat) && !done ? noShowBtn(cat, 'group', idx, null, null) : ''}
       ${done ? eloLabel(cat, m, m.a, m.b) : ''}
-      ${mesa ? `<div class="bmatch-mesa">${mesa}</div>` : ''}</div>`;
+      ${ctl ? `<div class="bmatch-mesa">${ctl}</div>` : ''}</div>`;
   }).join('');
-  return `<div class="group-card"><h4>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</h4><ul>${rows}</ul><div class="matches">${ms}</div></div>`;
+  const zc = zoneControl(cat, gi);
+  return `<div class="group-card"><h4>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</h4>
+    ${zc ? `<div class="zone-bar">${zc}</div>` : ''}<ul>${rows}</ul><div class="matches">${ms}</div></div>`;
 }
 
 /* ----- bracket ----- */
@@ -1919,7 +2029,8 @@ function bracketHtml(cat) {
       return `<div class="br-match">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
         ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : ''}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
-        ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}</div>`;
+        ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}
+        ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','bracket',null,${r},${m})" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div>`;
     }).join('') + `</div>`).join('');
   let extra = '';
   if (cat.thirdPlace) {
@@ -1931,7 +2042,8 @@ function bracketHtml(cat) {
       ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
       ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : ''}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
-      ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}</div></div>`;
+      ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}
+      ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','third',null,null,null)" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div></div>`;
   }
   const champ = brWinner(cat, T - 1, 0);
   const champHtml = champ && champ !== 'BYE' ? `<div class="champ">🏆 Campeón: <b>${esc(entName(cat, champ))}</b></div>` : '';
@@ -1982,7 +2094,7 @@ function saveResult(tid, cid, kind, gidx, r, m) {
   if (wa < n && wb < n) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
   if (wa >= n && wb >= n) { e.hidden = false; e.textContent = 'Resultado inconsistente.'; return; }
   const { mm } = locateMatch(cat, kind, gidx, r, m);
-  mm.sets = sets; save(DB); closeModal(); render();
+  mm.sets = sets; if (mm.walkover) delete mm.walkover; save(DB); closeModal(); render();
 }
 
 /* ----- puntos al ranking ----- */
@@ -2081,7 +2193,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
