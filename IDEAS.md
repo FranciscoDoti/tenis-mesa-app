@@ -27,5 +27,5 @@
     - [x] Al recargar la app te vuelve por un instante a la pagina de login incluso cuadno ya tenias la sesión iniciada y no debería
     - [x] no anda para cargar colaboradores a los torneos una vez el torneo ya está empezado
     - [ ] la pantalla de inscripción del admin no te pide el mail (revisar consistencia con la de inscripción normal en cuanto a proceso y datos de entrada )
-    - [ ] que en el historial si un partido terminó 3-0 porque uno no se presentó que en el historial lo aclare
-    - [ ] lo de los sets que si es a 5 te deja cargar como que terminó 5-0 o 4-1 o sea te deja cargar como que el ganador hizo más de 3 sets
+    - [x] que en el historial si un partido terminó 3-0 porque uno no se presentó que en el historial lo aclare
+    - [x] lo de los sets que si es a 5 te deja cargar como que terminó 5-0 o 4-1 o sea te deja cargar como que el ganador hizo más de 3 sets
