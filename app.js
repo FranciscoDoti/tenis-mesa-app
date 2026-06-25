@@ -91,6 +91,9 @@ function ageFromDob(dob) {
   return a;
 }
 function eligible(cat, p) {
+  // Regla de género (singles y dobles femenino/masculino; "mixto" se valida a nivel pareja).
+  if (cat.gender === 'female' && genderOf(p) !== 'F') return { ok: false, reason: `${cat.name}: es solo para mujeres (${fullName(p)} figura como varón).` };
+  if (cat.gender === 'male' && genderOf(p) !== 'M') return { ok: false, reason: `${cat.name}: es solo para varones (${fullName(p)} figura como mujer).` };
   const r = cat.rule; if (!r || r.type === 'open') return { ok: true };
   if (r.type === 'level') {
     const lvl = CATS.indexOf(p.category) + 1; if (lvl <= 0) return { ok: true };
@@ -1171,7 +1174,7 @@ function renderCatalog(app) {
   const cards = catCatalog().map(c => `<div class="card">
     <div class="gym-head"><span class="gym-ico">🗂️</span>
       <div class="meta"><div class="name">${esc(c.name)}</div>
-        <div class="sub">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'} · 📋 ${ruleLabel(c.rule)}</div></div></div>
+        <div class="sub">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'}${c.gender && c.gender !== 'any' ? ' · ' + GENDER_RULE_LABEL[c.gender] : ''} · 📋 ${ruleLabel(c.rule)}</div></div></div>
     <div class="tags" style="margin-top:10px">
       <span class="tag">🎾 ${setsFmtById(c.setsFormat).label}</span>
       <span class="tag">Grupos ${c.groupMin}–${c.groupMax}</span>
@@ -1206,11 +1209,11 @@ function catalogEntryForm(id) {
     </div></div>
     <div class="grid2">
       <div><label>Formato</label><select id="cc_fmt" onchange="catFmtChange('cc')"><option value="single" ${sel((c && c.format) || 'single', 'single')}>Singles 👤</option><option value="double" ${sel((c && c.format), 'double')}>Dobles 👥</option></select></div>
-      <div class="cc-gender" ${(c && c.format === 'double') ? '' : 'hidden'}><label>Género (dobles)</label><select id="cc_gender">
+      <div class="cc-gender"><label>Género</label><select id="cc_gender">
         <option value="any" ${sel((c && c.gender) || 'any', 'any')}>Indistinto</option>
-        <option value="female" ${sel(c && c.gender, 'female')}>Femenino (2 mujeres)</option>
-        <option value="male" ${sel(c && c.gender, 'male')}>Masculino (2 varones)</option>
-        <option value="mixed" ${sel(c && c.gender, 'mixed')}>Mixto (varón + mujer)</option></select></div>
+        <option value="female" ${sel(c && c.gender, 'female')}>Femenino</option>
+        <option value="male" ${sel(c && c.gender, 'male')}>Masculino</option>
+        <option value="mixed" ${sel(c && c.gender, 'mixed')} ${(c && c.format === 'double') ? '' : 'hidden'}>Mixto (solo dobles)</option></select></div>
       <div><label>Sets por fase</label><select id="cc_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="cc_min" type="number" min="2" value="${c ? c.groupMin : 3}"/></div>
       <div><label>Máx por grupo</label><input id="cc_max" type="number" min="2" value="${c ? c.groupMax : 4}"/></div>
@@ -1226,10 +1229,12 @@ function catRuleTypeChange() {
   const t = $('#cc_ruletype').value;
   document.querySelectorAll('#modalCard .cc-param').forEach(el => { el.hidden = !el.dataset.for.split(' ').includes(t); });
 }
-// Muestra/oculta el selector de género (solo aplica a dobles). prefix: 'cc' (catálogo) o 'c' (categoría de torneo).
+// El género aplica a singles y dobles; "Mixto" es solo para dobles. prefix: 'cc' (catálogo) o 'c' (categoría de torneo).
 function catFmtChange(prefix) {
-  const isDouble = $('#' + prefix + '_fmt').value === 'double';
-  document.querySelectorAll('#modalCard .' + prefix + '-gender').forEach(el => { el.hidden = !isDouble; });
+  const isDouble = $('#' + prefix + '_fmt').value === 'double', g = $('#' + prefix + '_gender');
+  if (!g) return;
+  const mixed = g.querySelector('option[value="mixed"]'); if (mixed) mixed.hidden = !isDouble;
+  if (!isDouble && g.value === 'mixed') g.value = 'any'; // singles no puede ser mixto
 }
 function saveCatalogEntry(id) {
   const e = $('#ccerr'), name = $('#cc_name').value.trim();
@@ -1249,7 +1254,8 @@ function saveCatalogEntry(id) {
   const min = parseInt($('#cc_min').value, 10) || 3, max = parseInt($('#cc_max').value, 10) || 4;
   if (min > max) { e.hidden = false; e.textContent = 'Mín por grupo no puede ser mayor que máx.'; return; }
   const fmt = $('#cc_fmt').value;
-  const entry = { name, rule, format: fmt, gender: fmt === 'double' ? ($('#cc_gender') ? $('#cc_gender').value : 'any') : 'any', setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)), cost: Math.max(0, parseInt($('#cc_cost').value, 10) || 0) };
+  let gender = $('#cc_gender') ? $('#cc_gender').value : 'any'; if (fmt !== 'double' && gender === 'mixed') gender = 'any';
+  const entry = { name, rule, format: fmt, gender, setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)), cost: Math.max(0, parseInt($('#cc_cost').value, 10) || 0) };
   if (id) { const cur = list.find(x => x.id === id); if (cur) Object.assign(cur, entry); }
   else list.push(Object.assign({ id: uid('cc_') }, entry));
   save(DB); closeModal(); render();
@@ -2175,7 +2181,7 @@ function renderTournament(app, tid) {
     const st = c.closed ? '✅ Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : enrollmentStatus(c).label;
     return `<div class="card"><div class="row spread"><h3 style="margin:0">${esc(c.name)}</h3></div>
       <div class="tags"><span class="tag">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
-        ${c.format === 'double' && c.gender && c.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[c.gender]}</span>` : ''}
+        ${c.gender && c.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[c.gender]}</span>` : ''}
         <span class="tag">📋 ${ruleLabel(c.rule)}</span>
         <span class="tag">${catSetsFmt(c).label}</span><span class="tag">🥇 ${c.championPoints} pts</span>
         <span class="tag">${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jugadores'}</span>
@@ -2239,11 +2245,11 @@ function categoriaForm(tid, cid) {
     <label>Categoría</label><select id="c_name" onchange="catCostSuggest()">${names}</select>
     <div class="grid2">
       <div><label>Formato</label><select id="c_fmt" onchange="catFmtChange('c')"><option value="single" ${sel(curFmtD, 'single')}>Singles 👤</option><option value="double" ${sel(curFmtD, 'double')}>Dobles 👥</option></select></div>
-      <div class="c-gender" ${curFmtD === 'double' ? '' : 'hidden'}><label>Género (dobles)</label><select id="c_gender">
+      <div class="c-gender"><label>Género</label><select id="c_gender">
         <option value="any" ${sel(curGender, 'any')}>Indistinto</option>
         <option value="female" ${sel(curGender, 'female')}>Femenino</option>
         <option value="male" ${sel(curGender, 'male')}>Masculino</option>
-        <option value="mixed" ${sel(curGender, 'mixed')}>Mixto</option></select></div>
+        <option value="mixed" ${sel(curGender, 'mixed')} ${curFmtD === 'double' ? '' : 'hidden'}>Mixto (solo dobles)</option></select></div>
       <div><label>Sets por fase</label><select id="c_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
       <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
@@ -2269,7 +2275,7 @@ function saveCategoria(tid, cid) {
   const e = $('#cerr');
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
   const format = $('#c_fmt').value, setsFormat = $('#c_setsfmt').value;
-  const gender = format === 'double' ? ($('#c_gender') ? $('#c_gender').value : 'any') : 'any';
+  let gender = $('#c_gender') ? $('#c_gender').value : 'any'; if (format !== 'double' && gender === 'mixed') gender = 'any';
   const rules = { sets: setsFmtById(setsFormat).bracket, groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
   const cost = Math.max(0, parseInt($('#c_cost').value, 10) || 0);
   if (cid) {
@@ -2347,7 +2353,7 @@ function renderCategoria(app, tid, cid) {
     <div class="page-title" style="margin-top:12px"><h1>${esc(cat.name)}</h1></div>`;
   const enr = enrollmentStatus(cat);
   html += `<div class="tags"><span class="tag">${cat.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
-      ${cat.format === 'double' && cat.gender && cat.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[cat.gender]}</span>` : ''}
+      ${cat.gender && cat.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[cat.gender]}</span>` : ''}
       <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
       <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
       <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
