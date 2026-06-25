@@ -7,7 +7,8 @@
   - [x] agregar un link en la setting para una página o un tooltip donde explique cómo funciona esta funcionalidad
   - [x] que avise qué jugadores están involucrados en cada mesa o partido de llave
 - [x] Reformular el largado de mesas actual para hacerlo por zona y despues individual por llave
-- [ ] Implementar las otras dos configuraciones que figuran en **Settings**.
+- [ ] Implementar la funcioanlidad de pagos
+- [ ] Impleemntar la funcionalidad de horario estimado
 - [x] Implementar un reglamento editable con opción de **publicar / despublicar**.
 - [x] Implementar una sección de **Noticias**.
 - [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
