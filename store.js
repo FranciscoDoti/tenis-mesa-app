@@ -23,7 +23,7 @@
      blob JSON (Firestore no admite arrays anidados como los sets/brackets).
      Los torneos llevan además `collaborators` y `published` como campos nativos
      para que las reglas de seguridad puedan leerlos. La colección users es nativa. */
-  const BLOBS = ['players', 'gyms', 'tournaments'];
+  const BLOBS = ['players', 'gyms', 'tournaments', 'news'];
   const strip = o => JSON.parse(JSON.stringify(o, (k, v) => (k.startsWith('_') ? undefined : v)));
   const docFor = (coll, o) => {
     const clean = strip(o);
@@ -33,13 +33,13 @@
   };
 
   STORE.loadAll = async function () {
-    const [pl, gy, to, us, st] = await Promise.all([
+    const [pl, gy, to, ne, us, st] = await Promise.all([
       db.collection('players').get(), db.collection('gyms').get(), db.collection('tournaments').get(),
-      db.collection('users').get(), db.doc('app/settings').get(),
+      db.collection('news').get(), db.collection('users').get(), db.doc('app/settings').get(),
     ]);
     const parse = snap => snap.docs.map(d => JSON.parse(d.data().j));
     return {
-      players: parse(pl), gyms: parse(gy), tournaments: parse(to),
+      players: parse(pl), gyms: parse(gy), tournaments: parse(to), news: parse(ne),
       users: us.docs.map(d => ({ uid: d.id, ...d.data() })),
       settings: st.exists ? JSON.parse(st.data().j) : null,
       empty: pl.empty && gy.empty && to.empty,
@@ -55,7 +55,7 @@
   };
 
   // Estado base para el diff (se llama tras loadAll y tras cada sync).
-  let _last = { players: {}, gyms: {}, tournaments: {} };
+  let _last = { players: {}, gyms: {}, tournaments: {}, news: {} };
   STORE.primeLast = function (data) {
     BLOBS.forEach(c => { _last[c] = {}; (data[c] || []).forEach(o => { _last[c][o.id] = JSON.stringify(strip(o)); }); });
   };

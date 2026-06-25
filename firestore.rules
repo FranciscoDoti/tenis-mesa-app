@@ -38,6 +38,8 @@ service cloud.firestore {
 
     // Gimnasios: solo admin escribe.
     match /gyms/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
+    // Noticias: lectura para logueados (los borradores se filtran en la app); solo admin escribe.
+    match /news/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
     // Ajustes (incluye el tema): lectura pública para poder pintar la apariencia publicada en
     // la pantalla de inicio sin estar logueado. No hay datos sensibles (colores + toggles).
     match /app/{doc}   { allow read: if true; allow write: if isAdmin(); }

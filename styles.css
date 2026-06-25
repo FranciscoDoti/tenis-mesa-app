@@ -163,6 +163,7 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .close-x{float:right; cursor:pointer; border:0; background:#eef1f4; border-radius:8px; width:30px; height:30px; font-size:16px}
 .admin-only[hidden]{display:none}
 .profile-only[hidden]{display:none}
+.news-only[hidden]{display:none}
 .banner.ok{background:#dcfce7; border-color:#86efac; color:#166534}
 
 /* ---------- ranking colapsable (tiles) ---------- */
@@ -406,3 +407,14 @@ html{-webkit-text-size-adjust:100%}
   .gym-cards{grid-template-columns:1fr}
   .btn{padding:9px 13px}
 }
+
+/* ---------- noticias ---------- */
+textarea{width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-family:inherit; font-size:14px; background:#fff; resize:vertical}
+textarea:focus{outline:2px solid var(--table); outline-offset:0; border-color:var(--table)}
+.chkline{display:flex; align-items:center; gap:8px; font-weight:600; margin-top:12px}
+.chkline input{width:auto}
+.news-list{display:flex; flex-direction:column; gap:12px}
+.news-card .news-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.news-date{color:var(--muted); font-size:12px; margin-top:4px}
+.news-body{margin-top:10px; line-height:1.55; word-break:break-word}
+.news-draft{border-style:dashed; border-color:#d6a93a}
