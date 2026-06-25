@@ -33,7 +33,45 @@ const CATALOG = [
   { name: 'Maxi 60', rule: { type: 'range', min: 60, max: 69 } },
   { name: 'Maxi 70', rule: { type: 'minAge', age: 70 } },
 ];
-const catalogRule = name => (CATALOG.find(c => c.name === name) || {}).rule || { type: 'open' };
+/* Formatos de sets: además de "todo a N", se admiten combinaciones por fase
+   (grupos / llave / final). El número guardado por partido es m.bestOf. */
+const SETS_FORMATS = [
+  { id: 'all3', label: 'A 3 sets (todo)', groups: 3, bracket: 3, final: 3 },
+  { id: 'all5', label: 'A 5 sets (todo)', groups: 5, bracket: 5, final: 5 },
+  { id: 'all7', label: 'A 7 sets (todo)', groups: 7, bracket: 7, final: 7 },
+  { id: 'g3b5', label: 'Grupos a 3 · Llave a 5', groups: 3, bracket: 5, final: 5 },
+  { id: 'g3b5f7', label: 'Grupos a 3 · Llave a 5 · Final a 7', groups: 3, bracket: 5, final: 7 },
+  { id: 'g5b5f7', label: 'Grupos a 5 · Llave a 5 · Final a 7', groups: 5, bracket: 5, final: 7 },
+  { id: 'g3b7', label: 'Grupos a 3 · Llave a 7', groups: 3, bracket: 7, final: 7 },
+  { id: 'g5b7', label: 'Grupos a 5 · Llave a 7', groups: 5, bracket: 7, final: 7 },
+];
+const setsFmtById = id => SETS_FORMATS.find(f => f.id === id) || SETS_FORMATS[1]; // default: a 5 sets
+// Formato de sets efectivo de una categoría (cae al legacy rules.sets si no tiene setsFormat).
+function catSetsFmt(cat) {
+  if (cat && cat.setsFormat) return setsFmtById(cat.setsFormat);
+  const n = (cat && cat.rules && cat.rules.sets) || 5;
+  return { id: 'all' + n, label: `A ${n} sets`, groups: n, bracket: n, final: n };
+}
+// Catálogo global de categorías (lo administra el admin; se guarda en app/settings → solo admin escribe).
+// Si todavía no se sembró, devuelve uno derivado del CATALOG fijo para que la app siempre funcione.
+function catCatalog() {
+  const c = DB.settings && DB.settings.categoryCatalog;
+  if (Array.isArray(c) && c.length) return c;
+  return CATALOG.map(x => ({ id: 'cc_' + x.name, name: x.name, rule: x.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20 }));
+}
+const catEntryByName = name => catCatalog().find(c => c.name === name) || null;
+const catalogRule = name => (catEntryByName(name) || CATALOG.find(c => c.name === name) || {}).rule || { type: 'open' };
+// Crea una categoría de torneo heredando las reglas del catálogo global.
+function newCategoryFromCatalog(nm) {
+  const cc = catEntryByName(nm) || {};
+  const setsFormat = cc.setsFormat || 'all5';
+  return {
+    id: uid('c_'), name: nm, format: cc.format || 'single', rule: cc.rule || catalogRule(nm),
+    setsFormat, rules: { sets: setsFmtById(setsFormat).bracket, groupMin: cc.groupMin || 3, groupMax: cc.groupMax || 4 },
+    championPoints: cc.championPoints != null ? cc.championPoints : 20,
+    entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null,
+  };
+}
 const ordinal = n => ['', '1ª', '2ª', '3ª', '4ª'][n] || n + 'ª';
 function ruleLabel(rule) {
   if (!rule || rule.type === 'open') return 'Libre';
@@ -357,6 +395,10 @@ function applyMigrations() {
   // completa ajustes faltantes sin pisar los ya configurados
   Object.keys(DEFAULT_SETTINGS).forEach(k => { if (DB.settings[k] === undefined) DB.settings[k] = DEFAULT_SETTINGS[k]; });
   DB.settings.theme = Object.assign({}, DEFAULT_THEME, DB.settings.theme || {});
+  // Catálogo global de categorías: se siembra una vez desde el CATALOG fijo (luego lo edita el admin).
+  if (!Array.isArray(DB.settings.categoryCatalog) || !DB.settings.categoryCatalog.length) {
+    DB.settings.categoryCatalog = CATALOG.map(c => ({ id: uid('cc_'), name: c.name, rule: c.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20 }));
+  }
   if (!DB.users) DB.users = [];
   (DB.tournaments || []).forEach(t => {
     if (t.tableCount == null) t.tableCount = 4;
@@ -429,7 +471,8 @@ function matchResult(m) { // m.sets=[[a,b]...] -> {wa,wb,winner:'a'|'b'|null}
   (m && m.sets || []).forEach(s => { const sw = setWinner(s); if (sw === 'a') wa++; else if (sw === 'b') wb++; });
   return { wa, wb };
 }
-function matchWinnerSide(m, cat) { const { wa, wb } = matchResult(m); const n = need(cat); return wa >= n ? 'a' : wb >= n ? 'b' : null; }
+const bestOfOf = (m, cat) => (m && m.bestOf) || (cat && cat.rules && cat.rules.sets) || 5; // sets de ESTE partido (según su fase)
+function matchWinnerSide(m, cat) { const { wa, wb } = matchResult(m); const n = Math.ceil(bestOfOf(m, cat) / 2); return wa >= n ? 'a' : wb >= n ? 'b' : null; }
 const matchDone = (m, cat) => !!matchWinnerSide(m, cat);
 
 /* ---------------- modal ---------------- */
@@ -503,6 +546,7 @@ function render() {
   if (view === 'gimnasios') return isAdmin() ? renderGyms(app) : renderRanking(app);
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
   if (view === 'apariencia') return isAdmin() ? renderAppearance(app) : renderRanking(app);
+  if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return DB.settings.news ? renderNoticias(app) : renderRanking(app);
   if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
@@ -1013,6 +1057,91 @@ function delGym(id) {
   save(DB); render();
 }
 
+/* ---------- catálogo global de categorías (admin) ----------
+   Define qué categorías existen y sus reglas por defecto (inscripción, formato, sets por fase,
+   grupos, valor 🏆). Cuando se arma un torneo, las categorías heredan estas reglas. Solo admin. */
+function renderCatalog(app) {
+  const cards = catCatalog().map(c => `<div class="card">
+    <div class="gym-head"><span class="gym-ico">🗂️</span>
+      <div class="meta"><div class="name">${esc(c.name)}</div>
+        <div class="sub">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'} · 📋 ${ruleLabel(c.rule)}</div></div></div>
+    <div class="tags" style="margin-top:10px">
+      <span class="tag">🎾 ${setsFmtById(c.setsFormat).label}</span>
+      <span class="tag">Grupos ${c.groupMin}–${c.groupMax}</span>
+      <span class="tag">🥇 ${c.championPoints} pts</span></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="catalogEntryForm('${c.id}')">✏️ Editar</button>
+      <button class="btn btn-ghost btn-sm" onclick="delCatalogEntry('${c.id}')">🗑️</button>
+    </div></div>`).join('');
+  app.innerHTML = `<div class="section-head"><div class="page-title"><h1>🗂️ Categorías</h1></div>
+    <button class="btn btn-primary" onclick="catalogEntryForm()">➕ Nueva categoría</button></div>
+    <p class="page-sub">Catálogo de categorías del club y sus reglas por defecto. Al crear un torneo, las categorías que marques <b>heredan</b> estas reglas (después podés ajustarlas dentro de cada torneo). Solo el administrador puede gestionarlo.</p>
+    <div class="cards gym-cards">${cards || '<div class="empty">Sin categorías en el catálogo.</div>'}</div>`;
+}
+function catalogEntryForm(id) {
+  const c = id ? catCatalog().find(x => x.id === id) : null;
+  const rule = (c && c.rule) || { type: 'open' };
+  const sel = (v, o) => v === o ? 'selected' : '';
+  const types = [['open', 'Libre (cualquiera)'], ['level', 'Por nivel (Nª o superior)'], ['maxAge', 'Hasta cierta edad (Sub)'], ['minAge', 'Desde cierta edad (Maxi)'], ['range', 'Rango de edad']];
+  const typeOpts = types.map(([v, l]) => `<option value="${v}" ${sel(rule.type, v)}>${l}</option>`).join('');
+  const setsOpts = SETS_FORMATS.map(f => `<option value="${f.id}" ${sel((c && c.setsFormat) || 'all5', f.id)}>${f.label}</option>`).join('');
+  const show = t => rule.type === t ? '' : 'hidden';
+  openModal(`<h3>${id ? 'Editar' : 'Nueva'} categoría</h3>
+    <label>Nombre</label><input id="cc_name" value="${esc(c ? c.name : '')}" placeholder="Ej: Primera, Sub 13, Maxi 40"/>
+    <label>Regla de inscripción</label>
+    <select id="cc_ruletype" onchange="catRuleTypeChange()">${typeOpts}</select>
+    <div class="cc-param" data-for="level" ${show('level')}><label>Nivel mínimo (1 = Primera)</label><input id="cc_level" type="number" min="1" max="4" value="${rule.type === 'level' ? rule.level : 1}"/></div>
+    <div class="cc-param" data-for="maxAge minAge" ${rule.type === 'maxAge' || rule.type === 'minAge' ? '' : 'hidden'}><label>Edad</label><input id="cc_age" type="number" min="1" max="120" value="${rule.age != null ? rule.age : 13}"/></div>
+    <div class="cc-param" data-for="range" ${show('range')}><div class="grid2">
+      <div><label>Edad mínima</label><input id="cc_rmin" type="number" min="1" max="120" value="${rule.type === 'range' ? rule.min : 30}"/></div>
+      <div><label>Edad máxima</label><input id="cc_rmax" type="number" min="1" max="120" value="${rule.type === 'range' ? rule.max : 39}"/></div>
+    </div></div>
+    <div class="grid2">
+      <div><label>Formato</label><select id="cc_fmt"><option value="single" ${sel((c && c.format) || 'single', 'single')}>Singles 👤</option><option value="double" ${sel((c && c.format), 'double')}>Dobles 👥</option></select></div>
+      <div><label>Sets por fase</label><select id="cc_setsfmt">${setsOpts}</select></div>
+      <div><label>Mín por grupo</label><input id="cc_min" type="number" min="2" value="${c ? c.groupMin : 3}"/></div>
+      <div><label>Máx por grupo</label><input id="cc_max" type="number" min="2" value="${c ? c.groupMax : 4}"/></div>
+      <div><label>Valor del torneo 🏆 (máx 20)</label><input id="cc_pts" type="number" min="0" max="20" value="${c ? c.championPoints : 20}"/></div>
+    </div>
+    <p class="hint">Estas reglas son los <b>valores por defecto</b>: cada torneo que use esta categoría arranca con ellas y se pueden ajustar puntualmente dentro del torneo. Cambiar el catálogo no modifica torneos ya creados.</p>
+    <div id="ccerr" class="banner" hidden></div>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCatalogEntry('${id || ''}')">${id ? 'Guardar' : 'Crear'}</button></div>`);
+}
+function catRuleTypeChange() {
+  const t = $('#cc_ruletype').value;
+  document.querySelectorAll('#modalCard .cc-param').forEach(el => { el.hidden = !el.dataset.for.split(' ').includes(t); });
+}
+function saveCatalogEntry(id) {
+  const e = $('#ccerr'), name = $('#cc_name').value.trim();
+  if (!name) { e.hidden = false; e.textContent = 'El nombre es obligatorio.'; return; }
+  const list = (DB.settings.categoryCatalog && DB.settings.categoryCatalog.length) ? DB.settings.categoryCatalog : (DB.settings.categoryCatalog = catCatalog().map(x => Object.assign({}, x)));
+  if (list.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) { e.hidden = false; e.textContent = 'Ya existe una categoría con ese nombre.'; return; }
+  const type = $('#cc_ruletype').value;
+  let rule = { type: 'open' };
+  if (type === 'level') rule = { type, level: Math.min(4, Math.max(1, parseInt($('#cc_level').value, 10) || 1)) };
+  else if (type === 'maxAge') rule = { type, age: Math.max(1, parseInt($('#cc_age').value, 10) || 0) };
+  else if (type === 'minAge') rule = { type, age: Math.max(1, parseInt($('#cc_age').value, 10) || 0) };
+  else if (type === 'range') {
+    const min = Math.max(1, parseInt($('#cc_rmin').value, 10) || 0), max = Math.max(1, parseInt($('#cc_rmax').value, 10) || 0);
+    if (min > max) { e.hidden = false; e.textContent = 'La edad mínima no puede ser mayor que la máxima.'; return; }
+    rule = { type, min, max };
+  }
+  const min = parseInt($('#cc_min').value, 10) || 3, max = parseInt($('#cc_max').value, 10) || 4;
+  if (min > max) { e.hidden = false; e.textContent = 'Mín por grupo no puede ser mayor que máx.'; return; }
+  const entry = { name, rule, format: $('#cc_fmt').value, setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)) };
+  if (id) { const cur = list.find(x => x.id === id); if (cur) Object.assign(cur, entry); }
+  else list.push(Object.assign({ id: uid('cc_') }, entry));
+  save(DB); closeModal(); render();
+}
+function delCatalogEntry(id) {
+  const list = (DB.settings.categoryCatalog && DB.settings.categoryCatalog.length) ? DB.settings.categoryCatalog : (DB.settings.categoryCatalog = catCatalog().map(x => Object.assign({}, x)));
+  const c = list.find(x => x.id === id); if (!c) return;
+  if (!confirm(`¿Quitar "${c.name}" del catálogo? Los torneos ya creados no se modifican.`)) return;
+  DB.settings.categoryCatalog = list.filter(x => x.id !== id);
+  save(DB); render();
+}
+
 /* ---------- ajustes (admin) ---------- */
 // Fila de ajuste con interruptor. `fn` es el nombre de la función global que alterna el valor.
 function settingRow(name, desc, on, fn) {
@@ -1403,8 +1532,8 @@ function collabAdd(id) {
 }
 function collabRemove(id) { window.__collabSel = window.__collabSel.filter(x => x !== id); renderCollabChips(); collabFilter(document.querySelector('.collab-search')); }
 function tournamentForm() {
-  const checks = CATALOG.map(c => `<label class="catchk"><input type="checkbox" class="cat-chk" value="${c.name}"/>
-    <span>${c.name}</span><small class="muted">${ruleLabel(c.rule)}</small></label>`).join('');
+  const checks = catCatalog().map(c => `<label class="catchk"><input type="checkbox" class="cat-chk" value="${esc(c.name)}"/>
+    <span>${esc(c.name)}</span><small class="muted">${ruleLabel(c.rule)} · ${setsFmtById(c.setsFormat).label}</small></label>`).join('');
   openModal(`<h3>Crear torneo</h3>
     <label>Nombre</label><input id="t_name" placeholder="Ej: Apertura 2026"/>
     <div class="grid2">
@@ -1419,7 +1548,7 @@ function tournamentForm() {
     <select id="t_gym">${(DB.gyms || []).length ? (DB.gyms || []).map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('') : '<option value="">— sin gimnasios cargados —</option>'}</select>
     <p class="hint" style="margin-top:4px">¿Falta un gimnasio? Agregalo en la sección <b>🏟️ Gimnasios</b>.</p>
     <label>Categorías del torneo</label>
-    <p class="hint" style="margin-top:0">Marcá las que se jueguen. Por defecto se crean en singles, al mejor de 5, 100 pts — editás formato/puntos por categoría después.</p>
+    <p class="hint" style="margin-top:0">Marcá las que se jueguen. Heredan las reglas del catálogo global (formato, sets, grupos, puntos) — las gestiona el admin en <b>🗂️ Categorías</b> y podés ajustarlas por torneo después.</p>
     <div class="catgrid">${checks}</div>
     <label>Colaboradores <span class="muted">(opcional)</span></label>
     <p class="hint" style="margin-top:0">Buscá y agregá jugadores que van a poder ayudar a gestionar este torneo (inscribir, cargar resultados, abrir/cerrar inscripciones).</p>
@@ -1437,7 +1566,7 @@ function saveTournament() {
   if (dateEnd < date) { e.hidden = false; e.textContent = 'La fecha de fin no puede ser anterior al inicio.'; return; }
   const picked = [...$('#modalCard').querySelectorAll('.cat-chk:checked')].map(c => c.value);
   if (!picked.length) { e.hidden = false; e.textContent = 'Elegí al menos una categoría.'; return; }
-  const categorias = picked.map(nm => ({ id: uid('c_'), name: nm, format: 'single', rule: catalogRule(nm), rules: { sets: 5, groupMin: 3, groupMax: 4 }, championPoints: 20, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null }));
+  const categorias = picked.map(nm => newCategoryFromCatalog(nm)); // heredan reglas del catálogo global
   const tableCount = Math.max(1, parseInt($('#t_tables').value, 10) || 1);
   const collaborators = [...(window.__collabSel || [])];
   const tnew = { id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, enrollClosed: false, published: false, categorias };
@@ -1662,11 +1791,11 @@ function noShowBtn(cat, kind, gidx, r, m) {
 }
 function noShowModal(tid, cid, kind, gidx, r, m) {
   const cat = getCat(tid, cid); cat._tid = tid;
-  const { a, b } = locateMatch(cat, kind, gidx, r, m);
+  const { mm, a, b } = locateMatch(cat, kind, gidx, r, m);
   if (!a || !b || a === 'BYE' || b === 'BYE') { alert('Faltan definir los dos participantes.'); return; }
   const args = `'${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
   openModal(`<h3>No se presentó</h3>
-    <p class="muted" style="margin:0 0 12px">Elegí quién <b>no se presentó</b>. El rival gana ${need(cat)}-0.</p>
+    <p class="muted" style="margin:0 0 12px">Elegí quién <b>no se presentó</b>. El rival gana ${Math.ceil(bestOfOf(mm, cat) / 2)}-0.</p>
     <div class="row" style="gap:10px;flex-wrap:wrap">
       <button class="btn btn-ghost" onclick="applyWalkover(${args},'a')">🚷 ${esc(entName(cat, a))}</button>
       <button class="btn btn-ghost" onclick="applyWalkover(${args},'b')">🚷 ${esc(entName(cat, b))}</button>
@@ -1676,7 +1805,7 @@ function noShowModal(tid, cid, kind, gidx, r, m) {
 function applyWalkover(tid, cid, kind, gidx, r, m, absentSide) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm } = locateMatch(cat, kind, gidx, r, m);
-  const n = need(cat), winSide = absentSide === 'a' ? 'b' : 'a';
+  const n = Math.ceil(bestOfOf(mm, cat) / 2), winSide = absentSide === 'a' ? 'b' : 'a';
   mm.sets = Array.from({ length: n }, () => winSide === 'a' ? [11, 0] : [0, 11]);
   mm.walkover = winSide; if (mm.postponed) mm.postponed = false;
   save(DB); closeModal(); render();
@@ -1709,7 +1838,7 @@ function renderTournament(app, tid) {
     return `<div class="card"><div class="row spread"><h3 style="margin:0">${esc(c.name)}</h3></div>
       <div class="tags"><span class="tag">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
         <span class="tag">📋 ${ruleLabel(c.rule)}</span>
-        <span class="tag">Al mejor de ${c.rules.sets}</span><span class="tag">🥇 ${c.championPoints} pts</span>
+        <span class="tag">${catSetsFmt(c).label}</span><span class="tag">🥇 ${c.championPoints} pts</span>
         <span class="tag">${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jugadores'}</span>
         ${c.startAt ? `<span class="tag">🕒 ${fmtStartAt(c.startAt)}</span>` : ''}
         <span class="tag">${st}</span></div>
@@ -1756,13 +1885,15 @@ function renderTournament(app, tid) {
 function categoriaForm(tid, cid) {
   const cat = cid ? getCat(tid, cid) : null; // editar reglas de una categoría existente
   const sel = (v, opt) => v === opt ? 'selected' : '';
-  const names = CATALOG.map(c => `<option value="${c.name}" ${cat && cat.name === c.name ? 'selected' : ''}>${c.name} — ${ruleLabel(c.rule)}</option>`).join('');
+  const names = catCatalog().map(c => `<option value="${esc(c.name)}" ${cat && cat.name === c.name ? 'selected' : ''}>${esc(c.name)} — ${ruleLabel(c.rule)}</option>`).join('');
   const r = cat ? cat.rules : { sets: 5, groupMin: 3, groupMax: 4 };
+  const curFmt = cat ? catSetsFmt(cat).id : 'all5';
+  const setsOpts = SETS_FORMATS.map(f => `<option value="${f.id}" ${sel(curFmt, f.id)}>${f.label}</option>`).join('');
   openModal(`<h3>${cat ? 'Editar' : 'Crear'} categoría (sub-torneo)</h3>
     <label>Categoría</label><select id="c_name">${names}</select>
     <div class="grid2">
       <div><label>Formato</label><select id="c_fmt"><option value="single" ${cat ? sel(cat.format, 'single') : 'selected'}>Singles 👤</option><option value="double" ${cat ? sel(cat.format, 'double') : ''}>Dobles 👥</option></select></div>
-      <div><label>Partidos al mejor de</label><select id="c_sets"><option value="3" ${sel(r.sets, 3)}>3 sets</option><option value="5" ${cat ? sel(r.sets, 5) : 'selected'}>5 sets</option></select></div>
+      <div><label>Sets por fase</label><select id="c_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
       <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
       <div><label>Valor del torneo 🏆 (máx 20)</label><input id="c_pts" type="number" min="0" max="20" value="${cat ? cat.championPoints : 20}"/></div>
@@ -1777,14 +1908,15 @@ function saveCategoria(tid, cid) {
   const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
   const e = $('#cerr');
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
-  const format = $('#c_fmt').value, rules = { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
+  const format = $('#c_fmt').value, setsFormat = $('#c_setsfmt').value;
+  const rules = { sets: setsFmtById(setsFormat).bracket, groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
   if (cid) {
     const cat = getCat(tid, cid); if (!cat) return;
     if (cat.groups) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: los partidos ya empezaron.'; return; }
     if (cat.format !== format) cat.entrants = []; // cambia singles/dobles → se limpian inscriptos
-    cat.name = name; cat.format = format; cat.rule = catalogRule(name); cat.rules = rules; cat.championPoints = championPoints;
+    cat.name = name; cat.format = format; cat.rule = catalogRule(name); cat.rules = rules; cat.setsFormat = setsFormat; cat.championPoints = championPoints;
   } else {
-    t.categorias.push({ id: uid('c_'), name, format, rule: catalogRule(name), rules, championPoints, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
+    t.categorias.push({ id: uid('c_'), name, format, rule: catalogRule(name), setsFormat, rules, championPoints, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
   }
   save(DB); closeModal(); render();
 }
@@ -1840,7 +1972,7 @@ function renderCategoria(app, tid, cid) {
   const enr = enrollmentStatus(cat);
   html += `<div class="tags"><span class="tag">${cat.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
       <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
-      <span class="tag">Al mejor de ${cat.rules.sets} sets</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
+      <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
       <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
       ${cat.startAt ? `<span class="tag">🕒 ${fmtStartAt(cat.startAt)}</span>` : ''}
       <span class="tag ${enr.open ? 'tag-open' : 'tag-closed'}">${enr.label}</span></div>`;
@@ -2034,13 +2166,13 @@ function buildGroups(ids, min, max) {
   while (i < n) { const order = row % 2 === 0 ? [...Array(g).keys()] : [...Array(g).keys()].reverse(); for (const gi of order) if (i < n) groups[gi].push(ids[i++]); row++; }
   return { ok: true, groups };
 }
-function genMatches(groups) { const m = []; groups.forEach((g, gi) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) m.push({ g: gi, a: g[i], b: g[j], sets: [] }); }); return m; }
+function genMatches(groups, bestOf) { const m = []; groups.forEach((g, gi) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) m.push({ g: gi, a: g[i], b: g[j], sets: [], bestOf }); }); return m; }
 function makeGroups(tid, cid) {
   const cat = getCat(tid, cid);
   const ids = cat.entrants.map(e => e.id);
   const res = buildGroups(ids, cat.rules.groupMin, cat.rules.groupMax);
   if (!res.ok) { alert('⚠️ ' + res.msg); return; }
-  cat.groups = res.groups; cat.matches = genMatches(res.groups); cat.bracket = null; cat.thirdPlace = null; cat.closed = false; cat.awarded = null;
+  cat.groups = res.groups; cat.matches = genMatches(res.groups, catSetsFmt(cat).groups); cat.bracket = null; cat.thirdPlace = null; cat.closed = false; cat.awarded = null;
   snapshotSeed(cat); // congela los puntajes de referencia para el Elo de todos los partidos del torneo
   save(DB); render();
 }
@@ -2102,8 +2234,10 @@ function generateBracket(tid, cid) {
   const size = Math.max(2, nextPow2(seeds.length)); while (seeds.length < size) seeds.push('BYE');
   const rounds = [], r0 = []; for (let i = 0; i < seeds.length; i += 2) r0.push({ a: seeds[i], b: seeds[i + 1], sets: [] });
   rounds.push(r0); let c = r0.length; while (c > 1) { const rr = []; for (let i = 0; i < c; i += 2) rr.push({ sets: [] }); rounds.push(rr); c = rr.length; }
+  const fmt = catSetsFmt(cat); // sets por fase: la ronda final usa fmt.final, el resto de la llave fmt.bracket
+  rounds.forEach((round, r) => round.forEach(mm => { mm.bestOf = r === rounds.length - 1 ? fmt.final : fmt.bracket; }));
   cat.bracket = rounds;
-  cat.thirdPlace = rounds.length >= 2 ? { sets: [] } : null; // partido por 3er/4to puesto
+  cat.thirdPlace = rounds.length >= 2 ? { sets: [], bestOf: fmt.bracket } : null; // partido por 3er/4to puesto
   cat.closed = false; cat.awarded = null; snapshotSeed(cat); save(DB); render();
 }
 function bracketHtml(cat) {
@@ -2155,13 +2289,13 @@ function resultModal(tid, cid, kind, gidx, r, m) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm, a, b } = locateMatch(cat, kind, gidx, r, m);
   if (!a || !b || a === 'BYE' || b === 'BYE') { alert('Faltan definir los dos participantes.'); return; }
-  const N = cat.rules.sets;
+  const N = bestOfOf(mm, cat), nWin = Math.ceil(N / 2);
   let rows = '';
   for (let i = 0; i < N; i++) { const s = (mm.sets && mm.sets[i]) || ['', '']; rows += `<div class="setrow"><span>Set ${i + 1}</span>
     <input class="set-a" type="number" min="0" value="${s[0]}"/><b>–</b><input class="set-b" type="number" min="0" value="${s[1]}"/></div>`; }
   openModal(`<h3>Cargar resultado</h3>
     <div class="row spread" style="font-weight:700;margin:6px 0"><span>${esc(entName(cat, a))}</span><span>${esc(entName(cat, b))}</span></div>
-    <p class="muted" style="margin:0 0 8px">Al mejor de ${N} sets (gana quien llega a ${need(cat)}). Cada set a 11, diferencia de 2.</p>
+    <p class="muted" style="margin:0 0 8px">Al mejor de ${N} sets (gana quien llega a ${nWin}). Cada set a 11, diferencia de 2.</p>
     ${rows}<div id="rerr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:14px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveResult('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'})">Guardar</button></div>`);
@@ -2178,7 +2312,8 @@ function saveResult(tid, cid, kind, gidx, r, m) {
     if (!setWinner([a, b])) { e.hidden = false; e.textContent = `Set ${i + 1} inválido (a 11, diferencia de 2). Ej: 11-9, 14-12.`; return; }
     sets.push([a, b]);
   }
-  const n = need(cat);
+  const { mm } = locateMatch(cat, kind, gidx, r, m);
+  const n = Math.ceil(bestOfOf(mm, cat) / 2);
   // Recorre en orden: el partido termina cuando alguien llega a n sets; no se pueden cargar sets de más.
   let wa = 0, wb = 0, decided = -1;
   for (let i = 0; i < sets.length; i++) {
@@ -2187,7 +2322,6 @@ function saveResult(tid, cid, kind, gidx, r, m) {
   }
   if (decided < 0) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
   if (decided < sets.length - 1) { e.hidden = false; e.textContent = `Cargaste sets de más: el partido termina cuando alguien llega a ${n} sets (no puede ganar por más de ${n}).`; return; }
-  const { mm } = locateMatch(cat, kind, gidx, r, m);
   mm.sets = sets; if (mm.walkover) delete mm.walkover; save(DB); closeModal(); render();
 }
 
@@ -2287,7 +2421,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
@@ -2296,7 +2430,7 @@ function runDataMigrations() {
   migratePointsRedistribute();
   if (!FB()) ensurePlayerUsers();
   DB.players.forEach(syncCategory);
-  DB.tournaments.forEach(t => t.categorias.forEach(c => { c.rule = catalogRule(c.name); }));
+  DB.tournaments.forEach(t => t.categorias.forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); })); // snapshot: la regla se fija al crear, no se re-deriva del catálogo
 }
 
 /* ---------------- bootstrap ---------------- */
@@ -2313,7 +2447,7 @@ async function ensureData() {
     DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, news: data.news || [], settings: data.settings || {} };
     applyMigrations();
     DB.players.forEach(syncCategory);
-    DB.tournaments.forEach(t => t.categorias.forEach(c => { c.rule = catalogRule(c.name); }));
+    DB.tournaments.forEach(t => t.categorias.forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); })); // snapshot: la regla se fija al crear, no se re-deriva del catálogo
     window.STORE.primeLast(DB);
   }
   _loaded = true;

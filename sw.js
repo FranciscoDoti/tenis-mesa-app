@@ -1,5 +1,5 @@
 /* Service worker — hace la app instalable (PWA) y cachea el "shell" para abrir rápido / offline. */
-const CACHE = 'ttmesa-v2';
+const CACHE = 'ttmesa-v3';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
   './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
