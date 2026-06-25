@@ -8,7 +8,7 @@
   - [x] que avise qué jugadores están involucrados en cada mesa o partido de llave
 - [x] Reformular el largado de mesas actual para hacerlo por zona y despues individual por llave
 - [ ] Implementar la funcioanlidad de pagos
-- [ ] Impleemntar la funcionalidad de horario estimado
+- [x] Impleemntar la funcionalidad de horario estimado
 - [x] Implementar un reglamento editable con opción de **publicar / despublicar**.
 - [x] Implementar una sección de **Noticias**.
 - [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
@@ -18,8 +18,8 @@
 - [x] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
 - [x] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
-- [ ] Implementar un sistema de ranking para Dobles
-- [ ] los dobles tienen subcategorías entonces, hay que tener en cuenta eso para todo, para los rankings para los torneos, etc, vamos a tener que agregar un campo para que digan si son mujer o varon para poder usar eso para los dobles femeninos o mixtos
+- [x] Implementar un sistema de ranking para Dobles
+- [ ] hay distintas categorías de dobles. Entonces, hay que tener en cuenta eso para todo, para los rankings para los torneos, etc, en los jugadores vamos a tener que agregar un campo para que digan si son mujer o varon para poder usar eso para los dobles femeninos o mixtos y los rankings deberían poder mostrar por categorías de dobles (ej: dobles primera, dobles segudna, dobles mixto, dobles femenino) 
 - [x] hacer que los colaboradores puedan tener más control sobre el torneo para poder editar más cosas
 - [x] hacer algo para que se pueda dar por iniciada una categoría y ya no se pueda editar más y lo mismo para cerrar y lo mismo para dar por finalizado un torneo 
 - [x] Implementar horarios de comienzo de categorías
