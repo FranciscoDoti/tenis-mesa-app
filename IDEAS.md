@@ -19,6 +19,7 @@
 - [x] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
 - [ ] Implementar un sistema de ranking para Dobles
+- [ ] los dobles tienen subcategorías entonces, hay que tener en cuenta eso para todo, para los rankings para los torneos, etc, vamos a tener que agregar un campo para que digan si son mujer o varon para poder usar eso para los dobles femeninos o mixtos
 - [x] hacer que los colaboradores puedan tener más control sobre el torneo para poder editar más cosas
 - [x] hacer algo para que se pueda dar por iniciada una categoría y ya no se pueda editar más y lo mismo para cerrar y lo mismo para dar por finalizado un torneo 
 - [x] Implementar horarios de comienzo de categorías
