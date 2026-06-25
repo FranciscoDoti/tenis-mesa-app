@@ -11,6 +11,7 @@
 - [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
 - [X] Implementar un módulo de **Reportes**.
   - [X] Reporte de jugadores que no pagaron.
+- [ ] que al jugador le salte un popup cuando tiene categorías que todavía no pagó y recarga la app o inicia sesión, avisandolé cuales le falta pagar, cuanto de cada una y cual es el monto total, y que esto le avise cuando inicie la categoría (es decir cuando se largue la primer mesa) 
 - [x] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
 - [x] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
