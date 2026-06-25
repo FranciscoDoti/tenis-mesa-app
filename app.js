@@ -631,11 +631,15 @@ function renderProfile(app) {
     </div>
     <div class="card" style="max-width:560px;margin-top:16px">
       <h3 style="margin:0 0 6px">🔒 Cambiar contraseña</h3>
-      <p class="hint" style="margin-top:0">Escribí la nueva contraseña dos veces (sin requisitos).</p>
-      <label>Nueva contraseña</label><input id="pf_pw1" type="password"/>
-      <label>Repetir contraseña</label><input id="pf_pw2" type="password"/>
-      <div id="pf_pwerr" class="banner" hidden></div>
-      <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="changePassword()">Cambiar contraseña</button></div>
+      ${FB()
+        ? `<p class="hint" style="margin-top:0">Te enviamos un email a <b>${esc(u.email)}</b> con un link seguro para cambiarla. Cuando la cambies, ese mismo mail te queda como comprobante.</p>
+           <div id="pf_pwerr" class="banner" hidden></div>
+           <div class="row" style="margin-top:6px"><button class="btn btn-primary" onclick="requestPasswordChange()">📧 Enviar email para cambiar contraseña</button></div>`
+        : `<p class="hint" style="margin-top:0">Escribí la nueva contraseña dos veces (sin requisitos).</p>
+           <label>Nueva contraseña</label><input id="pf_pw1" type="password"/>
+           <label>Repetir contraseña</label><input id="pf_pw2" type="password"/>
+           <div id="pf_pwerr" class="banner" hidden></div>
+           <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="changePassword()">Cambiar contraseña</button></div>`}
     </div>`;
   let photo = p.photo; $('#pf_photo').addEventListener('change', e => readPhoto(e.target.files[0], d => { photo = d || photo; }));
   window.__pfphoto = () => photo;
@@ -664,6 +668,13 @@ async function changePassword() {
   const acc = DB.users.find(x => x.playerId === u.playerId);
   if (!acc) { e.hidden = false; e.textContent = 'Cuenta no encontrada.'; return; }
   acc.password = a; save(DB); profileNote = '✓ Contraseña actualizada.'; render();
+}
+// Opción nativa: cambiar contraseña por email (te llega el link y queda como comprobante).
+async function requestPasswordChange() {
+  const u = currentUser();
+  try { await window.STORE.resetPassword(u.email); profileNote = `📧 Te enviamos un email a ${u.email} con el link para cambiar tu contraseña (revisá spam).`; }
+  catch (e) { profileNote = 'No se pudo enviar el email. Probá de nuevo en un rato.'; }
+  render();
 }
 async function resendVerification() {
   try { await window.STORE.sendVerification(); profileNote = '📧 Te reenviamos el email de verificación. Revisá tu casilla (y spam).'; }
@@ -1650,7 +1661,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter, resendVerification, recheckVerification });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
