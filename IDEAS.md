@@ -16,5 +16,5 @@
 - [ ] Implementar horarios de comienzo de categorías y notificación a los celulares de los jugadores como una opción cuando su cateogría está por emepezar
 - [ ] Implementar algo para cdo el jugador no se presentó.
 - [ ] Bugs a arreglar
-        A veces el menú lateral se carga como topbar en celulares
-        Al recargar la app te vuelve por un instante a la pagina de login incluso cuadno ya tenias la sesión iniciada y no debería
+    - [x]  A veces el menú lateral se carga como topbar en celulares
+    - [ ] Al recargar la app te vuelve por un instante a la pagina de login incluso cuadno ya tenias la sesión iniciada y no debería
