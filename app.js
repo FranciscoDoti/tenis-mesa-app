@@ -391,6 +391,7 @@ function readCityField(sel) { const v = $('#' + sel).value; return v === 'Otra' 
 /* ---------- login / registro ---------- */
 function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
+  if (authMode === 'forgot') return renderForgot(app);
   const fb = FB(), note = loginNote; loginNote = '';
   app.innerHTML = `<div class="login-wrap"><div class="big-logo app-emoji">${esc(themeOf().emoji)}</div><h1>Tenis de Mesa</h1>
     <p class="page-sub">Dina Huapi &amp; Bariloche</p>
@@ -400,7 +401,7 @@ function renderLogin(app) {
       <label>Contraseña</label><input id="lp" type="password" autocomplete="current-password"/>
       <div id="lerr" class="banner" hidden></div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="doLogin()">Ingresar</button>
-      ${fb ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="doResetPassword()">¿Olvidaste tu contraseña?</button>` : ''}
+      ${fb ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="setAuthMode('forgot')">¿Olvidaste tu contraseña?</button>` : ''}
       <div class="auth-sep"><span>¿Sos nuevo en el club?</span></div>
       <button class="btn btn-accent" style="width:100%" onclick="setAuthMode('register')">🆕 Crear mi cuenta de jugador</button>
       ${fb ? '' : `<p class="hint">👑 <b>admin</b>/<b>admin</b> · 🎾 <b>jugador</b>/<b>jugador</b></p>`}
@@ -426,13 +427,30 @@ async function doLogin() {
   if (!f) { e.hidden = false; e.textContent = 'Usuario o contraseña incorrectos.'; return; }
   setUser({ username: f.username, role: f.role, name: f.name, playerId: f.playerId || null }); view = 'ranking'; render();
 }
-async function doResetPassword() {
-  const e = $('#lerr'), email = $('#lu').value.trim();
-  if (!email) { e.hidden = false; e.textContent = 'Escribí tu email arriba y volvé a tocar el link.'; return; }
-  try { await window.STORE.resetPassword(email); e.hidden = false; e.className = 'banner ok'; e.textContent = 'Te enviamos un email para restablecer la contraseña.'; }
-  catch (err) { e.hidden = false; e.textContent = window.STORE.authMsg(err.code); }
-}
 function setAuthMode(m) { authMode = m; render(); }
+function renderForgot(app) {
+  app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><h1>Recuperar contraseña</h1>
+    <p class="page-sub">Te enviamos un email con un link para crear una nueva contraseña</p>
+    <div class="card" style="text-align:left">
+      <label>Email o usuario</label><input id="fp_id" type="text" placeholder="tu@email.com o tu usuario"/>
+      <div id="fp_err" class="banner" hidden></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="doForgot()">Enviarme el email</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="setAuthMode('login')">← Volver al ingreso</button>
+    </div></div>`;
+  const i = $('#fp_id'); if (i) { i.focus(); i.addEventListener('keydown', e => { if (e.key === 'Enter') doForgot(); }); }
+}
+async function doForgot() {
+  const e = $('#fp_err');
+  let id = $('#fp_id').value.trim();
+  if (!id) { e.hidden = false; e.textContent = 'Escribí tu email o usuario.'; return; }
+  try {
+    if (!id.includes('@')) { const m = await window.STORE.lookupUsername(id); id = (m && m.email) ? m.email : null; }
+    if (id) await window.STORE.resetPassword(id);
+  } catch (err) {}
+  // mensaje genérico (no revela si la cuenta existe) y vuelve al login mostrándolo
+  loginNote = '📧 Si la cuenta existe, te enviamos un email para restablecer tu contraseña. Revisá tu casilla (y la carpeta de spam).';
+  authMode = 'login'; render();
+}
 function renderRegister(app) {
   const fb = FB();
   app.innerHTML = `<div class="login-wrap register-wrap"><div class="big-logo">🏓</div><h1>Crear cuenta</h1>
@@ -1661,7 +1679,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
