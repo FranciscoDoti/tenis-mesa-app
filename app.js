@@ -289,7 +289,7 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, theme: DEFAULT_THEME };
 // Borrador de tema mientras el admin edita Apariencia (null = sin cambios pendientes).
 // La vista previa usa el borrador; el sitio recién cambia para todos al "Publicar".
 let themeDraft = null;
@@ -473,6 +473,7 @@ function renderChrome() {
   document.querySelectorAll('.admin-only').forEach(el => el.hidden = !isAdmin());
   document.querySelectorAll('.profile-only').forEach(el => el.hidden = !(u && u.playerId)); // Perfil solo para cuentas de jugador
   document.querySelectorAll('.news-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.news)); // Noticias solo si la feature está activa
+  document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
   const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
   if (altas) { const n = DB.players.filter(p => p.pending).length; altas.innerHTML = `🙋 Altas${n ? ` <span class="navcount">${n}</span>` : ''}`; }
@@ -495,6 +496,7 @@ function render() {
   if (view === 'apariencia') return isAdmin() ? renderAppearance(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return DB.settings.news ? renderNoticias(app) : renderRanking(app);
+  if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
   if (view === 'torneos') return renderTournaments(app);
@@ -999,6 +1001,9 @@ function renderSettings(app) {
       ${settingRow('📰 Noticias',
         'Habilitar la sección de Noticias del club. Si la apagás, desaparece del menú para todos.',
         s.news, 'toggleNews')}
+      ${settingRow('📜 Reglamento',
+        'Habilitar el Reglamento del club para los jugadores. Si lo apagás, no lo ven (vos podés editarlo siempre). Además tiene que estar publicado.',
+        s.reglamento, 'toggleReglamento')}
     </div>`;
 }
 // Alterna un ajuste booleano de DB.settings y vuelve a renderizar.
@@ -1011,6 +1016,7 @@ function toggleTableSuggestion() { toggleSetting('tableSuggestion'); }
 function togglePayments() { toggleSetting('paymentsEnabled'); }
 function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
 function toggleNews() { toggleSetting('news'); }
+function toggleReglamento() { toggleSetting('reglamento'); }
 
 /* ---------- noticias ---------- */
 const newsBodyHtml = body => esc(body || '').replace(/\n/g, '<br>');
@@ -1056,6 +1062,53 @@ function saveNoticia(id) {
 }
 function toggleNoticiaPublish(id) { const n = (DB.news || []).find(x => x.id === id); if (n) { n.published = !n.published; save(DB); render(); } }
 function delNoticia(id) { const n = (DB.news || []).find(x => x.id === id); if (n && confirm(`¿Eliminar la noticia "${n.title}"?`)) { DB.news = DB.news.filter(x => x.id !== id); save(DB); render(); } }
+
+/* ---------- reglamento (documento único, editable y publicable) ---------- */
+// El admin siempre puede verlo/editarlo; los jugadores solo si la feature está activa Y está publicado.
+function canSeeReglamento() { const s = DB.settings || {}; return isAdmin() || (!!s.reglamento && !!s.reglamentoPublished); }
+function renderReglamento(app) {
+  const admin = isAdmin(), s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
+  const text = (s.reglamentoText || '').trim(), pub = !!s.reglamentoPublished;
+  const head = `<div class="section-head"><div class="page-title"><h1>📜 Reglamento</h1></div>
+    ${admin ? `<button class="btn btn-primary" onclick="reglamentoForm()">✏️ Editar</button>` : ''}</div>`;
+  let adminBar = '';
+  if (admin) {
+    const visible = s.reglamento && pub;
+    adminBar = `<div class="card" style="margin-bottom:14px">
+      <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+        <span class="t-badge ${pub ? 'live' : 'draft'}">${pub ? '🟢 Publicado' : '📝 Borrador'}</span>
+        <button class="btn btn-ghost btn-sm" onclick="toggleReglamentoPublish()">${pub ? '🙈 Despublicar' : '🚀 Publicar'}</button>
+      </div>
+      <p class="page-sub" style="margin:10px 0 0">${visible
+        ? '✅ Los jugadores pueden verlo.'
+        : `⚠️ Los jugadores <b>no</b> lo ven: ${!s.reglamento ? 'activá “Reglamento” en Ajustes' : 'está sin publicar'}.`}</p>
+    </div>`;
+  }
+  const content = text
+    ? `<div class="card"><div class="news-body">${newsBodyHtml(text)}</div></div>`
+    : `<div class="empty">${admin ? 'Todavía no cargaste el reglamento. Tocá «Editar» para escribirlo.' : 'El reglamento todavía no está disponible.'}</div>`;
+  app.innerHTML = head + adminBar + content;
+}
+function reglamentoForm() {
+  const s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
+  openModal(`<h3>Editar reglamento</h3>
+    <label>Texto del reglamento</label>
+    <textarea id="rg_body" rows="14" placeholder="Escribí el reglamento del club…">${esc(s.reglamentoText || '')}</textarea>
+    <label class="chkline"><input type="checkbox" id="rg_pub" ${s.reglamentoPublished ? 'checked' : ''}/> Publicado (visible para los jugadores)</label>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveReglamento()">Guardar</button></div>`);
+}
+function saveReglamento() {
+  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
+  DB.settings.reglamentoText = $('#rg_body').value;
+  DB.settings.reglamentoPublished = $('#rg_pub').checked;
+  save(DB); closeModal(); render();
+}
+function toggleReglamentoPublish() {
+  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
+  DB.settings.reglamentoPublished = !DB.settings.reglamentoPublished;
+  save(DB); render();
+}
 
 /* ---------- apariencia (admin) ---------- */
 // Emojis sugeridos para el ícono del club (se pueden elegir desde el selector).
@@ -2026,7 +2079,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
