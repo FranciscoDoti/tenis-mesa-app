@@ -1326,20 +1326,26 @@ function collabPickerHtml(initial) {
     ? list.map(p => `<li class="collab-opt" data-id="${p.id}" data-name="${esc(fullName(p)).toLowerCase()}" onclick="collabAdd('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('')
     : '<li class="muted" style="padding:8px 10px">No hay jugadores.</li>';
   // onmousedown preventDefault en la lista: al tocar una opción no se pierde el foco del input (sigue abierto)
+  // La lista se muestra/oculta según el TEXTO escrito (no según focus/blur), para que ande bien en celular.
   return `<div class="collab-picker">
-    <input class="collab-search" placeholder="🔍 Tocá acá y escribí un nombre…" autocomplete="off" oninput="collabFilter(this)" onfocus="collabOpen()" onblur="collabClose()"/>
-    <ul class="collab-results" id="collab-results" hidden onmousedown="event.preventDefault()">${results}</ul>
+    <input class="collab-search" placeholder="🔍 Escribí un nombre para buscar…" autocomplete="off" oninput="collabFilter(this)"/>
+    <ul class="collab-results" id="collab-results" hidden>${results}</ul>
     <div class="collab-chips" id="collab-chips"></div>
   </div>`;
 }
-function collabOpen() { const r = document.querySelector('#collab-results'); if (r) { r.hidden = false; collabFilter(document.querySelector('.collab-search')); } }
+function collabOpen() { collabFilter(document.querySelector('.collab-search')); }   // compat
 function collabClose() { const r = document.querySelector('#collab-results'); if (r) r.hidden = true; }
 function collabFilter(inp) {
-  const q = (inp && inp.value || '').toLowerCase();
+  const q = (inp && inp.value || '').trim().toLowerCase();
+  const results = document.querySelector('#collab-results');
+  let anyVisible = false;
   document.querySelectorAll('#collab-results .collab-opt').forEach(li => {
     const selected = window.__collabSel.includes(li.dataset.id);
-    li.style.display = (!selected && li.dataset.name.includes(q)) ? '' : 'none';
+    const show = !!q && !selected && li.dataset.name.includes(q);  // solo con texto y no ya elegido
+    li.style.display = show ? '' : 'none';
+    if (show) anyVisible = true;
   });
+  if (results) results.hidden = !anyVisible;   // sin resultados visibles → ocultar la caja
 }
 function renderCollabChips() {
   const box = document.querySelector('#collab-chips'); if (!box) return;
@@ -1352,8 +1358,7 @@ function collabAdd(id) {
   if (!window.__collabSel.includes(id)) window.__collabSel.push(id);
   const s = document.querySelector('.collab-search');
   if (s) { s.value = ''; s.focus(); }          // limpio el texto para seguir buscando otro jugador
-  renderCollabChips(); collabFilter(s);
-  const r = document.querySelector('#collab-results'); if (r) r.hidden = false; // queda abierto
+  renderCollabChips(); collabFilter(s);        // al quedar sin texto, la lista se oculta
 }
 function collabRemove(id) { window.__collabSel = window.__collabSel.filter(x => x !== id); renderCollabChips(); collabFilter(document.querySelector('.collab-search')); }
 function tournamentForm() {
