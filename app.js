@@ -4,6 +4,9 @@
 const CATS = ['1ra', '2da', '3ra', '4ta'];
 const CITIES = ['Dina Huapi', 'Bariloche'];
 const KEY = 'ttdb.v3';
+// Cache del tema publicado, para pintar el encabezado al instante (incluso en el login,
+// antes de autenticar y de poder leer los ajustes desde Firestore).
+const THEME_KEY = 'tt.theme.v1';
 
 const uid = p => p + Math.random().toString(36).slice(2, 9);
 
@@ -302,9 +305,8 @@ function shadeHex(hex, amt) {
 const savedThemeOf = () => Object.assign({}, DEFAULT_THEME, (DB.settings && DB.settings.theme) || {});
 const themeOf = () => Object.assign({}, DEFAULT_THEME, themeDraft || (DB.settings && DB.settings.theme) || {});
 const themeDirty = () => JSON.stringify(themeOf()) !== JSON.stringify(savedThemeOf());
-function applyTheme() {
-  // En la pantalla de Apariencia se previsualiza el borrador; en el resto del sitio se ve el tema guardado.
-  const t = (view === 'apariencia' && themeDraft) ? themeOf() : savedThemeOf();
+// Aplica un tema concreto a las variables CSS, el color de la barra, el emoji y el logo.
+function setThemeVars(t) {
   const r = document.documentElement.style;
   r.setProperty('--bg', t.bg);
   r.setProperty('--card', t.card);
@@ -323,6 +325,21 @@ function applyTheme() {
   const custom = t.emoji !== DEFAULT_THEME.emoji;
   document.querySelectorAll('.logo-svg').forEach(el => { el.style.display = custom ? 'none' : ''; });
   document.querySelectorAll('.logo-emoji').forEach(el => { el.style.display = custom ? '' : 'none'; });
+}
+function cacheTheme(t) { try { localStorage.setItem(THEME_KEY, JSON.stringify(t)); } catch (e) {} }
+// Tema cacheado (última publicación vista en este dispositivo) o null si no hay.
+const cachedTheme = () => { try { const r = localStorage.getItem(THEME_KEY); return r ? Object.assign({}, DEFAULT_THEME, JSON.parse(r)) : null; } catch (e) { return null; } };
+// Pinta el tema cacheado lo antes posible (en el login, antes de autenticar). Si no hay cache, no hace nada.
+function applyCachedTheme() { const c = cachedTheme(); if (c) setThemeVars(c); }
+function applyTheme() {
+  // En la pantalla de Apariencia se previsualiza el borrador; en el resto del sitio se ve el tema guardado.
+  const draftPreview = (view === 'apariencia' && themeDraft);
+  const loaded = (!FB() || _loaded); // ¿ya tenemos los datos reales (ajustes) en memoria?
+  // Pre-login en modo Firebase los ajustes todavía no cargaron: usamos el tema cacheado para no pisar el encabezado.
+  const t = draftPreview ? themeOf() : (loaded ? savedThemeOf() : (cachedTheme() || savedThemeOf()));
+  setThemeVars(t);
+  // Cacheamos solo el tema real ya cargado (no el borrador, ni los defaults previos al login en modo Firebase).
+  if (!draftPreview && loaded) cacheTheme(t);
 }
 
 let DB = { players: [], gyms: [], tournaments: [], users: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
@@ -1899,6 +1916,7 @@ async function ensureData() {
   _loaded = true;
 }
 async function boot() {
+  applyCachedTheme(); // pinta el tema publicado al instante (sirve para el login, antes de autenticar)
   if (!FB()) { // modo local (sin Firebase configurado): comportamiento de siempre
     DB = load(); applyMigrations(); runDataMigrations(); save(DB); render(); return;
   }

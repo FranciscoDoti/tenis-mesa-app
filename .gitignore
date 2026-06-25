@@ -6,3 +6,6 @@ desktop.ini
 .firebase/
 node_modules/
 serviceAccountKey.json
+# Claves de service account / admin SDK de Firebase (NUNCA subir: el repo es público)
+*-firebase-adminsdk-*.json
+*serviceAccount*.json
