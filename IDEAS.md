@@ -2,7 +2,7 @@
 
 ## Funcionalidades
 
-- [ ] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
+- [x] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
 - [ ] Implementar el sistema que sugiera qué mesas largar . Reformular el largado de mesas actual para hacerlo por zona y despues individual por llave
 - [ ] Implementar las otras dos configuraciones que figuran en **Settings**.
 - [ ] Implementar un reglamento editable con opción de **publicar / despublicar**.
