@@ -363,6 +363,7 @@ function applyMigrations() {
     if (!Array.isArray(t.collaborators)) t.collaborators = [];
     if (typeof t.enrollClosed !== 'boolean') t.enrollClosed = false;
     if (typeof t.published !== 'boolean') t.published = true; // torneos existentes ya estaban "publicados"
+    if (typeof t.finished !== 'boolean') t.finished = false;
     t.categorias.forEach(c => {
       if (c.enrollOverride === undefined) c.enrollOverride = (c.enrollClosed === true) ? 'closed' : null;
       delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
@@ -1288,6 +1289,7 @@ const isLiveTournament = t => liveMatchesOf(t).length > 0;
 const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.dateEnd || '').localeCompare(a.dateEnd || '');
 // Un torneo es "antiguo" si ya terminó (fecha de fin pasada) y no tiene partidos en vivo.
 function isPastTournament(t) {
+  if (t.finished) return true;            // finalizado explícitamente → antiguo
   if (isLiveTournament(t)) return false;
   const end = t.dateEnd || t.date; if (!end) return false;
   return end < todayAR(); // comparación de strings YYYY-MM-DD en horario de Argentina
@@ -1473,6 +1475,18 @@ function publishTournament(tid) {
   t.published = true; save(DB); render();
 }
 
+/* ----- finalizar / reabrir torneo (admin o colaborador) ----- */
+function finalizeTournament(tid) {
+  const t = tById(tid); if (!t || !canEditT(t)) return;
+  if (!confirm('¿Dar por finalizado el torneo? Los jugadores lo verán en modo lectura y pasará a “Torneos antiguos”. Podés reabrirlo después.')) return;
+  t.finished = true; save(DB); render();
+}
+function reopenTournament(tid) {
+  const t = tById(tid); if (!t || !canEditT(t)) return;
+  if (!confirm('¿Reabrir el torneo? Vuelve a estar activo y editable para todos los que corresponda.')) return;
+  t.finished = false; save(DB); render();
+}
+
 /* ----- mesas del torneo (editable incluso en juego) ----- */
 function editTablesModal(tid) {
   const t = tById(tid); if (!t) return;
@@ -1492,7 +1506,7 @@ function saveTables(tid) {
 
 /* ----- editar datos del torneo (nombre, fechas, lugar) ----- */
 function editTournamentModal(tid) {
-  const t = tById(tid); if (!t || !isAdmin()) return;
+  const t = tById(tid); if (!t || !canEditT(t)) return;
   openModal(`<h3>Editar datos del torneo</h3>
     <label>Nombre</label><input id="et_name" value="${esc(t.name)}"/>
     <div class="grid2">
@@ -1701,8 +1715,8 @@ function renderTournament(app, tid) {
         <span class="tag">${st}</span></div>
       ${champ && champ !== 'BYE' ? `<div class="champ" style="margin-top:10px">🏆 ${esc(entName(c, champ))}</div>` : ''}
       <div class="row" style="margin-top:12px"><button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
-        ${isAdmin() && !c.groups ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
-        ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delCategoria('${t.id}','${c.id}')">🗑️</button>` : ''}</div></div>`;
+        ${canEditT(t) && !c.groups ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
+        ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="delCategoria('${t.id}','${c.id}')">🗑️</button>` : ''}</div></div>`;
   }).join('');
   const gym = gymById(t.gymId);
   const live = liveMatchesOf(t);
@@ -1715,24 +1729,28 @@ function renderTournament(app, tid) {
       : `<div class="empty">No hay partidos en juego ahora. Cuando le asignes una mesa a un partido, aparece acá como “en vivo”.</div>`);
   const tEnrollOpen = tournamentEnrollOpen(t);
   const collabNames = (t.collaborators || []).map(id => { const p = playerById(id); return p ? fullName(p) : null; }).filter(Boolean);
-  const collabBanner = (!isAdmin() && isCollaboratorOf(t)) ? `<div class="banner ok" style="margin:8px 0 0">🤝 Sos colaborador de este torneo: podés inscribir jugadores, cargar resultados y abrir/cerrar inscripciones.</div>` : '';
+  const collabBanner = (!isAdmin() && isCollaboratorOf(t)) ? `<div class="banner ok" style="margin:8px 0 0">🤝 Sos colaborador: podés gestionar todo el torneo (inscribir, resultados, mesas, categorías, abrir/cerrar y finalizar). Otorgar puntos al ranking lo hace el admin.</div>` : '';
   const draftBanner = !t.published ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span>📝 <b>Borrador</b> — solo vos lo ves. Configurá las reglas y, cuando esté listo, publicalo.</span>
       ${isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar torneo</button>` : ''}</div>` : '';
+  const finishedBanner = t.finished ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>🏁 <b>Torneo finalizado.</b> Los jugadores lo ven en modo lectura.</span>
+      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="reopenTournament('${t.id}')">♻️ Reabrir torneo</button>` : ''}</div>` : '';
   app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(t.name)}</h1></div>
-    ${draftBanner}
+    ${draftBanner}${finishedBanner}
     <div class="tags" style="margin-top:8px"><span class="tag">📅 ${dateRangeLabel(t)}</span>${gym ? `<span class="tag">🏟️ ${esc(gym.name)}</span>` : ''}
       <span class="tag">🏓 ${tableCountOf(t)} mesa${tableCountOf(t) === 1 ? '' : 's'}</span>
-      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Editar datos</button>
+      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Editar datos</button>
       <button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">✏️ Editar mesas</button>` : ''}</div>
     ${gym ? `<p class="page-sub" style="margin:8px 0 0">📍 ${esc(gym.address)} ${gym.address ? `<a class="maplink" href="${mapsDirUrl(gym.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>` : ''}</p>` : ''}
     ${collabBanner}
     <div class="tags" style="margin-top:12px"><span class="tag ${tEnrollOpen ? 'tag-open' : 'tag-closed'}">${tEnrollOpen ? '🟢 Inscripción del torneo abierta' : '🔴 Inscripción del torneo cerrada'}</span>
-      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción del torneo' : '🔓 Abrir inscripción del torneo'}</button>` : ''}</div>
+      ${canEditT(t) && !t.finished ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción del torneo' : '🔓 Abrir inscripción del torneo'}</button>` : ''}
+      ${canEditT(t) && !t.finished ? `<button class="btn btn-ghost btn-sm" onclick="finalizeTournament('${t.id}')">🏁 Finalizar torneo</button>` : ''}</div>
     ${(collabNames.length || isAdmin()) ? `<p class="page-sub" style="margin:10px 0 0">🤝 Colaboradores: ${collabNames.length ? collabNames.map(esc).join(', ') : '<span class="muted">ninguno</span>'} ${isAdmin() ? `<a class="maplink" onclick="collaboratorsModal('${t.id}')">✏️ Editar</a>` : ''}</p>` : ''}
     ${liveHtml}
-    <div class="section-head"><h2>Categorías (sub-torneos)</h2>${isAdmin() ? `<button class="btn btn-primary" onclick="categoriaForm('${t.id}')">➕ Crear categoría</button>` : ''}</div>
+    <div class="section-head"><h2>Categorías (sub-torneos)</h2>${canEditT(t) ? `<button class="btn btn-primary" onclick="categoriaForm('${t.id}')">➕ Crear categoría</button>` : ''}</div>
     <div class="cards">${cards || '<div class="empty">Sin categorías. Creá una.</div>'}</div>`;
 }
 function categoriaForm(tid, cid) {
@@ -1863,7 +1881,7 @@ function renderCategoria(app, tid, cid) {
 }
 
 /* ----- estado de inscripción (torneo + override por categoría) ----- */
-const tournamentEnrollOpen = t => !!t && !t.enrollClosed;
+const tournamentEnrollOpen = t => !!t && !t.enrollClosed && !t.finished;
 // La inscripción de una categoría depende del torneo, salvo que la categoría tenga un override propio.
 function enrollmentStatus(cat) {
   if (cat.closed) return { open: false, label: '🏁 Categoría finalizada' };
@@ -2269,7 +2287,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
