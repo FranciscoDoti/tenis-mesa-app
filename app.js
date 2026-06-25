@@ -1697,6 +1697,7 @@ function renderTournament(app, tid) {
         <span class="tag">📋 ${ruleLabel(c.rule)}</span>
         <span class="tag">Al mejor de ${c.rules.sets}</span><span class="tag">🥇 ${c.championPoints} pts</span>
         <span class="tag">${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jugadores'}</span>
+        ${c.startAt ? `<span class="tag">🕒 ${fmtStartAt(c.startAt)}</span>` : ''}
         <span class="tag">${st}</span></div>
       ${champ && champ !== 'BYE' ? `<div class="champ" style="margin-top:10px">🏆 ${esc(entName(c, champ))}</div>` : ''}
       <div class="row" style="margin-top:12px"><button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
@@ -1771,6 +1772,30 @@ function saveCategoria(tid, cid) {
 }
 function delCategoria(tid, cid) { const t = tById(tid); if (confirm('¿Eliminar categoría?')) { t.categorias = t.categorias.filter(c => c.id !== cid); save(DB); render(); } }
 
+/* ----- horario de comienzo de la categoría (lo setean admin/colaboradores) ----- */
+function fmtStartAt(s) {
+  if (!s) return '';
+  const [d, t] = String(s).split('T');
+  const p = (d || '').split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}${t ? ' ' + t : ''}` : String(s);
+}
+function categoryTimeModal(tid, cid) {
+  const cat = getCat(tid, cid); if (!cat) return;
+  const t = tById(tid);
+  const def = cat.startAt || ((t && t.date ? t.date : '') + 'T10:00');
+  openModal(`<h3>Hora de comienzo — ${esc(cat.name)}</h3>
+    <p class="hint" style="margin-top:0">Cuándo arranca esta categoría. La ven todos; la editan admin y colaboradores.</p>
+    <label>Fecha y hora</label><input id="ct_start" type="datetime-local" value="${esc(def)}"/>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <div class="row" style="gap:8px">${cat.startAt ? `<button class="btn btn-ghost" onclick="saveCategoryTime('${tid}','${cid}',true)">Quitar</button>` : ''}
+        <button class="btn btn-primary" onclick="saveCategoryTime('${tid}','${cid}')">Guardar</button></div></div>`);
+}
+function saveCategoryTime(tid, cid, clear) {
+  const cat = getCat(tid, cid); if (!cat || !canEditCat(Object.assign(cat, { _tid: tid }))) return;
+  cat.startAt = clear ? null : ($('#ct_start').value || null);
+  save(DB); closeModal(); render();
+}
+
 /* ---------- categoría: inscripción, grupos, resultados, llave ---------- */
 // Lista de inscriptos de la categoría (visible para admin y jugadores).
 function entrantsListHtml(cat) {
@@ -1799,6 +1824,7 @@ function renderCategoria(app, tid, cid) {
       <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
       <span class="tag">Al mejor de ${cat.rules.sets} sets</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
       <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
+      ${cat.startAt ? `<span class="tag">🕒 ${fmtStartAt(cat.startAt)}</span>` : ''}
       <span class="tag ${enr.open ? 'tag-open' : 'tag-closed'}">${enr.label}</span></div>`;
 
   if (canEditCat(cat)) {
@@ -1807,6 +1833,7 @@ function renderCategoria(app, tid, cid) {
     const canToggle = !cat.groups && !cat.closed;
     html += `<div class="row" style="margin:16px 0">
       <button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>
+      <button class="btn btn-ghost" onclick="categoryTimeModal('${tid}','${cid}')">🕒 ${cat.startAt ? 'Horario' : 'Poner horario'}</button>
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
       <button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>
@@ -2242,7 +2269,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
