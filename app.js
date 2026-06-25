@@ -1934,6 +1934,88 @@ function showPopover(anchor, html) {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closePopover(); });
 
 /* ---------- torneo: lista de categorías ---------- */
+/* ---------- sugerencias de largado de mesas (si la setting está activa) ---------- */
+// Prioridad por clase de categoría (menor = se larga antes).
+const CLASS_LABELS = ['', 'Sub', 'Maxi', 'Primera', 'Segunda', 'Tercera', 'Cuarta', 'Mayores', 'Todo competidor', 'Dobles'];
+function catClassPriority(cat) {
+  if (cat.format === 'double') return 9;                 // dobles, último
+  const n = (cat.name || '').toLowerCase(), rt = cat.rule && cat.rule.type;
+  if (rt === 'maxAge' || n.startsWith('sub')) return 1;  // Sub
+  if (n.startsWith('maxi') || rt === 'minAge') return 2;  // Maxi
+  if (n === 'primera') return 3;
+  if (n === 'segunda') return 4;
+  if (n === 'tercera') return 5;
+  if (n === 'cuarta') return 6;
+  if (n === 'mayores') return 7;
+  return 8;                                               // todo competidor / libre / otros
+}
+const startAtMs = cat => (cat.startAt ? (new Date(cat.startAt).getTime() || 9e15) : 9e15);
+function freeTables(t) { const occ = occupiedTablesOf(t), out = []; for (let i = 1; i <= tableCountOf(t); i++) if (!occ.has(i)) out.push(i); return out; }
+function zonePlayers(cat, gi) { const s = new Set(); (cat.groups[gi] || []).forEach(eid => { const e = entById(cat, eid); if (e) e.players.forEach(p => s.add(p)); }); return s; }
+const matchPlayers = (cat, a, b) => { const s = new Set(); [a, b].forEach(id => { const e = entById(cat, id); if (e) e.players.forEach(p => s.add(p)); }); return s; };
+function brRoundName(cat, r) { const T = cat.bracket.length, fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); }
+// Todas las "unidades" largables/en curso del torneo (zonas de grupo y partidos individuales de llave).
+function tournamentUnits(t) {
+  const units = [];
+  t.categorias.forEach(cat => {
+    cat._tid = t.id;
+    const prio = catClassPriority(cat), startMs = startAtMs(cat);
+    (cat.groups || []).forEach((g, gi) => {
+      const ms = (cat.matches || []).filter(m => m.g === gi && !m.postponed);
+      if (!ms.length) return;
+      const pending = ms.filter(m => !matchDone(m, cat)).length;
+      const tbl = cat.zoneTable && cat.zoneTable[gi] != null ? cat.zoneTable[gi] : null;
+      units.push({ kind: 'zone', cat, table: tbl, pending, players: zonePlayers(cat, gi), prio, startMs, label: 'Zona ' + String.fromCharCode(65 + gi), action: `assignZoneTable('${t.id}','${cat.id}',${gi},__T__)` });
+    });
+    if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
+      const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
+      if (!(a && b && a !== 'BYE' && b !== 'BYE')) return;
+      units.push({ kind: 'bracket', cat, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
+    }));
+    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'bracket', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
+    (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
+  });
+  return units;
+}
+// Calcula el plan de largado: una unidad por mesa libre (sin repetir jugadores) + alternativas.
+function suggestLaunch(t) {
+  const free = freeTables(t);
+  if (!free.length) return { free, plan: [], alts: [] };
+  const units = tournamentUnits(t);
+  const busy = new Set(); // jugadores ocupados en unidades en curso (con mesa y partidos pendientes)
+  units.forEach(u => { if (u.table != null && u.pending > 0) u.players.forEach(p => busy.add(p)); });
+  const now = Date.now();
+  let cands = units.filter(u => u.table == null && u.pending > 0 && ![...u.players].some(p => busy.has(p)));
+  cands.forEach(u => { u.notReady = (u.cat.startAt && new Date(u.cat.startAt).getTime() > now) ? 1 : 0; });
+  // grupos antes que llaves (terminar zonas el mismo día); luego clase; luego horario
+  cands.sort((a, b) => a.notReady - b.notReady || (a.kind === 'zone' ? 0 : 1) - (b.kind === 'zone' ? 0 : 1) || a.prio - b.prio || a.startMs - b.startMs);
+  const plan = [], usedPlayers = new Set(), used = new Set();
+  for (const tbl of free) {
+    const pick = cands.find(u => !used.has(u) && ![...u.players].some(p => usedPlayers.has(p)));
+    if (!pick) break;
+    used.add(pick); pick.players.forEach(p => usedPlayers.add(p));
+    plan.push({ table: tbl, unit: pick });
+  }
+  const alts = cands.filter(u => !used.has(u)).slice(0, 2);
+  return { free, plan, alts };
+}
+function suggestPanelHtml(t) {
+  if (!(DB.settings && DB.settings.tableSuggestion) || !canEditT(t) || t.finished) return '';
+  const { free, plan, alts } = suggestLaunch(t);
+  if (!free.length) return '';
+  if (!plan.length) return `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
+    <p class="muted" style="margin:0">Hay ${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}, pero no hay zonas o llaves listas para largar (o sus jugadores ya están jugando en otra mesa).</p></div>`;
+  const row = (table, u) => `<div class="suggest-row">
+      <div class="suggest-info"><b>Mesa ${table}</b> → ${esc(u.cat.name)} · ${esc(u.label)}
+        <span class="muted">(${CLASS_LABELS[u.prio]}${u.cat.startAt ? ` · 🕒 ${fmtStartAt(u.cat.startAt)}` : ''})</span></div>
+      <button class="btn btn-primary btn-sm" onclick="${u.action.replace('__T__', table)}">▶️ Largar en Mesa ${table}</button></div>`;
+  let html = `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
+    <p class="muted" style="margin:0 0 10px">${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}. Sugerencias por prioridad (Sub, Maxi, niveles…), horario y sin superponer jugadores. Tocá para largar.</p>`;
+  html += plan.map(p => row(p.table, p.unit)).join('');
+  if (alts.length) html += `<div class="suggest-alts"><div class="muted" style="margin:12px 0 6px">Otras opciones para la Mesa ${free[0]}:</div>` + alts.map(u => row(free[0], u)).join('') + `</div>`;
+  return html + `</div>`;
+}
+
 function renderTournament(app, tid) {
   const t = tById(tid); if (!t) { app.innerHTML = '<div class="empty">No encontrado.</div>'; return; }
   if (!t.published && !isAdmin()) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
@@ -1986,6 +2068,7 @@ function renderTournament(app, tid) {
       ${canEditT(t) && !t.finished ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción del torneo' : '🔓 Abrir inscripción del torneo'}</button>` : ''}
       ${canEditT(t) && !t.finished ? `<button class="btn btn-ghost btn-sm" onclick="finalizeTournament('${t.id}')">🏁 Finalizar torneo</button>` : ''}</div>
     ${(collabNames.length || isAdmin()) ? `<p class="page-sub" style="margin:10px 0 0">🤝 Colaboradores: ${collabNames.length ? collabNames.map(esc).join(', ') : '<span class="muted">ninguno</span>'} ${isAdmin() ? `<a class="maplink" onclick="collaboratorsModal('${t.id}')">✏️ Editar</a>` : ''}</p>` : ''}
+    ${suggestPanelHtml(t)}
     ${liveHtml}
     <div class="section-head"><h2>Categorías (sub-torneos)</h2>${canEditT(t) ? `<button class="btn btn-primary" onclick="categoriaForm('${t.id}')">➕ Crear categoría</button>` : ''}</div>
     <div class="cards">${cards || '<div class="empty">Sin categorías. Creá una.</div>'}</div>`;

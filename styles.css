@@ -225,6 +225,12 @@ ul.awarded li:last-child{border-bottom:0}
 .pay-line{margin-top:10px; font-size:13px; font-weight:700}
 .pay-line.ok{color:#0a7d2c}
 .pay-line.no{color:#c1121f}
+/* sugerencias de largado */
+.suggest-card{margin:14px 0; border-left:4px solid var(--ball)}
+.suggest-row{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:9px 4px; border-bottom:1px solid var(--line)}
+.suggest-row:last-child{border-bottom:0}
+.suggest-info{flex:1; min-width:200px; font-size:14px}
+.suggest-alts{margin-top:4px}
 .report-total{margin-top:16px; font-size:15px}
 .report-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 4px; border-bottom:1px solid var(--line)}
 .report-row:last-child{border-bottom:0}
