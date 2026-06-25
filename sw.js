@@ -1,5 +1,5 @@
 /* Service worker — hace la app instalable (PWA) y cachea el "shell" para abrir rápido / offline. */
-const CACHE = 'ttmesa-v3';
+const CACHE = 'ttmesa-v4';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
   './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
@@ -21,9 +21,11 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   // Solo manejamos lo de nuestro propio origen; Firebase/SDK (otros orígenes) pasan directo a la red.
   if (new URL(req.url).origin !== location.origin) return;
-  // Network-first: trae lo último y actualiza cache; si no hay red, cae al cache.
+  // Network-first con REVALIDACIÓN forzada: { cache: 'no-cache' } obliga a revalidar contra el
+  // servidor (permite 304) y evita que la caché HTTP del navegador (GitHub Pages cachea ~10 min)
+  // devuelva una versión vieja del app.js/index.html. Estando online se ve lo último; sin red, cae al cache.
   e.respondWith(
-    fetch(req).then(res => {
+    fetch(req.url, { cache: 'no-cache' }).then(res => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
       return res;
