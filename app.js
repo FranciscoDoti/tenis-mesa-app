@@ -186,7 +186,7 @@ function seed() {
   }));
   const mkCat = (name, format, extra = {}) => ({
     id: uid('c_'), name, format, rule: catalogRule(name), rules: { sets: 5, groupMin: 3, groupMax: 4 },
-    championPoints: 100, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, ...extra,
+    championPoints: 20, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, ...extra,
   });
   const mayores = mkCat('Mayores', 'single');
   mayores.entrants = players.slice(0, 8).map(p => ({ id: uid('e_'), players: [p.id] })); // listo para correr la demo
@@ -366,6 +366,8 @@ function applyMigrations() {
     t.categorias.forEach(c => {
       if (c.enrollOverride === undefined) c.enrollOverride = (c.enrollClosed === true) ? 'closed' : null;
       delete c.enrollClosed; // reemplazado por enrollOverride ('open' | 'closed' | null = hereda del torneo)
+      if (c.championPoints == null) c.championPoints = 20;
+      else if (c.championPoints > 20) c.championPoints = 20; // tope del valor de torneo
     });
   });
 }
@@ -1327,7 +1329,7 @@ function saveTournament() {
   if (dateEnd < date) { e.hidden = false; e.textContent = 'La fecha de fin no puede ser anterior al inicio.'; return; }
   const picked = [...$('#modalCard').querySelectorAll('.cat-chk:checked')].map(c => c.value);
   if (!picked.length) { e.hidden = false; e.textContent = 'Elegí al menos una categoría.'; return; }
-  const categorias = picked.map(nm => ({ id: uid('c_'), name: nm, format: 'single', rule: catalogRule(nm), rules: { sets: 5, groupMin: 3, groupMax: 4 }, championPoints: 100, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null }));
+  const categorias = picked.map(nm => ({ id: uid('c_'), name: nm, format: 'single', rule: catalogRule(nm), rules: { sets: 5, groupMin: 3, groupMax: 4 }, championPoints: 20, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null }));
   const tableCount = Math.max(1, parseInt($('#t_tables').value, 10) || 1);
   const collaborators = [...(window.__collabSel || [])];
   const tnew = { id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, enrollClosed: false, published: false, categorias };
@@ -1546,9 +1548,9 @@ function categoriaForm(tid, cid) {
       <div><label>Partidos al mejor de</label><select id="c_sets"><option value="3" ${sel(r.sets, 3)}>3 sets</option><option value="5" ${cat ? sel(r.sets, 5) : 'selected'}>5 sets</option></select></div>
       <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
       <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
-      <div><label>Puntos al campeón 🥇</label><input id="c_pts" type="number" min="0" value="${cat ? cat.championPoints : 100}"/></div>
+      <div><label>Valor del torneo 🏆 (máx 20)</label><input id="c_pts" type="number" min="0" max="20" value="${cat ? cat.championPoints : 20}"/></div>
     </div>
-    <p class="hint">El resto se reparte: 2º=½ · 3º=⅓ · 4º=¼ · cuartofinalista=⅛ · octavofinalista=1/16 …${cat && cat.entrants.length ? ' <br>⚠️ Si cambiás el formato (singles/dobles) se borran los inscriptos actuales.' : ''}</p>
+    <p class="hint">Solo cobran el <b>podio</b>: 🥇 valor · 🥈 ½ · 🥉 ⅓ · 4º ¼. Además cada partido suma/resta puntos por nivel (Elo). <b>Solo puntúan singles de Primera/Segunda/Tercera/Cuarta</b> — dobles y categorías por edad no mueven el ranking.${cat && cat.entrants.length ? ' <br>⚠️ Si cambiás el formato (singles/dobles) se borran los inscriptos actuales.' : ''}</p>
     <div id="cerr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveCategoria('${tid}','${cid || ''}')">${cat ? 'Guardar' : 'Crear'}</button></div>`);
@@ -1558,7 +1560,7 @@ function saveCategoria(tid, cid) {
   const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
   const e = $('#cerr');
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
-  const format = $('#c_fmt').value, rules = { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints = parseInt($('#c_pts').value, 10) || 0;
+  const format = $('#c_fmt').value, rules = { sets: parseInt($('#c_sets').value, 10), groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
   if (cid) {
     const cat = getCat(tid, cid); if (!cat) return;
     if (cat.groups) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: los partidos ya empezaron.'; return; }
@@ -1796,6 +1798,7 @@ function makeGroups(tid, cid) {
   const res = buildGroups(ids, cat.rules.groupMin, cat.rules.groupMax);
   if (!res.ok) { alert('⚠️ ' + res.msg); return; }
   cat.groups = res.groups; cat.matches = genMatches(res.groups); cat.bracket = null; cat.thirdPlace = null; cat.closed = false; cat.awarded = null;
+  snapshotSeed(cat); // congela los puntajes de referencia para el Elo de todos los partidos del torneo
   save(DB); render();
 }
 function groupStandings(cat, gi) {
@@ -1820,6 +1823,7 @@ function groupCardHtml(cat, gi) {
       <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>
       <span class="${w === 'b' ? 'win' : ''}">${esc(entName(cat, m.b))}</span>
       ${canEditCat(cat) ? resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️') : ''}
+      ${done ? eloLabel(cat, m, m.a, m.b) : ''}
       ${mesa ? `<div class="bmatch-mesa">${mesa}</div>` : ''}</div>`;
   }).join('');
   return `<div class="group-card"><h4>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</h4><ul>${rows}</ul><div class="matches">${ms}</div></div>`;
@@ -1848,7 +1852,7 @@ function generateBracket(tid, cid) {
   rounds.push(r0); let c = r0.length; while (c > 1) { const rr = []; for (let i = 0; i < c; i += 2) rr.push({ sets: [] }); rounds.push(rr); c = rr.length; }
   cat.bracket = rounds;
   cat.thirdPlace = rounds.length >= 2 ? { sets: [] } : null; // partido por 3er/4to puesto
-  cat.closed = false; cat.awarded = null; save(DB); render();
+  cat.closed = false; cat.awarded = null; snapshotSeed(cat); save(DB); render();
 }
 function bracketHtml(cat) {
   const T = cat.bracket.length;
@@ -1860,6 +1864,7 @@ function bracketHtml(cat) {
       const can = canEditCat(cat) && playable;
       const mesa = (playable && !done) ? startControl(cat, 'bracket', null, r, m, mm) : '';
       return `<div class="br-match">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
+        ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : ''}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
         ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}</div>`;
     }).join('') + `</div>`).join('');
@@ -1871,6 +1876,7 @@ function bracketHtml(cat) {
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
     extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">
       ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
+      ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : ''}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
       ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}</div></div>`;
   }
@@ -1879,9 +1885,10 @@ function bracketHtml(cat) {
   return `<div class="bracket">${cols}${extra}</div>${champHtml}${awardedHtml(cat)}`;
 }
 function awardedHtml(cat) {
-  if (!cat.awarded) return '';
-  const rows = Object.entries(cat.awarded).sort((a, b) => b[1] - a[1]).map(([eid, pts]) => `<li><span>${esc(entName(cat, eid))}</span><span class="pts" style="margin-left:auto">+${pts} pts</span></li>`).join('');
-  return `<div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">Puntos otorgados al ranking</h3><ul class="awarded">${rows}</ul></div>`;
+  if (!cat.awarded || !Object.keys(cat.awarded).length) return '';
+  const rows = Object.entries(cat.awarded).sort((a, b) => b[1] - a[1]).map(([eid, pts]) =>
+    `<li><span>${esc(entName(cat, eid))}</span><span class="pts ${pts < 0 ? 'neg' : ''}" style="margin-left:auto">${pts >= 0 ? '+' : ''}${pts} pts</span></li>`).join('');
+  return `<div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">Cambios de puntaje del torneo</h3><ul class="awarded">${rows}</ul></div>`;
 }
 
 /* ----- result modal (per-set) ----- */
@@ -1926,6 +1933,50 @@ function saveResult(tid, cid, kind, gidx, r, m) {
 }
 
 /* ----- puntos al ranking ----- */
+/* ---------------- puntaje por partido (Elo) ---------------- */
+const ELO_K = 12, ELO_D = 400;                  // suavidad del intercambio por partido
+const SCORE_CAP_HI = 1100, SCORE_CAP_LO = 100;  // >1100 las sumas valen la mitad; <100 las restas valen la mitad
+const TOURNEY_MAX = 20;                          // tope de puntos que otorga un torneo (campeón)
+// Solo puntúan las categorías singles de nivel (Primera/Segunda/Tercera/Cuarta).
+const catScores = cat => !!(cat && cat.format !== 'double' && cat.rule && cat.rule.type === 'level');
+// Rating de referencia de un entrante: la foto tomada al iniciar la categoría (cae al puntaje actual si falta).
+function seedRatingOf(cat, entId) {
+  if (cat.seedRatings && cat.seedRatings[entId] != null) return cat.seedRatings[entId];
+  const e = entById(cat, entId); if (!e) return NEW_PLAYER_POINTS;
+  const rs = e.players.map(pid => { const p = playerById(pid); return p ? p.points : NEW_PLAYER_POINTS; });
+  return rs.length ? rs.reduce((s, x) => s + x, 0) / rs.length : NEW_PLAYER_POINTS;
+}
+// Congela los ratings de los inscriptos al arrancar el juego de una categoría que puntúa.
+function snapshotSeed(cat) {
+  if (!catScores(cat) || cat.seedRatings) return;
+  cat.seedRatings = {};
+  cat.entrants.forEach(e => { cat.seedRatings[e.id] = seedRatingOf(cat, e.id); });
+}
+// Puntos que intercambia un partido (ganador +N, perdedor −N). Suma cero. Más diferencia ⇒ más puntos al batacazo.
+function matchElo(cat, winId, loseId) {
+  const Rw = seedRatingOf(cat, winId), Rl = seedRatingOf(cat, loseId);
+  const Ew = 1 / (1 + Math.pow(10, (Rl - Rw) / ELO_D));
+  return Math.round(ELO_K * (1 - Ew));
+}
+// Para un partido terminado de una categoría que puntúa: { winId, loseId, n } o null.
+function matchEloOf(cat, mm, a, b) {
+  if (!catScores(cat) || !mm || !a || !b || a === 'BYE' || b === 'BYE') return null;
+  const w = matchWinnerSide(mm, cat); if (!w) return null;
+  const winId = w === 'a' ? a : b, loseId = w === 'a' ? b : a;
+  return { winId, loseId, n: matchElo(cat, winId, loseId) };
+}
+// Etiqueta "+N / −N" al costado del partido (verde lo que sumó el ganador, rojo lo que perdió el perdedor).
+function eloLabel(cat, mm, a, b) {
+  const e = matchEloOf(cat, mm, a, b); if (!e) return '';
+  return `<span class="elo-delta" title="El ganador suma +${e.n} y el perdedor pierde −${e.n} (se aplica al cerrar la categoría)"><span class="elo-up">+${e.n}</span><span class="elo-down">−${e.n}</span></span>`;
+}
+// Recorre todos los partidos de la categoría (grupos + llave + 3er puesto) con sus contendientes.
+function eachMatch(cat, cb) {
+  (cat.matches || []).forEach(m => cb(m, m.a, m.b));
+  if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => cb(mm, brContender(cat, r, mi, 'a'), brContender(cat, r, mi, 'b'))));
+  if (cat.thirdPlace) cb(cat.thirdPlace, semiLoser(cat, 0), semiLoser(cat, 1));
+}
+
 function placements(cat) {
   const map = {}; if (!cat.bracket) return map;
   const T = cat.bracket.length, S = cat.bracket[0].length * 2;
@@ -1941,8 +1992,31 @@ function awardPoints(tid, cid) {
   if (!cat.bracket || !brWinner(cat, cat.bracket.length - 1, 0)) { alert('La final todavía no tiene ganador.'); return; }
   if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { alert('Falta el resultado del partido por 3er puesto.'); return; }
   if (!confirm('¿Cerrar la categoría y otorgar los puntos al ranking? (no se puede deshacer)')) return;
-  const map = placements(cat); cat.awarded = {};
-  Object.entries(map).forEach(([eid, div]) => { const pts = Math.round(cat.championPoints / div); cat.awarded[eid] = pts; const e = entById(cat, eid); if (e) e.players.forEach(pid => { const p = playerById(pid); if (p) { p.points += pts; syncCategory(p); } }); });
+  cat.awarded = {};
+  if (catScores(cat)) {
+    // 1) Elo por partido: acumular +N/−N de cada partido por entrante (suma cero).
+    const delta = {}, add = (id, n) => { delta[id] = (delta[id] || 0) + n; };
+    eachMatch(cat, (mm, a, b) => { const e = matchEloOf(cat, mm, a, b); if (e) { add(e.winId, e.n); add(e.loseId, -e.n); } });
+    // 2) Podio (solo 1°–4°), escalado del valor del torneo (tope 20): campeón V, finalista V/2, 3° V/3, 4° V/4.
+    const V = Math.min(TOURNEY_MAX, cat.championPoints || 0), map = placements(cat);
+    Object.entries(map).forEach(([eid, div]) => { if (div <= 4) add(eid, Math.round(V / div)); });
+    // 3) Aplicar a cada jugador con topes: >1100 sumas a la mitad, <100 restas a la mitad, nunca <0.
+    Object.entries(delta).forEach(([eid, net]) => {
+      const e = entById(cat, eid); if (!e) return;
+      let applied = net;
+      e.players.forEach(pid => {
+        const p = playerById(pid); if (!p) return;
+        let d = net;
+        if (p.points > SCORE_CAP_HI && d > 0) d = Math.floor(d * 0.5);
+        if (p.points < SCORE_CAP_LO && d < 0) d = -Math.floor(Math.abs(d) * 0.5);
+        const before = p.points;
+        p.points = Math.max(0, before + d);
+        applied = p.points - before;   // cambio real (contempla el tope y el piso en 0)
+        syncCategory(p);
+      });
+      cat.awarded[eid] = applied;
+    });
+  }
   cat.closed = true; save(DB); render();
 }
 

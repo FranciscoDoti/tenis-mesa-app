@@ -204,6 +204,12 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 ul.awarded{list-style:none; margin:0; padding:0}
 ul.awarded li{display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line)}
 ul.awarded li:last-child{border-bottom:0}
+.pts.neg{color:#c1121f}
+/* +N / −N que se gana/pierde por partido (Elo) */
+.elo-delta{display:inline-flex; gap:5px; align-items:center; flex:0 0 auto; white-space:nowrap}
+.elo-up{color:#0a7d2c; font-weight:800; font-size:12px}
+.elo-down{color:#c1121f; font-weight:800; font-size:12px}
+.br-elo{padding:5px 9px; border-top:1px solid var(--line); display:flex; justify-content:center; gap:6px}
 .catgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; margin-top:6px}
 .catchk{display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; font-weight:600; font-size:13px; cursor:pointer}
 .catchk:hover{background:#f7f9fb}
