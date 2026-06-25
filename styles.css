@@ -11,11 +11,12 @@
   --ok:#16a34a;
   --shadow:0 6px 20px rgba(16,32,24,.08);
   --radius:14px;
+  --app-font:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
-  font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  font-family:var(--app-font);
   background:var(--bg); color:var(--ink); min-height:100vh;
   display:flex; flex-direction:column;
 }
@@ -28,6 +29,7 @@ body{
 }
 .brand{display:flex; align-items:center; gap:12px}
 .logo{width:46px; height:46px; filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+.logo-emoji{font-size:38px; line-height:46px; width:46px; text-align:center; filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
 .brand-text{display:flex; flex-direction:column; line-height:1.1}
 .brand-text strong{font-size:18px; letter-spacing:.3px}
 .brand-text span{font-size:12px; opacity:.85}
@@ -222,6 +224,16 @@ ul.awarded li:last-child{border-bottom:0}
 .switch.on{background:var(--ok)}
 .switch .knob{position:absolute; top:3px; left:3px; width:24px; height:24px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .18s}
 .switch.on .knob{left:25px}
+
+/* ---------- apariencia ---------- */
+.appearance-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; align-items:start}
+.appearance-grid .setting-row{padding:8px 0; border-bottom:1px solid var(--line)}
+.appearance-grid .setting-row:last-child{border-bottom:0}
+.color-input{flex:0 0 auto; width:46px; height:34px; padding:2px; border:1px solid var(--line); border-radius:8px; background:#fff; cursor:pointer}
+.theme-preview{margin-top:18px; padding:14px; border:1px dashed var(--line); border-radius:var(--radius); background:var(--bg)}
+.theme-preview .tp-label{font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px}
+.tp-bar{display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px; color:#fff; font-size:18px;
+  background:linear-gradient(120deg,var(--table),var(--table-dark))}
 
 /* ---------- mesa por partido ---------- */
 .mesa-sel{flex:0 0 auto; width:auto; padding:4px 6px; font-size:12px; font-weight:600; border-radius:8px}

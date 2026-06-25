@@ -17,8 +17,8 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <!-- inline logo: paddle + ball -->
-      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <!-- inline logo: paddle + ball (se reemplaza por el emoji si el admin lo personaliza) -->
+      <svg class="logo logo-svg" viewBox="0 0 64 64" aria-hidden="true">
         <circle cx="44" cy="20" r="7" fill="#ff7a1a"/>
         <g transform="rotate(35 30 36)">
           <ellipse cx="30" cy="30" rx="17" ry="20" fill="#c1121f"/>
@@ -26,6 +26,7 @@
           <rect x="26" y="46" width="8" height="18" rx="3" fill="#5a3a1a"/>
         </g>
       </svg>
+      <span class="logo-emoji app-emoji" aria-hidden="true" style="display:none">🏓</span>
       <div class="brand-text">
         <strong>Tenis de Mesa</strong>
         <span>Dina Huapi &amp; Bariloche</span>
@@ -39,6 +40,7 @@
       <button data-view="jugadores" class="nav-btn admin-only">👥 Jugadores</button>
       <button data-view="aprobaciones" class="nav-btn admin-only">🙋 Altas</button>
       <button data-view="gimnasios" class="nav-btn admin-only">🏟️ Gimnasios</button>
+      <button data-view="apariencia" class="nav-btn admin-only">🎨 Apariencia</button>
       <button data-view="settings" class="nav-btn admin-only">⚙️ Ajustes</button>
     </nav>
     <div class="user-area" id="userArea"></div>
@@ -47,7 +49,7 @@
   <main id="app"></main>
 
   <footer class="footer">
-    <span>🏓 MVP — Club de Tenis de Mesa Dina Huapi &amp; Bariloche</span>
+    <span><span class="app-emoji">🏓</span> MVP — Club de Tenis de Mesa Dina Huapi &amp; Bariloche</span>
     <span class="muted" id="storeInfo"></span>
   </footer>
 

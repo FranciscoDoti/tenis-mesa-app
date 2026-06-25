@@ -205,11 +205,56 @@ function load() { try { const r = localStorage.getItem(KEY); if (r) return JSON.
 const FB = () => window.STORE && window.STORE.enabled;        // ¿estamos usando Firebase?
 // save(): guarda en localStorage (cache) y, si hay Firebase, sincroniza a Firestore en segundo plano.
 function save(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} if (FB()) window.STORE.sync(db); }
-let DB = { players: [], gyms: [], tournaments: [], users: [], settings: { tableSuggestion: false } };
+
+/* ---------------- apariencia / tema ---------------- */
+// Tema editable por el admin. Los colores se aplican como variables CSS en :root;
+// la fuente y el emoji principal se reflejan en vivo. Todo se guarda en DB.settings.theme.
+const DEFAULT_THEME = { bg: '#f4f6f8', card: '#ffffff', table: '#1e6b3a', ball: '#ff7a1a', paddle: '#c1121f', ink: '#1d2433', font: 'system', emoji: '🏓' };
+// Fuentes disponibles (stacks de fuentes presentes en la mayoría de los dispositivos, sin descargas externas).
+const FONTS = {
+  system: { label: 'Sistema (predeterminada)', stack: '"Segoe UI",system-ui,-apple-system,Roboto,sans-serif' },
+  rounded: { label: 'Redondeada', stack: '"Trebuchet MS","Segoe UI",system-ui,sans-serif' },
+  serif: { label: 'Serif clásica', stack: 'Georgia,"Times New Roman",serif' },
+  mono: { label: 'Monoespaciada', stack: '"Courier New",ui-monospace,monospace' },
+  wide: { label: 'Ancha', stack: 'Verdana,Geneva,sans-serif' },
+};
+// Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, theme: DEFAULT_THEME };
+// Aclara/oscurece un color hex (amt en [-1,1]) — usado para derivar --table-dark.
+function shadeHex(hex, amt) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) return hex;
+  const n = parseInt(m[1], 16); let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const f = v => Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt);
+  r = f(r); g = f(g); b = f(b);
+  return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+}
+const themeOf = () => Object.assign({}, DEFAULT_THEME, (DB.settings && DB.settings.theme) || {});
+function applyTheme() {
+  const t = themeOf(), r = document.documentElement.style;
+  r.setProperty('--bg', t.bg);
+  r.setProperty('--card', t.card);
+  r.setProperty('--table', t.table);
+  r.setProperty('--table-dark', shadeHex(t.table, -0.22));
+  r.setProperty('--ball', t.ball);
+  r.setProperty('--paddle', t.paddle);
+  r.setProperty('--ink', t.ink);
+  r.setProperty('--app-font', (FONTS[t.font] || FONTS.system).stack);
+  const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute('content', t.table);
+  document.querySelectorAll('.app-emoji').forEach(el => { el.textContent = t.emoji; });
+  // En la barra superior: si el emoji es el de fábrica se conserva el logo SVG; si se personaliza, se muestra el emoji.
+  const custom = t.emoji !== DEFAULT_THEME.emoji;
+  document.querySelectorAll('.logo-svg').forEach(el => { el.style.display = custom ? 'none' : ''; });
+  document.querySelectorAll('.logo-emoji').forEach(el => { el.style.display = custom ? '' : 'none'; });
+}
+
+let DB = { players: [], gyms: [], tournaments: [], users: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
 // Migraciones aditivas (no destructivas) sobre el DB ya cargado en memoria.
 function applyMigrations() {
   if (!DB.gyms) DB.gyms = defaultGyms();
-  if (!DB.settings) DB.settings = { tableSuggestion: false };
+  if (!DB.settings) DB.settings = {};
+  // completa ajustes faltantes sin pisar los ya configurados
+  Object.keys(DEFAULT_SETTINGS).forEach(k => { if (DB.settings[k] === undefined) DB.settings[k] = DEFAULT_SETTINGS[k]; });
+  DB.settings.theme = Object.assign({}, DEFAULT_THEME, DB.settings.theme || {});
   if (!DB.users) DB.users = [];
   (DB.tournaments || []).forEach(t => {
     if (t.tableCount == null) t.tableCount = 4;
@@ -315,12 +360,14 @@ function renderChrome() {
 }
 function render() {
   renderChrome();
+  applyTheme();
   const app = $('#app');
   if (!currentUser()) return renderLogin(app);
   if (view === 'ranking') return renderRanking(app);
   if (view === 'jugadores') return isAdmin() ? renderPlayers(app) : renderRanking(app);
   if (view === 'gimnasios') return isAdmin() ? renderGyms(app) : renderRanking(app);
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
+  if (view === 'apariencia') return isAdmin() ? renderAppearance(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
@@ -345,7 +392,7 @@ function readCityField(sel) { const v = $('#' + sel).value; return v === 'Otra' 
 function renderLogin(app) {
   if (authMode === 'register') return renderRegister(app);
   const fb = FB(), note = loginNote; loginNote = '';
-  app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><h1>Tenis de Mesa</h1>
+  app.innerHTML = `<div class="login-wrap"><div class="big-logo app-emoji">${esc(themeOf().emoji)}</div><h1>Tenis de Mesa</h1>
     <p class="page-sub">Dina Huapi &amp; Bariloche</p>
     <div class="card" style="text-align:left">
       ${note ? `<div class="banner ok">${esc(note)}</div>` : ''}
@@ -767,24 +814,96 @@ function delGym(id) {
 }
 
 /* ---------- ajustes (admin) ---------- */
+// Fila de ajuste con interruptor. `fn` es el nombre de la función global que alterna el valor.
+function settingRow(name, desc, on, fn) {
+  return `<div class="setting-row">
+      <div class="setting-text">
+        <div class="setting-name">${name}</div>
+        <div class="setting-desc">${desc}</div>
+      </div>
+      <button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on}" onclick="${fn}()"><span class="knob"></span></button>
+    </div>`;
+}
 function renderSettings(app) {
-  const s = DB.settings || (DB.settings = { tableSuggestion: false });
+  const s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
   app.innerHTML = `<div class="page-title"><h1>⚙️ Ajustes</h1></div>
     <p class="page-sub">Configuración general del club. Solo el administrador puede verla y cambiarla.</p>
     <div class="card" style="max-width:620px">
-      <div class="setting-row">
-        <div class="setting-text">
-          <div class="setting-name">🏓 Sugerencia de mesas</div>
-          <div class="setting-desc">Sugerir automáticamente en qué mesa se debería jugar cada partido. <b>Próximamente</b> — por ahora solo se puede activar o desactivar.</div>
-        </div>
-        <button class="switch ${s.tableSuggestion ? 'on' : ''}" role="switch" aria-checked="${s.tableSuggestion}" onclick="toggleTableSuggestion()"><span class="knob"></span></button>
-      </div>
+      ${settingRow('🏓 Sugerencia de mesas',
+        'Sugerir automáticamente en qué mesa se debería jugar cada partido. <b>Próximamente</b> — por ahora solo se puede activar o desactivar.',
+        s.tableSuggestion, 'toggleTableSuggestion')}
+      ${settingRow('💳 Pagos para inscripciones',
+        'Permitir cobrar la inscripción a los torneos al anotarse. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
+        s.paymentsEnabled, 'togglePayments')}
+      ${settingRow('🕒 Horarios estimados de partidos',
+        'Calcular y mostrar un horario aproximado para cada partido del torneo. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
+        s.matchTimeEstimates, 'toggleMatchTimes')}
     </div>`;
 }
-function toggleTableSuggestion() {
-  if (!DB.settings) DB.settings = { tableSuggestion: false };
-  DB.settings.tableSuggestion = !DB.settings.tableSuggestion;
+// Alterna un ajuste booleano de DB.settings y vuelve a renderizar.
+function toggleSetting(key) {
+  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
+  DB.settings[key] = !DB.settings[key];
   save(DB); render();
+}
+function toggleTableSuggestion() { toggleSetting('tableSuggestion'); }
+function togglePayments() { toggleSetting('paymentsEnabled'); }
+function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
+
+/* ---------- apariencia (admin) ---------- */
+function renderAppearance(app) {
+  const t = themeOf();
+  const colorRow = (key, name, desc) => `<div class="setting-row">
+      <div class="setting-text"><div class="setting-name">${name}</div><div class="setting-desc">${desc}</div></div>
+      <input class="color-input" type="color" value="${esc(t[key])}" aria-label="${esc(name)}" oninput="setThemeField('${key}', this.value)"/>
+    </div>`;
+  const fontOpts = Object.entries(FONTS).map(([k, f]) => `<option value="${k}" ${t.font === k ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
+  app.innerHTML = `<div class="page-title"><h1>🎨 Apariencia</h1></div>
+    <p class="page-sub">Personalizá colores, fuente e ícono del sitio. Los cambios se aplican y guardan al instante.</p>
+    <div class="appearance-grid">
+      <div class="card">
+        <h3 style="margin:0 0 12px">🎨 Colores</h3>
+        ${colorRow('table', 'Color principal', 'Encabezado, barra superior y acentos del club.')}
+        ${colorRow('ball', 'Color de resaltado', 'Botones activos y elementos destacados (naranja por defecto).')}
+        ${colorRow('paddle', 'Color de acción', 'Botones principales (rojo por defecto).')}
+        ${colorRow('bg', 'Fondo', 'Color de fondo general de las páginas.')}
+        ${colorRow('card', 'Tarjetas', 'Fondo de las tarjetas y paneles.')}
+        ${colorRow('ink', 'Texto', 'Color del texto principal.')}
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 12px">🔤 Fuente e ícono</h3>
+        <div class="setting-text" style="margin-bottom:16px">
+          <div class="setting-name">Tipografía</div>
+          <div class="setting-desc">Fuente usada en todo el sitio.</div>
+          <select id="themeFont" style="margin-top:8px" onchange="setThemeField('font', this.value)">${fontOpts}</select>
+        </div>
+        <div class="setting-text">
+          <div class="setting-name">Ícono principal</div>
+          <div class="setting-desc">Emoji que representa al club (se ve en la pantalla de inicio). Pegá un emoji.</div>
+          <input id="themeEmoji" style="margin-top:8px; max-width:120px" maxlength="4" value="${esc(t.emoji)}" oninput="setThemeField('emoji', this.value)"/>
+        </div>
+        <div class="theme-preview">
+          <div class="tp-label">Vista previa</div>
+          <div class="tp-bar"><span class="app-emoji">${esc(t.emoji)}</span> <strong>Tenis de Mesa</strong></div>
+          <div class="row" style="margin-top:10px"><button class="btn btn-primary btn-sm" type="button">Acción</button>
+            <button class="btn btn-accent btn-sm" type="button">Resaltado</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:18px"><button class="btn btn-ghost" onclick="resetTheme()">↩️ Restaurar valores por defecto</button></div>`;
+  // refleja los colores actuales en la barra/botones de vista previa
+  applyTheme();
+}
+function ensureTheme() { if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS); if (!DB.settings.theme) DB.settings.theme = Object.assign({}, DEFAULT_THEME); }
+function setThemeField(key, val) {
+  ensureTheme();
+  DB.settings.theme[key] = (key === 'emoji') ? (String(val || '').trim().slice(0, 4) || DEFAULT_THEME.emoji) : val;
+  applyTheme(); save(DB);
+}
+function resetTheme() {
+  ensureTheme();
+  DB.settings.theme = Object.assign({}, DEFAULT_THEME);
+  applyTheme(); save(DB); render();
 }
 
 /* ---------- torneos ---------- */
@@ -1531,7 +1650,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter, resendVerification, recheckVerification });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doResetPassword, toggleCityOther, enrollFilter, resendVerification, recheckVerification });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
