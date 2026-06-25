@@ -1194,17 +1194,49 @@ function occupiedTablesOf(t, exceptMm) {
   });
   return set;
 }
-// Selector/insignia de mesa para un partido. Admin: <select>; jugador: insignia si hay mesa asignada.
-function tableControl(cat, kind, gidx, r, m, mm) {
-  const t = tById(cat._tid), max = tableCountOf(t);
-  const cur = mm && mm.table != null ? mm.table : '';
-  if (!canEditCat(cat)) return cur ? `<span class="mesa-badge">🏓 Mesa ${cur}</span>` : '';
-  const occ = occupiedTablesOf(t, mm); // mesas tomadas por otros partidos en curso
-  const top = Math.max(max, cur || 0);
-  let opts = `<option value="">🏓 Mesa…</option>`;
-  for (let i = 1; i <= top; i++) { const busy = occ.has(i); opts += `<option value="${i}" ${cur === i ? 'selected' : ''} ${busy ? 'disabled' : ''}>Mesa ${i}${busy ? ' (ocupada)' : ''}</option>`; }
+// Control de inicio de un partido. Sin empezar: botón "Iniciar" (abre el popover de mesas).
+// En curso: insignia de la mesa (al tocarla, el editor puede mover/liberar). Jugador: solo insignia.
+function startControl(cat, kind, gidx, r, m, mm) {
+  const cur = mm && mm.table != null ? mm.table : null;
+  const args = `event,'${cat._tid}','${cat.id}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
+  if (!canEditCat(cat)) return cur != null ? `<span class="mesa-badge">🏓 Mesa ${cur}</span>` : '';
+  if (cur == null) return `<button class="btn btn-primary btn-sm start-btn" onclick="openTablePopover(${args})">▶️ Iniciar</button>`;
+  return `<button class="mesa-badge mesa-badge-btn" onclick="openTablePopover(${args})" title="Mover el partido a otra mesa o liberarla">🏓 Mesa ${cur} ⚙️</button>`;
+}
+// Botón de carga de resultado. Deshabilitado hasta que el partido se inicie (tenga mesa asignada).
+function resultBtn(cat, kind, gidx, r, m, mm, done, cls, editLabel) {
   const args = `'${cat._tid}','${cat.id}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
-  return `<select class="mesa-sel" onchange="setMatchTable(${args},this.value)" onclick="event.stopPropagation()">${opts}</select>`;
+  if (done) return `<button class="${cls}" onclick="resultModal(${args})">${editLabel}</button>`;
+  if (!(mm && mm.table != null)) return `<button class="${cls}" disabled title="Primero iniciá el partido: tocá «Iniciar» y elegí una mesa.">Cargar</button>`;
+  return `<button class="${cls}" onclick="resultModal(${args})">Cargar</button>`;
+}
+// Popover anclado al botón para elegir/mover la mesa (entre TODAS las mesas del torneo).
+function openTablePopover(ev, tid, cid, kind, gidx, r, m) {
+  ev.stopPropagation();
+  const cat = getCat(tid, cid); cat._tid = tid;
+  const { mm } = locateMatch(cat, kind, gidx, r, m);
+  const t = tById(tid), max = tableCountOf(t);
+  const occ = occupiedTablesOf(t, mm);               // mesas tomadas por otros partidos en curso (de cualquier categoría)
+  const cur = mm && mm.table != null ? mm.table : null;
+  const top = Math.max(max, cur || 0);
+  let cells = '';
+  for (let i = 1; i <= top; i++) {
+    const busy = occ.has(i), isCur = cur === i;
+    const tag = busy ? '<small>ocupada</small>' : isCur ? '<small>actual</small>' : '';
+    const args = `'${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},${i}`;
+    cells += `<button class="table-opt${isCur ? ' current' : ''}${busy ? ' busy' : ''}" ${busy ? 'disabled' : ''} onclick="assignTableFromPopover(${args})">🏓<span>Mesa ${i}</span>${tag}</button>`;
+  }
+  const liberar = cur != null
+    ? `<button class="btn btn-ghost btn-sm pop-free" onclick="assignTableFromPopover('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},0)">⏹️ Liberar mesa (detener partido)</button>`
+    : '';
+  const html = `<h4>${cur != null ? 'Mover de mesa' : 'Iniciar partido'}</h4>
+    <div class="pop-sub">Elegí una de las ${max} mesa${max === 1 ? '' : 's'} del torneo. Las ocupadas por otro partido en curso no se pueden elegir.</div>
+    <div class="table-grid">${cells}</div>${liberar}`;
+  showPopover(ev.currentTarget, html);
+}
+function assignTableFromPopover(tid, cid, kind, gidx, r, m, tableNum) {
+  closePopover();
+  setMatchTable(tid, cid, kind, gidx, r, m, tableNum > 0 ? String(tableNum) : '');
 }
 function setMatchTable(tid, cid, kind, gidx, r, m, val) {
   const cat = getCat(tid, cid); cat._tid = tid;
@@ -1214,6 +1246,22 @@ function setMatchTable(tid, cid, kind, gidx, r, m, val) {
   mm.table = num;
   save(DB); render();
 }
+// ---- popover genérico (no es modal: anclado, sin oscurecer la pantalla) ----
+function closePopover() { const h = $('#popHost'); if (h) h.remove(); }
+function showPopover(anchor, html) {
+  closePopover();
+  const host = document.createElement('div'); host.className = 'popover-host'; host.id = 'popHost';
+  host.addEventListener('click', e => { if (e.target === host) closePopover(); });
+  const pop = document.createElement('div'); pop.className = 'popover'; pop.innerHTML = html;
+  host.appendChild(pop); document.body.appendChild(host);
+  const ar = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight, pad = 8;
+  let left = ar.left, top = ar.bottom + 6;
+  if (left + pw > window.innerWidth - pad) left = window.innerWidth - pad - pw;
+  if (left < pad) left = pad;
+  if (top + ph > window.innerHeight - pad) top = Math.max(pad, ar.top - 6 - ph); // si no entra abajo, lo pongo arriba
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePopover(); });
 
 /* ---------- torneo: lista de categorías ---------- */
 function renderTournament(app, tid) {
@@ -1546,11 +1594,11 @@ function groupCardHtml(cat, gi) {
     <span class="muted" style="margin-left:auto;font-size:12px">${s.pg}G · ${s.sf}-${s.sc}${i < 2 ? ' ✅' : ''}</span></li>`).join('');
   const ms = cat.matches.filter(m => m.g === gi).map(m => {
     const idx = cat.matches.indexOf(m), r = matchResult(m), done = matchDone(m, cat), w = matchWinnerSide(m, cat);
-    const mesa = done ? '' : tableControl(cat, 'group', idx, null, null, m);
+    const mesa = done ? '' : startControl(cat, 'group', idx, null, null, m);
     return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${esc(entName(cat, m.a))}</span>
       <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>
       <span class="${w === 'b' ? 'win' : ''}">${esc(entName(cat, m.b))}</span>
-      ${canEditCat(cat) ? `<button class="btn btn-ghost btn-sm" onclick="resultModal('${cat._tid}','${cat.id}','group',${idx},null,null)">${done ? '✏️' : 'Cargar'}</button>` : ''}
+      ${canEditCat(cat) ? resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️') : ''}
       ${mesa ? `<div class="bmatch-mesa">${mesa}</div>` : ''}</div>`;
   }).join('');
   return `<div class="group-card"><h4>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</h4><ul>${rows}</ul><div class="matches">${ms}</div></div>`;
@@ -1587,21 +1635,23 @@ function bracketHtml(cat) {
   const slot = (id, w, sc) => `<div class="br-slot ${w ? 'win' : ''}">${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? esc(entName(cat, id)) : '<i class="muted">—</i>'}<span class="br-s">${sc}</span></div>`;
   const cols = cat.bracket.map((round, r) => `<div class="br-col"><div class="br-rtitle">${rname(r)}</div>` +
     round.map((mm, m) => { const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b'), res = matchResult(mm), w = brWinner(cat, r, m), done = matchDone(mm, cat);
-      const can = canEditCat(cat) && a && b && a !== 'BYE' && b !== 'BYE';
-      const mesa = (a && b && a !== 'BYE' && b !== 'BYE' && !done) ? tableControl(cat, 'bracket', null, r, m, mm) : '';
+      const playable = a && b && a !== 'BYE' && b !== 'BYE';
+      const can = canEditCat(cat) && playable;
+      const mesa = (playable && !done) ? startControl(cat, 'bracket', null, r, m, mm) : '';
       return `<div class="br-match">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
-        ${can ? `<button class="btn br-edit" onclick="resultModal('${cat._tid}','${cat.id}','bracket',null,${r},${m})">${done ? '✏️ editar' : 'Cargar'}</button>` : ''}</div>`;
+        ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}</div>`;
     }).join('') + `</div>`).join('');
   let extra = '';
   if (cat.thirdPlace) {
     const a = semiLoser(cat, 0), b = semiLoser(cat, 1), res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
-    const can = canEditCat(cat) && a && b && a !== 'BYE' && b !== 'BYE';
-    const mesa = (a && b && a !== 'BYE' && b !== 'BYE' && !done) ? tableControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
+    const playable = a && b && a !== 'BYE' && b !== 'BYE';
+    const can = canEditCat(cat) && playable;
+    const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
     extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">
       ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
-      ${can ? `<button class="btn br-edit" onclick="resultModal('${cat._tid}','${cat.id}','third',null,null,null)">${done ? '✏️ editar' : 'Cargar'}</button>` : ''}</div></div>`;
+      ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}</div></div>`;
   }
   const champ = brWinner(cat, T - 1, 0);
   const champHtml = champ && champ !== 'BYE' ? `<div class="champ">🏆 Campeón: <b>${esc(entName(cat, champ))}</b></div>` : '';
@@ -1679,7 +1729,7 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); window.scrollTo(0, 0); render(); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleTableSuggestion, togglePayments, toggleMatchTimes, setThemeField, resetTheme, openTablePopover, assignTableFromPopover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
