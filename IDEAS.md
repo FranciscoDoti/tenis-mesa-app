@@ -12,6 +12,8 @@
   - [ ] Reporte de jugadores que no pagaron.
   - [ ] Otros reportes útiles para la organización.
 - [ ] Mostrar una notificación al usuario cuando tenga una inscripción pendiente de pago.
+- [ ] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
+- [ ] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
 - [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas
 - [ ] Implementar horarios de comienzo de categorías y notificación a los celulares de los jugadores como una opción cuando su cateogría está por emepezar
 - [ ] Implementar algo para cdo el jugador no se presentó.
