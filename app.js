@@ -401,8 +401,16 @@ function entName(cat, id) {
   return cat.format === 'double' ? ns.join(' / ') : ns[0];
 }
 function avatar(p, cls = 'avatar') {
-  return p && p.photo ? `<span class="${cls}"><img src="${p.photo}" alt=""/></span>`
-    : `<span class="${cls}">${esc(initials(p || { firstName: '?', lastName: '' })).toUpperCase()}</span>`;
+  if (p && p.photo) {
+    const clk = p.id ? ` avatar-clk" onclick="event.stopPropagation(); openPhoto('${p.id}')" title="Ver foto` : '';
+    return `<span class="${cls}${clk}"><img src="${p.photo}" alt=""/></span>`;
+  }
+  return `<span class="${cls}">${esc(initials(p || { firstName: '?', lastName: '' })).toUpperCase()}</span>`;
+}
+// Lightbox: muestra la foto del jugador un poco más grande.
+function openPhoto(id) {
+  const p = playerById(id); if (!p || !p.photo) return;
+  openModal(`<div class="photo-zoom"><img src="${p.photo}" alt="${esc(fullName(p))}"/><div class="photo-zoom-name">${esc(fullName(p))}</div></div>`);
 }
 const need = cat => Math.ceil(cat.rules.sets / 2);
 
@@ -499,6 +507,7 @@ function render() {
   if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
+  if (view.startsWith('perfil:')) return renderProfile(app, view.split(':')[1]);
   if (view === 'torneos') return renderTournaments(app);
   if (view.startsWith('torneo:')) return renderTournament(app, view.split(':')[1]);
   if (view.startsWith('cat:')) { const [, tid, cid] = view.split(':'); return renderCategoria(app, tid, cid); }
@@ -673,7 +682,7 @@ function renderRanking(app) {
       html += `<div class="rank-body">`;
       if (!list.length) html += `<div class="empty">Sin jugadores.</div>`;
       list.forEach((p, i) => { html += `<div class="player-row"><span class="pos">${i + 1}</span>${avatar(p)}
-        <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}</div></div>
+        <div class="meta"><div class="name"><a class="plink" onclick="go('perfil:${p.id}')">${esc(fullName(p))}</a></div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}</div></div>
         <div class="pts">${p.points}<small> pts</small></div></div>`; });
       html += `</div>`;
     }
@@ -747,15 +756,36 @@ function renderHistory(app) {
     <div style="margin-top:18px">${body}</div>`;
   const s = $('.hist-search'); if (s) s.focus();
 }
+// Abre el historial head-to-head con el jugador actual vs otro jugador ya seleccionados.
+function histVs(otherId) { const me = currentUser() && currentUser().playerId; if (!me) return; histA = me; histB = otherId; histOpen = null; go('historial'); }
 function histToggle(side) { histOpen = histOpen === side ? null : side; render(); }
 function histPick(side, pid) { if (side === 'A') histA = pid; else histB = pid; histOpen = null; render(); }
 function histFilter(inp) { const q = inp.value.toLowerCase(); inp.closest('.hist-panel').querySelectorAll('.hist-opt').forEach(li => { li.style.display = li.dataset.name.includes(q) ? '' : 'none'; }); }
 
 /* ---------- perfil (jugador) ---------- */
-function renderProfile(app) {
+// Vista de solo lectura del perfil de OTRO jugador (cualquiera puede verla).
+function renderPlayerProfileView(app, p) {
+  const me = currentUser() && currentUser().playerId;
+  const canHist = me && me !== p.id; // si sos jugador y no es tu propio perfil
+  app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('ranking')">← Volver</button>
+    <div class="page-title" style="margin-top:12px"><h1>👤 Perfil</h1></div>
+    <div class="card" style="max-width:560px">
+      <div class="row" style="gap:16px;align-items:center">${avatar(p, 'avatar')}
+        <div><div style="font-weight:800;font-size:18px">${esc(fullName(p))}</div>
+        <div class="muted">${p.category} · ${p.points} pts · 📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}</div></div></div>
+      <div class="row" style="margin-top:16px;gap:10px;flex-wrap:wrap">
+        ${canHist ? `<button class="btn btn-primary" onclick="histVs('${p.id}')">📊 Ver historial contra este jugador</button>` : ''}
+        ${isAdmin() ? `<button class="btn btn-ghost" onclick="playerForm('${p.id}')">✏️ Editar</button>` : ''}
+      </div>
+    </div>`;
+}
+function renderProfile(app, viewId) {
   const u = currentUser();
-  const p = u && u.playerId ? playerById(u.playerId) : null;
+  const ownId = u && u.playerId;
+  const pid = viewId || ownId;
+  const p = pid ? playerById(pid) : null;
   if (!p) { app.innerHTML = '<div class="empty">Perfil no disponible.</div>'; return; }
+  if (pid !== ownId) return renderPlayerProfileView(app, p); // perfil de otro → solo lectura (admin edita con ✏️)
   const note = profileNote; profileNote = '';
   app.innerHTML = `<div class="page-title"><h1>👤 Mi perfil</h1></div>
     <p class="page-sub">Editá tus datos personales, tu foto y tu contraseña.</p>
@@ -2198,7 +2228,7 @@ function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
