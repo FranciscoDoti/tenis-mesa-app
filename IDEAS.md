@@ -25,3 +25,4 @@
     - [x]  A veces el menú lateral se carga como topbar en celulares
     - [x] Al recargar la app te vuelve por un instante a la pagina de login incluso cuadno ya tenias la sesión iniciada y no debería
     - [ ] no anda para cargar colaboradores a los torneos una vez el torneo ya está empezado
+    - [ ] la pantalla de inscripción del admin no te pide el mail (revisar consistencia con la de inscripción normal en cuanto a proceso y datos de entrada ) 
