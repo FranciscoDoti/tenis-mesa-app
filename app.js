@@ -66,7 +66,7 @@ function newCategoryFromCatalog(nm) {
   const cc = catEntryByName(nm) || {};
   const setsFormat = cc.setsFormat || 'all5';
   return {
-    id: uid('c_'), name: nm, format: cc.format || 'single', rule: cc.rule || catalogRule(nm),
+    id: uid('c_'), name: nm, format: cc.format || 'single', gender: cc.gender || 'any', rule: cc.rule || catalogRule(nm),
     setsFormat, rules: { sets: setsFmtById(setsFormat).bracket, groupMin: cc.groupMin || 3, groupMax: cc.groupMax || 4 },
     championPoints: cc.championPoints != null ? cc.championPoints : 20,
     cost: cc.cost != null ? cc.cost : 0,
@@ -103,6 +103,28 @@ function eligible(cat, p) {
   if (r.type === 'range') return (age >= r.min && age <= r.max) ? { ok: true } : { ok: false, reason: `${cat.name}: ${fullName(p)} tiene ${age} años (debe ser ${r.min}–${r.max}).` };
   return { ok: true };
 }
+/* ---------------- género (para dobles femenino / mixto) ---------------- */
+const FEMALE_NAMES = ['sabrina', 'victoria', 'paulina', 'aldana', 'maria', 'ana', 'lucia', 'sofia', 'martina', 'valentina', 'camila', 'julieta', 'florencia', 'agustina', 'carla', 'carolina', 'daniela', 'gabriela', 'rocio', 'belen', 'micaela', 'antonella', 'jimena', 'romina', 'natalia', 'noelia', 'vanesa', 'melina', 'abril', 'catalina', 'renata', 'emma', 'mia', 'laura', 'paula', 'sandra', 'silvia', 'andrea', 'cecilia', 'veronica', 'patricia', 'guadalupe', 'milagros', 'ailen', 'malena', 'pilar', 'delfina', 'morena', 'zoe', 'isabella', 'luciana', 'agostina', 'brenda', 'tamara', 'yamila', 'macarena', 'priscila', 'nayla', 'ivana', 'estefania', 'fernanda'];
+const norm1 = s => (s || '').trim().toLowerCase().split(/\s+/)[0].normalize('NFD').replace(/[̀-ͯ]/g, '');
+// Adivina el género por el nombre de pila (lista de nombres + heurística "termina en a"). El admin lo puede corregir.
+function guessGender(firstName) {
+  const n = norm1(firstName); if (!n) return 'M';
+  if (FEMALE_NAMES.includes(n)) return 'F';
+  if (/a$/.test(n)) return 'F';   // heurística (la mayoría de nombres femeninos terminan en a)
+  return 'M';
+}
+const genderOf = p => (p && p.gender) || (p ? guessGender(p.firstName) : 'M');
+// ¿La pareja cumple la regla de género de la categoría de dobles? (any / female / male / mixed)
+function pairGenderOk(cat, pidA, pidB) {
+  const g = cat.gender || 'any'; if (g === 'any') return { ok: true };
+  const a = genderOf(playerById(pidA)), b = genderOf(playerById(pidB));
+  if (g === 'female') return (a === 'F' && b === 'F') ? { ok: true } : { ok: false, reason: 'Dobles femenino: las dos integrantes deben ser mujeres.' };
+  if (g === 'male') return (a === 'M' && b === 'M') ? { ok: true } : { ok: false, reason: 'Dobles masculino: los dos integrantes deben ser varones.' };
+  if (g === 'mixed') return (a !== b) ? { ok: true } : { ok: false, reason: 'Dobles mixto: la pareja debe ser un varón y una mujer.' };
+  return { ok: true };
+}
+const GENDER_RULE_LABEL = { female: '♀ Femenino', male: '♂ Masculino', mixed: '⚥ Mixto' };
+const genderField = (id, cur) => `<select id="${id}"><option value="M" ${cur === 'M' ? 'selected' : ''}>Varón</option><option value="F" ${cur === 'F' ? 'selected' : ''}>Mujer</option></select>`;
 
 /* ---------------- seed ---------------- */
 function defaultGyms() {
@@ -397,6 +419,8 @@ function applyMigrations() {
   Object.keys(DEFAULT_SETTINGS).forEach(k => { if (DB.settings[k] === undefined) DB.settings[k] = DEFAULT_SETTINGS[k]; });
   DB.settings.theme = Object.assign({}, DEFAULT_THEME, DB.settings.theme || {});
   if (!Array.isArray(DB.settings.pairs)) DB.settings.pairs = []; // ranking de dobles (por pareja)
+  DB.settings.pairs.forEach(pr => { if (!pr.catName) pr.catName = 'Dobles'; }); // parejas viejas → bucket genérico
+  (DB.players || []).forEach(p => { if (!p.gender) p.gender = guessGender(p.firstName); }); // género (mujer/varón) por nombre
   // Catálogo global de categorías: se siembra una vez desde el CATALOG fijo (luego lo edita el admin).
   if (!Array.isArray(DB.settings.categoryCatalog) || !DB.settings.categoryCatalog.length) {
     DB.settings.categoryCatalog = CATALOG.map(c => ({ id: uid('cc_'), name: c.name, rule: c.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20, cost: 0 }));
@@ -696,6 +720,7 @@ function renderRegister(app) {
         <div><label>Apellido</label><input id="r_last"/></div>
         <div><label>Localidad</label>${cityFieldHtml('r_city', '')}</div>
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
+        <div><label>Género</label>${genderField('r_gender', 'M')}</div>
       </div>
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
       ${fb ? `<label>Usuario <span class="muted">(opcional, para ingresar sin el email)</span></label><input id="r_username" placeholder="ej: juanperez"/>` : ''}
@@ -729,7 +754,7 @@ async function doRegister() {
   const city = readCityField('r_city');
   if (!city) return fail('Indicá tu localidad.');
   const photo = window.__rphoto ? window.__rphoto() : null;
-  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, gender: ($('#r_gender') && $('#r_gender').value) || guessGender(first), points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
   if (FB()) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cred)) return fail('Escribí un email válido (ej: nombre@gmail.com).');
     const uname = ($('#r_username') && $('#r_username').value.trim().toLowerCase()) || '';
@@ -788,17 +813,33 @@ function renderRanking(app) {
 }
 function rankToggle(cat) { if (rankOpen.has(cat)) rankOpen.delete(cat); else rankOpen.add(cat); render(); }
 function renderDoublesRanking(app) {
-  const pairs = (DB.settings.pairs || []).slice().sort((a, b) => b.points - a.points);
+  const byCat = {};
+  (DB.settings.pairs || []).forEach(pr => { const cn = pr.catName || 'Dobles'; (byCat[cn] = byCat[cn] || []).push(pr); });
+  const cats = Object.keys(byCat).sort();
   let html = `<div class="page-title"><h1>👥 Ranking de dobles</h1></div>
-    <p class="page-sub">Por pareja. Una pareja entra al ranking desde el primer torneo de dobles que juega. El puntaje se calcula como en singles, usando el promedio del ranking individual de cada integrante.</p>`;
-  if (!pairs.length) { app.innerHTML = html + `<div class="empty">Todavía no hay parejas en el ranking. Aparecen cuando se cierra un torneo de dobles.</div>`; return; }
-  html += pairs.map((pr, i) => {
-    const avg = Math.round(pr.players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (pr.players.length || 1));
-    return `<div class="player-row"><span class="pos">${i + 1}</span>
-      <div class="meta"><div class="name">${esc(pairName(pr))}</div><div class="sub">Promedio individual: ${avg} pts</div></div>
-      <div class="pts">${pr.points}<small> pts</small></div></div>`;
-  }).join('');
-  app.innerHTML = html;
+    <p class="page-sub">Por categoría de dobles y por pareja. Una pareja entra desde el primer torneo que juega; el puntaje usa el promedio del ranking individual de cada integrante.</p>`;
+  if (!cats.length) { app.innerHTML = html + `<div class="empty">Todavía no hay parejas en el ranking. Aparecen cuando se cierra un torneo de dobles.</div>`; return; }
+  html += `<div class="rank-tiles">`;
+  cats.forEach(cn => {
+    const key = 'dbl:' + cn, open = rankOpen.has(key);
+    const list = byCat[cn].slice().sort((a, b) => b.points - a.points);
+    html += `<div class="rank-tile${open ? ' open' : ''}">
+      <button class="rank-tilehdr" onclick="rankToggle('${esc(key)}')">
+        <span class="cat-badge cat-4">👥</span><span class="rt-name">${esc(cn)}</span>
+        <span class="rt-count">${list.length}</span><span class="rt-caret">${open ? '▾' : '▸'}</span></button>`;
+    if (open) {
+      html += `<div class="rank-body">`;
+      list.forEach((pr, i) => {
+        const avg = Math.round(pr.players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (pr.players.length || 1));
+        html += `<div class="player-row"><span class="pos">${i + 1}</span>
+          <div class="meta"><div class="name">${esc(pairName(pr))}</div><div class="sub">Promedio individual: ${avg} pts</div></div>
+          <div class="pts">${pr.points}<small> pts</small></div></div>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+  });
+  app.innerHTML = html + `</div>`;
 }
 
 /* ---------- historial head-to-head ---------- */
@@ -911,6 +952,7 @@ function renderProfile(app, viewId) {
         <div><label>Apellido</label><input id="pf_last" value="${esc(p.lastName)}"/></div>
         <div><label>Localidad</label>${cityFieldHtml('pf_city', p.city)}</div>
         <div><label>Fecha de nacimiento</label><input id="pf_dob" type="date" value="${p.dob || ''}"/></div>
+        <div><label>Género</label>${genderField('pf_gender', genderOf(p))}</div>
       </div>
       <label>Foto</label>${photoButtonsHtml('pf_photo')}
       <div id="pf_err" class="banner" hidden></div>
@@ -936,6 +978,7 @@ function saveProfile() {
   const first = $('#pf_first').value.trim(), last = $('#pf_last').value.trim();
   if (!first || !last) { e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
   p.firstName = first; p.lastName = last; p.city = readCityField('pf_city') || p.city; p.dob = $('#pf_dob').value || null;
+  if ($('#pf_gender')) p.gender = $('#pf_gender').value;
   p.photo = window.__pfphoto ? window.__pfphoto() : p.photo;
   const acc = DB.users.find(x => x.playerId === p.id); if (acc) acc.name = fullName(p);
   setUser({ ...u, name: fullName(p) });
@@ -1006,6 +1049,7 @@ function playerForm(id) {
       <div><label>Localidad</label>${cityFieldHtml('f_city', p.city)}</div>
       <div><label>Puntos</label><input id="f_pts" type="number" min="0" value="${p.points}"/></div>
       <div><label>Fecha de nacimiento</label><input id="f_dob" type="date" value="${p.dob || ''}"/></div>
+      <div><label>Género</label>${genderField('f_gender', genderOf(p))}</div>
     </div>
     <label>Email <span class="muted">(opcional)</span></label>
     <input id="f_email" type="email" value="${esc(curEmail)}" placeholder="tu@email.com" ${hasLogin ? 'disabled' : ''}/>
@@ -1022,7 +1066,7 @@ function savePlayer(id) {
   const first = $('#f_first').value.trim(), last = $('#f_last').value.trim();
   if (!first || !last) { const e = $('#ferr'); e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
   const emailInp = $('#f_email');
-  const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: readCityField('f_city'), points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
+  const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: readCityField('f_city'), gender: ($('#f_gender') && $('#f_gender').value) || 'M', points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
   if (emailInp && !emailInp.disabled) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
   if (emailInp && !emailInp.disabled && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { const e = $('#ferr'); e.hidden = false; e.textContent = 'El email no es válido (ej: nombre@gmail.com).'; return; }
   let target;
@@ -1161,7 +1205,12 @@ function catalogEntryForm(id) {
       <div><label>Edad máxima</label><input id="cc_rmax" type="number" min="1" max="120" value="${rule.type === 'range' ? rule.max : 39}"/></div>
     </div></div>
     <div class="grid2">
-      <div><label>Formato</label><select id="cc_fmt"><option value="single" ${sel((c && c.format) || 'single', 'single')}>Singles 👤</option><option value="double" ${sel((c && c.format), 'double')}>Dobles 👥</option></select></div>
+      <div><label>Formato</label><select id="cc_fmt" onchange="catFmtChange('cc')"><option value="single" ${sel((c && c.format) || 'single', 'single')}>Singles 👤</option><option value="double" ${sel((c && c.format), 'double')}>Dobles 👥</option></select></div>
+      <div class="cc-gender" ${(c && c.format === 'double') ? '' : 'hidden'}><label>Género (dobles)</label><select id="cc_gender">
+        <option value="any" ${sel((c && c.gender) || 'any', 'any')}>Indistinto</option>
+        <option value="female" ${sel(c && c.gender, 'female')}>Femenino (2 mujeres)</option>
+        <option value="male" ${sel(c && c.gender, 'male')}>Masculino (2 varones)</option>
+        <option value="mixed" ${sel(c && c.gender, 'mixed')}>Mixto (varón + mujer)</option></select></div>
       <div><label>Sets por fase</label><select id="cc_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="cc_min" type="number" min="2" value="${c ? c.groupMin : 3}"/></div>
       <div><label>Máx por grupo</label><input id="cc_max" type="number" min="2" value="${c ? c.groupMax : 4}"/></div>
@@ -1176,6 +1225,11 @@ function catalogEntryForm(id) {
 function catRuleTypeChange() {
   const t = $('#cc_ruletype').value;
   document.querySelectorAll('#modalCard .cc-param').forEach(el => { el.hidden = !el.dataset.for.split(' ').includes(t); });
+}
+// Muestra/oculta el selector de género (solo aplica a dobles). prefix: 'cc' (catálogo) o 'c' (categoría de torneo).
+function catFmtChange(prefix) {
+  const isDouble = $('#' + prefix + '_fmt').value === 'double';
+  document.querySelectorAll('#modalCard .' + prefix + '-gender').forEach(el => { el.hidden = !isDouble; });
 }
 function saveCatalogEntry(id) {
   const e = $('#ccerr'), name = $('#cc_name').value.trim();
@@ -1194,7 +1248,8 @@ function saveCatalogEntry(id) {
   }
   const min = parseInt($('#cc_min').value, 10) || 3, max = parseInt($('#cc_max').value, 10) || 4;
   if (min > max) { e.hidden = false; e.textContent = 'Mín por grupo no puede ser mayor que máx.'; return; }
-  const entry = { name, rule, format: $('#cc_fmt').value, setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)), cost: Math.max(0, parseInt($('#cc_cost').value, 10) || 0) };
+  const fmt = $('#cc_fmt').value;
+  const entry = { name, rule, format: fmt, gender: fmt === 'double' ? ($('#cc_gender') ? $('#cc_gender').value : 'any') : 'any', setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)), cost: Math.max(0, parseInt($('#cc_cost').value, 10) || 0) };
   if (id) { const cur = list.find(x => x.id === id); if (cur) Object.assign(cur, entry); }
   else list.push(Object.assign({ id: uid('cc_') }, entry));
   save(DB); closeModal(); render();
@@ -2120,6 +2175,7 @@ function renderTournament(app, tid) {
     const st = c.closed ? '✅ Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : enrollmentStatus(c).label;
     return `<div class="card"><div class="row spread"><h3 style="margin:0">${esc(c.name)}</h3></div>
       <div class="tags"><span class="tag">${c.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
+        ${c.format === 'double' && c.gender && c.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[c.gender]}</span>` : ''}
         <span class="tag">📋 ${ruleLabel(c.rule)}</span>
         <span class="tag">${catSetsFmt(c).label}</span><span class="tag">🥇 ${c.championPoints} pts</span>
         <span class="tag">${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jugadores'}</span>
@@ -2175,11 +2231,19 @@ function categoriaForm(tid, cid) {
   const r = cat ? cat.rules : { sets: 5, groupMin: 3, groupMax: 4 };
   const curFmt = cat ? catSetsFmt(cat).id : 'all5';
   const setsOpts = SETS_FORMATS.map(f => `<option value="${f.id}" ${sel(curFmt, f.id)}>${f.label}</option>`).join('');
-  const defCost = cat ? (cat.cost != null ? cat.cost : 0) : ((catEntryByName(catCatalog()[0] && catCatalog()[0].name) || {}).cost || 0);
+  const cc0 = catEntryByName(catCatalog()[0] && catCatalog()[0].name) || {};
+  const defCost = cat ? (cat.cost != null ? cat.cost : 0) : (cc0.cost || 0);
+  const curFmtD = cat ? cat.format : (cc0.format || 'single');
+  const curGender = cat ? (cat.gender || 'any') : (cc0.gender || 'any');
   openModal(`<h3>${cat ? 'Editar' : 'Crear'} categoría (sub-torneo)</h3>
     <label>Categoría</label><select id="c_name" onchange="catCostSuggest()">${names}</select>
     <div class="grid2">
-      <div><label>Formato</label><select id="c_fmt"><option value="single" ${cat ? sel(cat.format, 'single') : 'selected'}>Singles 👤</option><option value="double" ${cat ? sel(cat.format, 'double') : ''}>Dobles 👥</option></select></div>
+      <div><label>Formato</label><select id="c_fmt" onchange="catFmtChange('c')"><option value="single" ${sel(curFmtD, 'single')}>Singles 👤</option><option value="double" ${sel(curFmtD, 'double')}>Dobles 👥</option></select></div>
+      <div class="c-gender" ${curFmtD === 'double' ? '' : 'hidden'}><label>Género (dobles)</label><select id="c_gender">
+        <option value="any" ${sel(curGender, 'any')}>Indistinto</option>
+        <option value="female" ${sel(curGender, 'female')}>Femenino</option>
+        <option value="male" ${sel(curGender, 'male')}>Masculino</option>
+        <option value="mixed" ${sel(curGender, 'mixed')}>Mixto</option></select></div>
       <div><label>Sets por fase</label><select id="c_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
       <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
@@ -2191,23 +2255,30 @@ function categoriaForm(tid, cid) {
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveCategoria('${tid}','${cid || ''}')">${cat ? 'Guardar' : 'Crear'}</button></div>`);
 }
-// Al cambiar la categoría en el form, sugiere el costo por defecto del catálogo.
-function catCostSuggest() { const cc = catEntryByName($('#c_name').value), inp = $('#c_cost'); if (cc && inp) inp.value = cc.cost || 0; }
+// Al cambiar la categoría en el form, hereda costo/formato/género por defecto del catálogo.
+function catCostSuggest() {
+  const cc = catEntryByName($('#c_name').value); if (!cc) return;
+  if ($('#c_cost')) $('#c_cost').value = cc.cost || 0;
+  if ($('#c_fmt')) $('#c_fmt').value = cc.format || 'single';
+  if ($('#c_gender')) $('#c_gender').value = cc.gender || 'any';
+  catFmtChange('c');
+}
 function saveCategoria(tid, cid) {
   const t = tById(tid), name = $('#c_name').value;
   const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
   const e = $('#cerr');
   if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
   const format = $('#c_fmt').value, setsFormat = $('#c_setsfmt').value;
+  const gender = format === 'double' ? ($('#c_gender') ? $('#c_gender').value : 'any') : 'any';
   const rules = { sets: setsFmtById(setsFormat).bracket, groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
   const cost = Math.max(0, parseInt($('#c_cost').value, 10) || 0);
   if (cid) {
     const cat = getCat(tid, cid); if (!cat) return;
     if (cat.groups) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: los partidos ya empezaron.'; return; }
     if (cat.format !== format) cat.entrants = []; // cambia singles/dobles → se limpian inscriptos
-    cat.name = name; cat.format = format; cat.rule = catalogRule(name); cat.rules = rules; cat.setsFormat = setsFormat; cat.championPoints = championPoints; cat.cost = cost;
+    cat.name = name; cat.format = format; cat.gender = gender; cat.rule = catalogRule(name); cat.rules = rules; cat.setsFormat = setsFormat; cat.championPoints = championPoints; cat.cost = cost;
   } else {
-    t.categorias.push({ id: uid('c_'), name, format, rule: catalogRule(name), setsFormat, rules, championPoints, cost, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
+    t.categorias.push({ id: uid('c_'), name, format, gender, rule: catalogRule(name), setsFormat, rules, championPoints, cost, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
   }
   save(DB); closeModal(); render();
 }
@@ -2276,6 +2347,7 @@ function renderCategoria(app, tid, cid) {
     <div class="page-title" style="margin-top:12px"><h1>${esc(cat.name)}</h1></div>`;
   const enr = enrollmentStatus(cat);
   html += `<div class="tags"><span class="tag">${cat.format === 'double' ? '👥 Dobles' : '👤 Singles'}</span>
+      ${cat.format === 'double' && cat.gender && cat.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[cat.gender]}</span>` : ''}
       <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
       <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
       <span class="tag">🥇 ${cat.championPoints} pts</span><span class="tag">${cat.entrants.length} inscriptos</span>
@@ -2406,6 +2478,7 @@ function addTeam(tid, cid) {
   if (!a || !b || a === b) { e.hidden = false; e.textContent = 'Elegí dos jugadores distintos.'; return; }
   if (window.__teams.some(t => t.players.includes(a) || t.players.includes(b))) { e.hidden = false; e.textContent = 'Algún jugador ya está en otra pareja.'; return; }
   for (const pid of [a, b]) { const el = eligible(cat, playerById(pid)); if (!el.ok) { e.hidden = false; e.textContent = '⛔ ' + el.reason; return; } }
+  const gk = pairGenderOk(cat, a, b); if (!gk.ok) { e.hidden = false; e.textContent = '⛔ ' + gk.reason; return; }
   window.__teams.push({ id: uid('e_'), players: [a, b] });
   renderDoublesModal(tid, cid);
 }
@@ -2462,6 +2535,7 @@ function saveSelfEnroll(tid, cid) {
     if (enrolledIds.has(pid)) { e.hidden = false; e.textContent = `${fullName(playerById(pid))} ya está anotado.`; return; }
     const el = eligible(cat, playerById(pid)); if (!el.ok) { e.hidden = false; e.textContent = '⛔ ' + el.reason; return; }
   }
+  if (cat.format === 'double') { const gk = pairGenderOk(cat, a, b); if (!gk.ok) { e.hidden = false; e.textContent = '⛔ ' + gk.reason; return; } }
   cat.entrants.push({ id: uid('e_'), players: ids });
   save(DB); closeModal(); render();
 }
@@ -2649,14 +2723,15 @@ const TOURNEY_MAX = 20;                          // tope de puntos que otorga un
 const catScores = cat => !cat ? false : (cat.format === 'double' ? !!(DB.settings && DB.settings.doublesRanking) : !!(cat.rule && cat.rule.type === 'level'));
 // ---- ranking de dobles (por pareja) ----
 const pairKey = ids => ids.slice().sort().join('|');
-// Busca (o crea) el registro de la pareja. Al crearla, arranca con el promedio del ranking individual de sus miembros.
-function pairRecord(players, create) {
+// Busca (o crea) el registro de la pareja EN UNA CATEGORÍA de dobles (cada categoría tiene su ranking).
+// Al crearla, arranca con el promedio del ranking individual de sus miembros.
+function pairRecord(players, catName, create) {
   if (!DB.settings.pairs) DB.settings.pairs = [];
-  const key = pairKey(players);
-  let pr = DB.settings.pairs.find(p => pairKey(p.players) === key);
+  const key = pairKey(players), cn = catName || 'Dobles';
+  let pr = DB.settings.pairs.find(p => pairKey(p.players) === key && (p.catName || 'Dobles') === cn);
   if (!pr && create) {
     const base = Math.round(players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (players.length || 1));
-    pr = { id: 'pr_' + key.replace(/\W+/g, '_'), players: players.slice(), points: base };
+    pr = { id: 'pr_' + cn.replace(/\W+/g, '_') + '_' + key.replace(/\W+/g, '_'), players: players.slice(), catName: cn, points: base };
     DB.settings.pairs.push(pr);
   }
   return pr;
@@ -2732,7 +2807,7 @@ function awardPoints(tid, cid) {
       const e = entById(cat, eid); if (!e) return;
       let applied = net;
       if (cat.format === 'double') {
-        const pr = pairRecord(e.players, true);            // crea la pareja la primera vez (entra al ranking)
+        const pr = pairRecord(e.players, cat.name, true);  // ranking de la pareja en ESTA categoría de dobles
         applied = cap(pr.points, net); pr.points += applied;
       } else {
         e.players.forEach(pid => {
@@ -2750,9 +2825,10 @@ function awardPoints(tid, cid) {
 function go(v) { view = v; closeModal(); closeDrawer(); window.scrollTo(0, 0); render(); }
 function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!d) return; const open = d.classList.toggle('open'); if (o) o.hidden = !open; }
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
+function toggleRankGroup() { const g = $('#rankGroup'); if (g) g.classList.toggle('collapsed'); }
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
