@@ -1741,7 +1741,18 @@ function renderReportes(app) {
   }
   app.innerHTML = html;
 }
-// Arma el reporte como texto y abre WhatsApp al número del administrador, respetando los filtros actuales.
+// Teléfono (solo dígitos, formato wa.me) del usuario logueado. Lo busca en la sesión, en su registro
+// de `users` (la sesión no arrastra el phone) o en su ficha de jugador. Devuelve null si no tiene.
+function currentUserWhatsapp() {
+  const u = currentUser(); if (!u) return null;
+  let ph = u.phone;
+  if (!ph) { const rec = (DB.users || []).find(x => (u.uid && x.uid === u.uid) || (u.username && x.username === u.username)); if (rec) ph = rec.phone; }
+  if (!ph && u.playerId) { const p = playerById(u.playerId); if (p) ph = p.phone; }
+  if (!ph) return null;
+  const digits = (typeof ph === 'string' ? ph : (ph.e164 || ph.intl || '')).replace(/\D/g, '');
+  return digits || null;
+}
+// Arma el reporte como texto y abre WhatsApp al teléfono del admin logueado, respetando los filtros actuales.
 function reportWhatsApp() {
   const t = reportTid ? tById(reportTid) : null;
   if (!t) { alert('Elegí un torneo primero.'); return; }
@@ -1775,7 +1786,8 @@ function reportWhatsApp() {
     });
   }
   L.push('💰 *Pendiente total: ' + money(grand) + '*');
-  window.open(waLink(ADMIN_WHATSAPP, L.join('\n')), '_blank');
+  const to = currentUserWhatsapp() || ADMIN_WHATSAPP; // teléfono del admin logueado; si no cargó uno, cae al número por defecto
+  window.open(waLink(to, L.join('\n')), '_blank');
 }
 // Exporta el reporte (con los filtros actuales) a PDF vía el diálogo de impresión del navegador.
 function reportPDF() {
