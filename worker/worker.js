@@ -108,25 +108,27 @@ async function handleWebhook(req, env, url) {
   if (pay.status !== 'approved') return json({ ok: true, status: pay.status });
 
   const [tournamentId, categoryId, entrantId] = String(pay.external_reference || '').split('|');
-  if (!tournamentId || !categoryId || !entrantId) return json({ ok: true, note: 'sin external_reference' });
+  if (!tournamentId || !entrantId) return json({ ok: true, note: 'sin external_reference' });
 
-  // Marca la inscripción como pagada (read-modify-write del blob del torneo).
+  // IMPORTANTE: NO modificamos el torneo (evita pisar/borrar inscriptos por carreras con la app).
+  // Solo LEEMOS para enriquecer el registro; el "pagado" lo deduce la app desde la colección payments.
   const tournament = await readBlob(env, token, 'tournaments', tournamentId);
-  if (!tournament) return json({ ok: true, note: 'torneo no encontrado' });
-  const cat = (tournament.categorias || []).find(c => c.id === categoryId);
+  const cat = tournament && (tournament.categorias || []).find(c => c.id === categoryId);
   const entrant = cat && (cat.entrants || []).find(e => e.id === entrantId);
-  if (entrant) { entrant.paid = true; await writeBlob(env, token, 'tournaments', tournamentId, tournament); }
+  const playerId = entrant && entrant.players ? entrant.players[0] : null;
+  let playerName = '';
+  if (playerId) { const pl = await readBlob(env, token, 'players', playerId); if (pl) playerName = `${pl.firstName || ''} ${pl.lastName || ''}`.trim(); }
 
-  // Registro para el historial de pagos (idempotente: doc id = id del pago de MP).
-  const playerName = entrant ? (entrant._name || '') : '';
+  // Registro para el historial (idempotente: doc id = id del pago de MP).
   const record = {
-    id: 'mp_' + paymentId, mpPaymentId: String(paymentId), tournamentId, tournamentName: tournament.name || '',
-    categoryId, categoryName: (cat && cat.name) || '', entrantId, amount: Number(pay.transaction_amount) || 0,
-    status: 'approved', payerEmail: (pay.payer && pay.payer.email) || '', createdAt: pay.date_approved || new Date().toISOString(),
-    orgId: tournament.orgId || null, schoolId: tournament.schoolId || null,
+    id: 'mp_' + paymentId, mpPaymentId: String(paymentId), tournamentId, tournamentName: (tournament && tournament.name) || '',
+    categoryId, categoryName: (cat && cat.name) || '', entrantId, playerId, playerName,
+    amount: Number(pay.transaction_amount) || 0, status: 'approved', payerEmail: (pay.payer && pay.payer.email) || '',
+    createdAt: pay.date_approved || new Date().toISOString(),
+    orgId: (tournament && tournament.orgId) || null, schoolId: (tournament && tournament.schoolId) || null,
   };
   await writeBlob(env, token, 'payments', record.id, record);
-  return json({ ok: true, marked: true });
+  return json({ ok: true, recorded: true });
 }
 
 /* ---------- Firestore REST (blobs { id, j }) ---------- */

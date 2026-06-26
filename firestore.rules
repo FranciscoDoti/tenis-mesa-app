@@ -66,9 +66,9 @@ service cloud.firestore {
     }
 
     // Historial de pagos: lo escribe SOLO el backend (Worker, vía Admin SDK, que saltea reglas).
-    // Desde el cliente: lo leen los admins (la app filtra por escuela/organización); nadie lo escribe.
+    // Lectura para logueados: la app deduce el "pagado" desde acá y filtra el historial por rol.
     match /payments/{id} {
-      allow read: if isAdmin();
+      allow read: if signedIn();
       allow write: if false;
     }
   }

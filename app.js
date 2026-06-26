@@ -2142,6 +2142,9 @@ async function startPayment(tid, cid, entId) {
   const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
   if (!wurl) { alert('Los pagos online todavía no están configurados. Avisале al organizador.'); return; }
   try {
+    // CLAVE: asegurar que la inscripción esté guardada en la nube ANTES de ir a MercadoPago,
+    // si no, el redirect corta el guardado y la inscripción se pierde.
+    if (FB() && window.STORE && window.STORE.sync) { try { await window.STORE.sync(DB); } catch (e) {} }
     const r = await fetch(wurl + '/create-preference', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tournamentId: tid, categoryId: cid, entrantId: entId }),
@@ -2150,6 +2153,17 @@ async function startPayment(tid, cid, entId) {
     if (d && d.init_point) { location.href = d.init_point; return; }
     alert('No se pudo iniciar el pago: ' + ((d && d.error) || 'error desconocido') + '. Probá de nuevo o avisале al organizador.');
   } catch (e) { alert('No se pudo conectar con el servicio de pagos. Probá de nuevo en un rato.'); }
+}
+
+// Marca como pagados (en memoria) los inscriptos que tienen un pago aprobado. El "pagado" online se
+// DEDUCE de la colección payments — el Worker nunca toca el torneo, así no puede borrar inscriptos.
+function mergePaymentsIntoEntrants() {
+  if (!(DB.payments || []).length) return;
+  const ok = {};
+  DB.payments.forEach(p => { if (p && p.status === 'approved') ok[`${p.tournamentId}|${p.categoryId}|${p.entrantId}`] = true; });
+  (DB.tournaments || []).forEach(t => (t.categorias || []).forEach(c => (c.entrants || []).forEach(e => {
+    if (ok[`${t.id}|${c.id}|${e.id}`]) e.paid = true;
+  })));
 }
 
 /* ---------- historial de pagos (admin / superadmin) ---------- */
@@ -3824,6 +3838,7 @@ async function ensureData() {
     applyMigrations();
     DB.players.forEach(syncCategory);
     DB.tournaments.forEach(t => t.categorias.forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); })); // snapshot: la regla se fija al crear, no se re-deriva del catálogo
+    mergePaymentsIntoEntrants(); // deduce "pagado" de los pagos aprobados (antes de primeLast → no genera escritura)
     window.STORE.primeLast(DB);
   }
   _loaded = true;
