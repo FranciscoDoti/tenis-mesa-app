@@ -566,6 +566,9 @@ function schoolBadgeHtml(p) {
 // Jugadores del contexto: de una escuela / de toda la organización (sin pendientes salvo que se pida).
 const playersOfSchool = (schoolId, orgId) => (DB.players || []).filter(p => !p.pending && p.schoolId === schoolId && (!orgId || p.orgId === orgId));
 const playersOfOrg = orgId => (DB.players || []).filter(p => !p.pending && p.orgId === orgId);
+// ¿Este admin puede gestionar (editar/borrar/aprobar) a este jugador? Superadmin → cualquiera;
+// admin de escuela → solo los de SU misma org+escuela.
+function canManagePlayer(p) { const u = currentUser(); if (!u || !p) return false; if (isSuperadmin()) return true; return isSchoolAdmin() && !!u.orgId && p.orgId === u.orgId && p.schoolId === u.schoolId; }
 // ¿El jugador puede inscribirse en este torneo? Abierto → toda la org; cerrado → solo su escuela.
 function inTournamentScope(t, p) { if (!t || !p) return true; if (t.orgId && p.orgId !== t.orgId) return false; return t.open ? true : p.schoolId === t.schoolId; }
 function tournamentPool(t) { return t ? (t.open ? playersOfOrg(t.orgId) : playersOfSchool(t.schoolId, t.orgId)) : (DB.players || []).filter(p => !p.pending); }
@@ -1379,7 +1382,7 @@ function renderPlayerProfileView(app, p) {
   const canHist = me && me !== p.id; // si sos jugador y no es tu propio perfil
   const s = playerStats(p.id), attrs = cardAttrs(p, s);
   const histBtn = canHist ? `<button class="btn btn-primary pf-action" onclick="histVs('${p.id}')">📊 Historial contra ${esc(p.firstName)}</button>` : '';
-  const adminBtn = isAdmin() ? `<button class="btn btn-ghost pf-action" onclick="playerForm('${p.id}')">✏️ Editar</button>` : '';
+  const adminBtn = canManagePlayer(p) ? `<button class="btn btn-ghost pf-action" onclick="playerForm('${p.id}')">✏️ Editar</button>` : '';
   const actions = (histBtn || adminBtn) ? `<div class="pf-actions">${histBtn}${adminBtn}</div>` : '';
   const main = statsCardHtml(p, s, { extra: actions });
   const body = cardEnabled() ? profileShell(futCardHtml(p, s, attrs), main) : main;
@@ -1536,6 +1539,7 @@ function playerForm(id) {
   window.__photo = () => photo;
 }
 function savePlayer(id) {
+  if (id && !canManagePlayer(playerById(id))) return; // un admin solo edita jugadores de su escuela
   const first = $('#f_first').value.trim(), last = $('#f_last').value.trim();
   if (!first || !last) { const e = $('#ferr'); e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
   const emailInp = $('#f_email');
@@ -1558,7 +1562,8 @@ function dropUserDoc(playerId) {
   if (FB() && acc) { if (acc.uid) window.STORE.delUserDoc(acc.uid); if (acc.username) window.STORE.delUsername(acc.username); }
 }
 function delPlayer(id) {
-  const p = playerById(id); if (!p || !confirm(`¿Eliminar a ${fullName(p)}?`)) return;
+  const p = playerById(id); if (!p || !canManagePlayer(p)) return;
+  if (!confirm(`¿Eliminar a ${fullName(p)}?`)) return;
   DB.players = DB.players.filter(x => x.id !== id);
   dropUserDoc(id);
   DB.tournaments.forEach(t => t.categorias.forEach(c => { c.entrants = c.entrants.filter(e => !e.players.includes(id)); c.groups = null; c.matches = null; c.bracket = null; c.thirdPlace = null; }));
@@ -1579,13 +1584,14 @@ function renderApprovals(app) {
     ${rows || '<div class="empty">No hay solicitudes pendientes. 🎉</div>'}`;
 }
 function approvePlayer(id) {
-  const p = playerById(id); if (!p) return;
+  const p = playerById(id); if (!p || !canManagePlayer(p)) return;
   const inp = document.querySelector('#ap_' + id);
   if (inp) { const v = parseInt(inp.value, 10); if (!isNaN(v) && v >= 0) p.points = v; }
   delete p.pending; syncCategory(p); save(DB); render();
 }
 function rejectPlayer(id) {
-  const p = playerById(id); if (!p || !confirm(`¿Rechazar la solicitud de ${fullName(p)}? Se elimina el jugador y su cuenta.`)) return;
+  const p = playerById(id); if (!p || !canManagePlayer(p)) return;
+  if (!confirm(`¿Rechazar la solicitud de ${fullName(p)}? Se elimina el jugador y su cuenta.`)) return;
   DB.players = DB.players.filter(x => x.id !== id);
   dropUserDoc(id);
   save(DB); render();
@@ -1613,11 +1619,13 @@ function renderGyms(app) {
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>🏟️ Gimnasios</h1></div>
     <button class="btn btn-primary" onclick="gymForm()">➕ Agregar gimnasio</button></div>
     <p class="page-sub">Lugares disponibles para los torneos. Tocá <b>Cómo llegar</b> para abrir Google Maps con la dirección.</p>
+    <div class="banner" style="max-width:680px">🌐 <b>Los gimnasios son compartidos.</b> Lo que agregues, edites o borres acá lo ven <b>todas las escuelas</b> (y demás organizaciones), no solo la tuya.</div>
     <div class="cards gym-cards">${cards || '<div class="empty">Sin gimnasios.</div>'}</div>`;
 }
 function gymForm(id) {
   const g = id ? gymById(id) : { name: '', address: '' };
   openModal(`<h3>${id ? 'Editar' : 'Agregar'} gimnasio</h3>
+    <div class="banner" style="margin-top:0">🌐 Este gimnasio es <b>compartido</b>: el cambio impacta en lo que ven todas las escuelas y organizaciones.</div>
     <label>Nombre</label><input id="g_name" value="${esc(g.name)}" placeholder="Ej: Muni 3"/>
     <label>Domicilio</label><input id="g_addr" value="${esc(g.address)}" placeholder="Calle, ciudad, provincia"/>
     <div id="gerr" class="banner" hidden></div>

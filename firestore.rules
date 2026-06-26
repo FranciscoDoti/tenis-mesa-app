@@ -6,7 +6,10 @@ service cloud.firestore {
     function userData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     // "admin" = admin de escuela; "superadmin" = administra toda la organización. Ambos pueden escribir.
     function isAdmin() { return signedIn() && (userData().role == 'admin' || userData().role == 'superadmin'); }
+    function isSuperadmin() { return signedIn() && userData().role == 'superadmin'; }
     function myPlayerId() { return signedIn() ? userData().playerId : null; }
+    // Un admin de escuela solo gestiona docs de SU misma org+escuela; el superadmin, cualquiera.
+    function canManageSchool(data) { return isSuperadmin() || (isAdmin() && userData().orgId == data.orgId && userData().schoolId == data.schoolId); }
 
     // Perfiles de cuenta (rol + jugador vinculado). El uid del doc = uid de Firebase Auth.
     match /users/{uid} {
@@ -29,12 +32,13 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
     }
 
-    // Jugadores: lectura para usuarios logueados; escritura admin o el propio jugador (su perfil).
+    // Jugadores: lectura para usuarios logueados; escritura del propio jugador (su perfil) o de un
+    // admin de SU misma escuela (el superadmin, cualquiera). Un admin de otra escuela no puede tocarlo.
     match /players/{id} {
       allow read: if signedIn();
-      allow create: if isAdmin() || myPlayerId() == id;          // alta por admin o autoregistro (su propio doc)
-      allow update: if isAdmin() || myPlayerId() == id;
-      allow delete: if isAdmin();
+      allow create: if canManageSchool(request.resource.data) || myPlayerId() == id;  // alta por admin de la escuela o autoregistro (su propio doc)
+      allow update: if canManageSchool(resource.data) || myPlayerId() == id;
+      allow delete: if canManageSchool(resource.data);
     }
 
     // Gimnasios: solo admin escribe.
