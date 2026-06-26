@@ -643,6 +643,14 @@ function entName(cat, id) {
   const ns = e.players.map(pid => { const p = playerById(pid); return p ? fullName(p) : '?'; });
   return cat.format === 'double' ? ns.join(' / ') : ns[0];
 }
+// Nombre de un jugador como link a su perfil (para listas y tablas). '—' si no hay jugador.
+function nameLink(p) { return p ? `<a class="plink" onclick="event.stopPropagation();go('perfil:${p.id}')">${esc(fullName(p))}</a>` : '—'; }
+// Como entName pero clickeable: cada jugador (o ambos en dobles) enlaza a su perfil. BYE/vacío en texto plano.
+function entLink(cat, id) {
+  if (id === 'BYE') return 'BYE'; if (!id) return '—';
+  const e = entById(cat, id); if (!e) return '—';
+  return e.players.map(pid => nameLink(playerById(pid))).join(' / ');
+}
 function avatar(p, cls = 'avatar') {
   const badge = schoolBadgeHtml(p);
   if (p && p.photo) {
@@ -1187,7 +1195,7 @@ function renderHistory(app) {
   else {
     const rows = headToHead(histA, histB), aw = rows.filter(r => r.aWon).length, bw = rows.length - aw;
     body = rows.length
-      ? `<div class="hist-summary"><b>${esc(fullName(a))}</b> ${aw} — ${bw} <b>${esc(fullName(b))}</b> <span class="muted">(${rows.length} partido${rows.length > 1 ? 's' : ''})</span></div>` +
+      ? `<div class="hist-summary"><b>${nameLink(a)}</b> ${aw} — ${bw} <b>${nameLink(b)}</b> <span class="muted">(${rows.length} partido${rows.length > 1 ? 's' : ''})</span></div>` +
         rows.map(r => `<div class="hist-row">
           <div class="hist-meta"><div class="name">${esc(r.tournament)} · ${esc(r.cat)}</div>
             <div class="sub">${r.date ? fmtDate(r.date) : ''} · ${r.phase}${r.fmt === 'double' ? ' · dobles' : ''}${r.wo ? ' · 🚷 no se presentó' : ''}</div></div>
@@ -1483,7 +1491,7 @@ function renderPlayers(app) {
   const oid = ctxOrgId(), sid = ctxSchoolId();
   const active = playersOfSchool(sid, oid);
   const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(u && (u.username || u.email)) ? ` · 👤 ${esc(u.username || u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
+    <div class="meta"><div class="name">${nameLink(p)}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(u && (u.username || u.email)) ? ` · 👤 ${esc(u.username || u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
@@ -1555,7 +1563,7 @@ function delPlayer(id) {
 function renderApprovals(app) {
   const pend = scopedPending().sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const rows = pend.map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}${u && FB() ? (u.emailVerified ? ' · ✅ email verificado' : ' · ✉️ sin verificar') : ''}</div></div>
+    <div class="meta"><div class="name">${nameLink(p)}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${u ? ` · 👤 ${esc(u.username || u.email || '')}` : ''}${u && FB() ? (u.emailVerified ? ' · ✅ email verificado' : ' · ✉️ sin verificar') : ''}</div></div>
     <label class="ap-pts">Puntaje inicial<input id="ap_${p.id}" type="number" min="0" value="${p.points}"/></label>
     <button class="btn btn-primary btn-sm" onclick="approvePlayer('${p.id}')">✅ Aprobar</button>
     <button class="btn btn-ghost btn-sm" onclick="rejectPlayer('${p.id}')">🗑️ Rechazar</button></div>`; }).join('');
@@ -3006,7 +3014,7 @@ function renderTournament(app, tid) {
       </summary>
       <div class="cat-card-body">
         <div class="cat-card-meta">${esc(meta)}</div>
-        ${champ && champ !== 'BYE' ? `<div class="champ">🏆 ${esc(entName(c, champ))}</div>` : ''}
+        ${champ && champ !== 'BYE' ? `<div class="champ">🏆 ${entLink(c, champ)}</div>` : ''}
         ${pay}
         <div class="cat-card-actions">
           <button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
@@ -3181,7 +3189,7 @@ function entrantsListHtml(cat) {
       else if (mine) pay = `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagaste' : `💲 Falta pagar ${money(cost)}`}</span>`;
     }
     return `<div class="player-row"><span class="pos">${i + 1}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
-      <div class="meta"><div class="name">${esc(entName(cat, e.id))}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
+      <div class="meta"><div class="name">${entLink(cat, e.id)}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
       <div class="sub">${sub}</div></div>${pay}</div>`;
   }).join('');
 }
@@ -3451,7 +3459,7 @@ const groupStageComplete = cat => cat.matches && cat.matches.length > 0 && cat.m
 function groupCardHtml(cat, gi) {
   const st = groupStandings(cat, gi);
   const head = `<li class="grp-head"><span>Jugador</span><span class="grp-stat">Ganados · Sets</span></li>`;
-  const rows = head + st.map((s, i) => `<li${i < 2 ? ' class="grp-q"' : ''}><span${i < 2 ? ' style="font-weight:700"' : ''}>${i + 1}. ${esc(entName(cat, s.id))}</span>
+  const rows = head + st.map((s, i) => `<li${i < 2 ? ' class="grp-q"' : ''}><span${i < 2 ? ' style="font-weight:700"' : ''}>${i + 1}. ${entLink(cat, s.id)}</span>
     <span class="grp-stat">${s.pg}G · ${s.sf}-${s.sc}${i < 2 ? ' ✅' : ''}</span></li>`).join('');
   const zoneStarted = cat.zoneTable && cat.zoneTable[gi] != null;
   const ms = cat.matches.filter(m => m.g === gi).map(m => {
@@ -3462,9 +3470,9 @@ function groupCardHtml(cat, gi) {
       if (m.postponed) ctl = `<span class="post-tag">⏸ Aplazado</span>${startControl(cat, 'group', idx, null, null, m)}<button class="btn btn-ghost btn-sm" onclick="resumeMatch('${cat._tid}','${cat.id}',${idx})" title="Volver a la mesa de la zona">↩️</button>`;
       else if (zoneStarted) ctl = `<button class="btn btn-ghost btn-sm" onclick="postponeMatch('${cat._tid}','${cat.id}',${idx})" title="Aplazar: saca este partido de la mesa de la zona">⏸ Aplazar</button>`;
     }
-    return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${esc(entName(cat, m.a))}</span>
+    return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${entLink(cat, m.a)}</span>
       <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>${wo}
-      <span class="${w === 'b' ? 'win' : ''}">${esc(entName(cat, m.b))}</span>
+      <span class="${w === 'b' ? 'win' : ''}">${entLink(cat, m.b)}</span>
       ${canEditCat(cat) ? resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️') : ''}
       ${canEditCat(cat) && !done ? noShowBtn(cat, 'group', idx, null, null) : ''}
       ${done ? eloLabel(cat, m, m.a, m.b) : estStartLabel(m)}
@@ -3505,7 +3513,7 @@ function generateBracket(tid, cid) {
 function bracketHtml(cat) {
   const T = cat.bracket.length;
   const rname = r => { const fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); };
-  const slot = (id, w, sc) => `<div class="br-slot ${w ? 'win' : ''}">${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? esc(entName(cat, id)) : '<i class="muted">—</i>'}<span class="br-s">${sc}</span></div>`;
+  const slot = (id, w, sc) => `<div class="br-slot ${w ? 'win' : ''}">${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? entLink(cat, id) : '<i class="muted">—</i>'}<span class="br-s">${sc}</span></div>`;
   const cols = cat.bracket.map((round, r) => `<div class="br-col"><div class="br-rtitle">${rname(r)}</div>` +
     round.map((mm, m) => { const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b'), res = matchResult(mm), w = brWinner(cat, r, m), done = matchDone(mm, cat);
       const playable = a && b && a !== 'BYE' && b !== 'BYE';
@@ -3531,13 +3539,13 @@ function bracketHtml(cat) {
       ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','third',null,null,null)" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div></div>`;
   }
   const champ = brWinner(cat, T - 1, 0);
-  const champHtml = champ && champ !== 'BYE' ? `<div class="champ">🏆 Campeón: <b>${esc(entName(cat, champ))}</b></div>` : '';
+  const champHtml = champ && champ !== 'BYE' ? `<div class="champ">🏆 Campeón: <b>${entLink(cat, champ)}</b></div>` : '';
   return `<div class="bracket">${cols}${extra}</div>${champHtml}${awardedHtml(cat)}`;
 }
 function awardedHtml(cat) {
   if (!cat.awarded || !Object.keys(cat.awarded).length) return '';
   const rows = Object.entries(cat.awarded).sort((a, b) => b[1] - a[1]).map(([eid, pts]) =>
-    `<li><span>${esc(entName(cat, eid))}</span><span class="pts ${pts < 0 ? 'neg' : ''}" style="margin-left:auto">${pts >= 0 ? '+' : ''}${pts} pts</span></li>`).join('');
+    `<li><span>${entLink(cat, eid)}</span><span class="pts ${pts < 0 ? 'neg' : ''}" style="margin-left:auto">${pts >= 0 ? '+' : ''}${pts} pts</span></li>`).join('');
   return `<div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">Cambios de puntaje del torneo</h3><ul class="awarded">${rows}</ul></div>`;
 }
 
