@@ -187,7 +187,6 @@ function backfillUsernames() {
     while (taken.has(un)) { un = base + i; i++; }
     p.username = un; taken.add(un); filled.push(`${fullName(p)} → ${un} (auto)`);
   });
-  if (filled.length) { try { console.warn(`[username] Se completó el username de ${filled.length} jugador(es) que no tenían:\n` + filled.join('\n')); } catch (e) {} }
   return filled;
 }
 // Categoría de escalafón derivada por puntos (solo 1ra/2da/3ra/4ta ascienden/descienden).
@@ -3921,6 +3920,7 @@ function startLiveSync() {
     if (coll === 'settings') { if (data) DB.settings = data; }
     else if (coll === 'users') { DB.users = data; }
     else { DB[coll] = data || []; }
+    applyMigrations(); // re-normaliza los datos crudos del snapshot (orgId/escuela/username/ajustes faltantes)
     if (coll === 'players') (DB.players || []).forEach(syncCategory);
     if (coll === 'tournaments') (DB.tournaments || []).forEach(t => (t.categorias || []).forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); }));
     if (coll === 'tournaments' || coll === 'payments') mergePaymentsIntoEntrants();
