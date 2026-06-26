@@ -1090,22 +1090,167 @@ function histToggle(side) { histOpen = histOpen === side ? null : side; render()
 function histPick(side, pid) { if (side === 'A') histA = pid; else histB = pid; histOpen = null; render(); }
 function histFilter(inp) { const q = inp.value.toLowerCase(); inp.closest('.hist-panel').querySelectorAll('.hist-opt').forEach(li => { li.style.display = li.dataset.name.includes(q) ? '' : 'none'; }); }
 
+/* ---------- carta de jugador (estilo FUT) + estadísticas ---------- */
+// Recorre todos los torneos y arma las estadísticas de un jugador (para la carta y el perfil).
+function playerStats(pid) {
+  let wins = 0, losses = 0, setsW = 0, setsL = 0, titles = 0, finals = 0, podiums = 0;
+  const tourneys = new Set(), results = [], matches = [];
+  DB.tournaments.forEach(t => t.categorias.forEach(cat => {
+    const myEnt = entrantOfPlayer(cat, pid);
+    if (!myEnt) return;
+    tourneys.add(t.id);
+    const hasChamp = cat.bracket && brWinner(cat, cat.bracket.length - 1, 0);
+    const div = hasChamp ? placements(cat)[myEnt.id] : null;
+    if (div === 1) titles++; else if (div === 2) finals++;
+    if (div && div <= 3) podiums++;
+    if (hasChamp) results.push({ tournament: t.name, date: t.date, cat: cat.name, fmt: cat.format, div: div || null });
+    catMatchList(cat).forEach(({ a, b, m, phase }) => {
+      if (!matchDone(m, cat)) return;
+      const ea = entById(cat, a), eb = entById(cat, b); if (!ea || !eb) return;
+      let side = null;
+      if (ea.players.includes(pid)) side = 'a'; else if (eb.players.includes(pid)) side = 'b'; else return;
+      const r = matchResult(m), w = matchWinnerSide(m, cat), won = side === w;
+      const oppId = side === 'a' ? b : a, oppEnt = side === 'a' ? eb : ea;
+      const mySets = side === 'a' ? r.wa : r.wb, oppSets = side === 'a' ? r.wb : r.wa;
+      if (won) wins++; else losses++;
+      setsW += mySets; setsL += oppSets;
+      const oppPts = oppEnt.players.reduce((s, id) => { const op = playerById(id); return s + (op ? op.points : 0); }, 0) / Math.max(1, oppEnt.players.length);
+      matches.push({ date: t.date || '', tournament: t.name, cat: cat.name, phase, won, wo: !!m.walkover,
+        oppName: entName(cat, oppId), oppPts, score: `${mySets}-${oppSets}`, margin: mySets - oppSets });
+    });
+  }));
+  const played = wins + losses;
+  const winRate = played ? wins / played : 0;
+  const setRate = (setsW + setsL) ? setsW / (setsW + setsL) : 0;
+  const chrono = matches.slice().sort((x, y) => (x.date || '').localeCompare(y.date || ''));
+  let best = 0, run = 0, curr = 0;
+  chrono.forEach(mm => { if (mm.won) { run++; best = Math.max(best, run); } else run = 0; });
+  for (let i = chrono.length - 1; i >= 0; i--) { if (chrono[i].won) curr++; else break; }
+  const phaseW = ph => /Final/.test(ph) ? 60 : /Semi/.test(ph) ? 40 : /Cuartos/.test(ph) ? 25 : /Octavos/.test(ph) ? 15 : 0;
+  const highlights = matches.filter(m => m.won && !m.wo)
+    .map(m => ({ ...m, _score: m.oppPts + phaseW(m.phase) + m.margin * 8 }))
+    .sort((a, b) => b._score - a._score).slice(0, 3);
+  return { wins, losses, played, winRate, setsW, setsL, setRate, titles, finals, podiums,
+    tourneys: tourneys.size, bestStreak: best, currStreak: curr,
+    results: results.sort((a, b) => (b.date || '').localeCompare(a.date || '')), highlights };
+}
+// Atributos 1-99 de la carta, derivados SOLO de datos reales.
+const clamp99 = n => Math.max(1, Math.min(99, Math.round(n)));
+function cardAttrs(p, s) {
+  const RAN = clamp99(45 + (p.points || 0) / 20);
+  const VIC = s.played ? clamp99(s.winRate * 99) : 50;
+  const SET = (s.setsW + s.setsL) ? clamp99(s.setRate * 99) : 50;
+  const EXP = clamp99(38 + s.played * 3 + s.tourneys * 2);
+  const TIT = clamp99(48 + s.titles * 16 + s.finals * 7 + s.podiums * 4);
+  const RAC = clamp99(48 + s.bestStreak * 7);
+  const overall = clamp99(RAN * 0.30 + VIC * 0.25 + TIT * 0.15 + SET * 0.12 + EXP * 0.10 + RAC * 0.08);
+  return { RAN, VIC, SET, EXP, TIT, RAC, overall };
+}
+const CARD_THEMES = { auto: 'Automática', oro: 'Oro', plata: 'Plata', bronce: 'Bronce', rubi: 'Rubí', zafiro: 'Zafiro', esmeralda: 'Esmeralda', onix: 'Ónix' };
+const autoTheme = ovr => ovr >= 90 ? 'onix' : ovr >= 84 ? 'oro' : ovr >= 74 ? 'plata' : 'bronce';
+function cardThemeOf(p, ovr) { const t = p.card && p.card.theme; return (!t || t === 'auto') ? autoTheme(ovr) : t; }
+// La carta tipo FUT.
+function futCardHtml(p, s, attrs) {
+  const ovr = attrs.overall, theme = cardThemeOf(p, ovr);
+  const nick = p.card && p.card.nickname && p.card.nickname.trim();
+  const name = nick ? esc(nick) : esc((p.lastName || fullName(p)).toUpperCase());
+  const photo = p.photo ? `<img src="${p.photo}" alt=""/>` : `<span class="fut-initials">${esc(initials(p)).toUpperCase()}</span>`;
+  const st = (k, v) => `<div class="fut-stat"><b>${v}</b><span>${k}</span></div>`;
+  return `<div class="fut-card fut-${theme}">
+    <div class="fut-shine"></div>
+    <div class="fut-head">
+      <div class="fut-rate"><span class="fut-ovr">${ovr}</span><span class="fut-cat">${esc(p.category)}</span><span class="fut-emoji">🏓</span></div>
+      <div class="fut-photo">${photo}</div>
+    </div>
+    <div class="fut-name">${name}</div>
+    <div class="fut-stats">
+      <div class="fut-col">${st('RAN', attrs.RAN)}${st('VIC', attrs.VIC)}${st('TIT', attrs.TIT)}</div>
+      <div class="fut-div"></div>
+      <div class="fut-col">${st('SET', attrs.SET)}${st('EXP', attrs.EXP)}${st('RAC', attrs.RAC)}</div>
+    </div>
+  </div>`;
+}
+const statBox = (label, val) => `<div class="stat-box"><b>${val}</b><span>${esc(label)}</span></div>`;
+const placeLabel = d => d === 1 ? '🥇 Campeón' : d === 2 ? '🥈 Finalista' : d === 3 ? '🥉 3er puesto' : d === 4 ? '4º puesto' : d ? 'Top ' + d : 'Participó';
+// La card grande con TODA la info del jugador (datos + estadísticas + títulos + resultados + destacados).
+function statsCardHtml(p, s, opts = {}) {
+  const age = ageFromDob(p.dob);
+  const meta = [`${p.category} · ${p.points} pts`, `📍 ${esc(p.city || '—')}`, age != null ? `🎂 ${age} años` : null].filter(Boolean).join(' · ');
+  const trophies = `<div class="pf-trophies">
+    <span class="tro">🏆 ${s.titles}<small>título${s.titles === 1 ? '' : 's'}</small></span>
+    <span class="tro">🥈 ${s.finals}<small>final${s.finals === 1 ? '' : 'es'}</small></span>
+    <span class="tro">🏅 ${s.podiums}<small>podio${s.podiums === 1 ? '' : 's'}</small></span></div>`;
+  const grid = `<div class="stat-grid">
+    ${statBox('Partidos', s.played)}${statBox('Victorias', s.wins)}${statBox('Derrotas', s.losses)}
+    ${statBox('Efectividad', s.played ? Math.round(s.winRate * 100) + '%' : '—')}
+    ${statBox('Sets G-P', s.setsW + '-' + s.setsL)}${statBox('Torneos', s.tourneys)}
+    ${statBox('Mejor racha', s.bestStreak)}${statBox('Racha actual', s.currStreak)}</div>`;
+  const results = s.results.length ? `<h4 class="pf-h">📋 Resultados en torneos</h4>
+    <div class="pf-list">${s.results.slice(0, 8).map(r => `<div class="pf-res">
+      <div><div class="pf-res-t">${esc(r.cat)} <span class="muted">· ${esc(r.tournament)}</span></div>
+      <div class="pf-res-d">${r.date ? fmtDate(r.date) : ''}${r.fmt === 'double' ? ' · dobles' : ''}</div></div>
+      <span class="pf-badge pf-d${r.div || 0}">${placeLabel(r.div)}</span></div>`).join('')}</div>` : '';
+  const hl = s.highlights.length ? `<h4 class="pf-h">⭐ Partidos destacados</h4>
+    <div class="pf-list">${s.highlights.map(h => `<div class="pf-hl">
+      <span class="pf-hl-ico">${/Final/.test(h.phase) ? '🏆' : '🔥'}</span>
+      <div><div>Le ganó a <b>${esc(h.oppName)}</b> <b class="win">${esc(h.score)}</b></div>
+      <div class="pf-res-d">${esc(h.cat)} · ${esc(h.phase)} · ${esc(h.tournament)}</div></div></div>`).join('')}</div>` : '';
+  const empty = (!s.played && !s.results.length) ? `<div class="pf-empty">Todavía no jugó partidos. ¡Su carta crece a medida que compite! 🏓</div>` : '';
+  return `<div class="card pf-card">
+    <div class="pf-top">${avatar(p, 'avatar pf-av')}
+      <div><div class="pf-name">${esc(fullName(p))}</div><div class="muted">${meta}</div></div></div>
+    ${trophies}${grid}${empty}${results}${hl}
+    ${opts.extra || ''}</div>`;
+}
+// Envoltorio responsive: en web la carta FUT va a la derecha; en mobile arriba.
+function profileShell(asideHtml, mainHtml) {
+  return `<div class="profile-grid"><div class="profile-main">${mainHtml}</div><aside class="profile-aside">${asideHtml}</aside></div>`;
+}
+
+/* ---------- personalizador de carta (perfil propio) ---------- */
+let cardDraft = null;
+function cardCustomizer() {
+  const u = currentUser(), p = u && playerById(u.playerId); if (!p) return;
+  cardDraft = { theme: (p.card && p.card.theme) || 'auto', nickname: (p.card && p.card.nickname) || '' };
+  renderCardCustomizer();
+}
+function renderCardCustomizer() {
+  const u = currentUser(), p = playerById(u.playerId);
+  const s = playerStats(p.id), attrs = cardAttrs(p, s);
+  const tmp = { ...p, card: { ...cardDraft } };
+  const swatches = Object.entries(CARD_THEMES).map(([k, label]) =>
+    `<button class="cc-swatch cc-${k} ${cardDraft.theme === k ? 'sel' : ''}" title="${label}" onclick="setCardTheme('${k}')">${cardDraft.theme === k ? '✓' : ''}</button>`).join('');
+  openModal(`<h3 style="margin:0 0 4px">🎨 Diseñá tu carta</h3>
+    <p class="hint" style="margin-top:0">Elegí el estilo y un apodo. Los números salen de tus resultados reales — esos no se tocan. 😉</p>
+    <div class="cc-preview">${futCardHtml(tmp, s, attrs)}</div>
+    <label>Apodo / lema <span class="muted">(opcional, máx 18)</span></label>
+    <input id="cc_nick" maxlength="18" value="${esc(cardDraft.nickname)}" placeholder="${esc((p.lastName || '').toUpperCase())}" oninput="ccNick(this.value)"/>
+    <label style="margin-top:12px">Estilo de carta</label>
+    <div class="cc-swatches">${swatches}</div>
+    <div class="row spread" style="margin-top:18px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCardDesign()">Guardar carta</button></div>`);
+}
+function setCardTheme(t) { cardDraft.theme = t; renderCardCustomizer(); }
+function ccNick(v) { cardDraft.nickname = v; const el = document.querySelector('.cc-preview .fut-name'); if (el) { const u = currentUser(), p = playerById(u.playerId); el.textContent = v.trim() ? v.trim() : (p.lastName || fullName(p)).toUpperCase(); } }
+function saveCardDesign() {
+  const u = currentUser(), p = playerById(u.playerId); if (!p) return;
+  p.card = { theme: cardDraft.theme || 'auto', nickname: (cardDraft.nickname || '').trim() };
+  save(DB); closeModal(); profileNote = '✓ Carta actualizada.'; render();
+}
+
 /* ---------- perfil (jugador) ---------- */
 // Vista de solo lectura del perfil de OTRO jugador (cualquiera puede verla).
 function renderPlayerProfileView(app, p) {
   const me = currentUser() && currentUser().playerId;
   const canHist = me && me !== p.id; // si sos jugador y no es tu propio perfil
+  const s = playerStats(p.id), attrs = cardAttrs(p, s);
+  const histBtn = canHist ? `<button class="btn btn-primary pf-action" onclick="histVs('${p.id}')">📊 Historial contra ${esc(p.firstName)}</button>` : '';
+  const adminBtn = isAdmin() ? `<button class="btn btn-ghost pf-action" onclick="playerForm('${p.id}')">✏️ Editar</button>` : '';
+  const actions = (histBtn || adminBtn) ? `<div class="pf-actions">${histBtn}${adminBtn}</div>` : '';
+  const main = statsCardHtml(p, s, { extra: actions });
   app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('ranking')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>👤 Perfil</h1></div>
-    <div class="card" style="max-width:560px">
-      <div class="row" style="gap:16px;align-items:center">${avatar(p, 'avatar')}
-        <div><div style="font-weight:800;font-size:18px">${esc(fullName(p))}</div>
-        <div class="muted">${p.category} · ${p.points} pts · 📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}</div></div></div>
-      <div class="row" style="margin-top:16px;gap:10px;flex-wrap:wrap">
-        ${canHist ? `<button class="btn btn-primary" onclick="histVs('${p.id}')">📊 Ver historial contra este jugador</button>` : ''}
-        ${isAdmin() ? `<button class="btn btn-ghost" onclick="playerForm('${p.id}')">✏️ Editar</button>` : ''}
-      </div>
-    </div>`;
+    ${profileShell(futCardHtml(p, s, attrs), main)}`;
 }
 function renderProfile(app, viewId) {
   const u = currentUser();
@@ -1115,17 +1260,18 @@ function renderProfile(app, viewId) {
   if (!p) { app.innerHTML = '<div class="empty">Perfil no disponible.</div>'; return; }
   if (pid !== ownId) return renderPlayerProfileView(app, p); // perfil de otro → solo lectura (admin edita con ✏️)
   const note = profileNote; profileNote = '';
-  app.innerHTML = `<div class="page-title"><h1>👤 Mi perfil</h1></div>
-    <p class="page-sub">Editá tus datos personales, tu foto y tu contraseña.</p>
-    ${p.pending ? `<div class="banner" style="max-width:560px">⏳ <b>Tu cuenta está pendiente de aprobación.</b> Cuando el admin te apruebe vas a aparecer en el ranking y vas a poder anotarte a los torneos.</div>` : ''}
-    ${(FB() && u.emailVerified === false) ? `<div class="banner" style="max-width:560px">📧 <b>Verificá tu email.</b> Te mandamos un link a ${esc(u.email)} (revisá spam).
+  const s = playerStats(p.id), attrs = cardAttrs(p, s);
+  const banners = `
+    ${p.pending ? `<div class="banner">⏳ <b>Tu cuenta está pendiente de aprobación.</b> Cuando el admin te apruebe vas a aparecer en el ranking y vas a poder anotarte a los torneos.</div>` : ''}
+    ${(FB() && u.emailVerified === false) ? `<div class="banner">📧 <b>Verificá tu email.</b> Te mandamos un link a ${esc(u.email)} (revisá spam).
       <div class="row" style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="resendVerification()">Reenviar email</button>
       <button class="btn btn-ghost btn-sm" onclick="recheckVerification()">Ya verifiqué ✓</button></div></div>` : ''}
-    ${note ? `<div class="banner ok" style="max-width:560px">${esc(note)}</div>` : ''}
-    <div class="card" style="max-width:560px">
-      <div class="row" style="gap:16px;margin-bottom:8px">${avatar(p, 'avatar')}
-        <div><div style="font-weight:800;font-size:18px">${esc(fullName(p))}</div>
-        <div class="muted">${p.category} · ${p.points} pts · 👤 ${esc(u.email || u.username || '')}</div></div></div>
+    ${note ? `<div class="banner ok">${esc(note)}</div>` : ''}`;
+  const aside = `${futCardHtml(p, s, attrs)}
+    <button class="btn btn-accent pf-design-btn" onclick="cardCustomizer()">🎨 Personalizar carta</button>`;
+  const editForms = `
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin:0 0 12px">✏️ Editar mis datos</h3>
       <div class="grid2">
         <div><label>Nombre</label><input id="pf_first" value="${esc(p.firstName)}"/></div>
         <div><label>Apellido</label><input id="pf_last" value="${esc(p.lastName)}"/></div>
@@ -1137,7 +1283,7 @@ function renderProfile(app, viewId) {
       <div id="pf_err" class="banner" hidden></div>
       <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="saveProfile()">Guardar cambios</button></div>
     </div>
-    <div class="card" style="max-width:560px;margin-top:16px">
+    <div class="card" style="margin-top:16px">
       <h3 style="margin:0 0 6px">🔒 Cambiar contraseña</h3>
       ${FB()
         ? `<p class="hint" style="margin-top:0">Te enviamos un email a <b>${esc(u.email)}</b> con un link seguro para cambiarla. Cuando la cambies, ese mismo mail te queda como comprobante.</p>
@@ -1149,6 +1295,11 @@ function renderProfile(app, viewId) {
            <div id="pf_pwerr" class="banner" hidden></div>
            <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="changePassword()">Cambiar contraseña</button></div>`}
     </div>`;
+  const main = statsCardHtml(p, s) + editForms;
+  app.innerHTML = `<div class="page-title"><h1>👤 Mi perfil</h1></div>
+    <p class="page-sub">Esta es tu carta y tus estadísticas. Más abajo podés editar tus datos.</p>
+    ${banners}
+    ${profileShell(aside, main)}`;
   let photo = p.photo; wirePhoto('pf_photo', d => { photo = d; });
   window.__pfphoto = () => photo;
 }
@@ -3183,7 +3334,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
