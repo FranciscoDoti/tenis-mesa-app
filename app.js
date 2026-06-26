@@ -548,6 +548,7 @@ const tableCountOf = t => (t && t.tableCount != null) ? t.tableCount : 4;
 
 /* ---------------- session ---------------- */
 let _session = null; // sesión en memoria (modo Firebase)
+let _liveOn = false, _livePending = false; // sincronización en vivo (listeners de Firestore)
 const currentUser = () => { if (FB()) return _session; try { return JSON.parse(sessionStorage.getItem('ttuser')); } catch (e) { return null; } };
 const setUser = u => { if (FB()) { _session = u; } else if (u) sessionStorage.setItem('ttuser', JSON.stringify(u)); else sessionStorage.removeItem('ttuser'); };
 // Modo local: la sesión guarda rol/escuela al ingresar; si la BD cambió (ej. migración admin→superadmin),
@@ -724,7 +725,7 @@ const matchDone = (m, cat) => !!matchWinnerSide(m, cat);
 
 /* ---------------- modal ---------------- */
 function openModal(html) { $('#modalCard').innerHTML = `<button class="close-x" onclick="closeModal()">✕</button>` + html; $('#modal').hidden = false; }
-function closeModal() { $('#modal').hidden = true; $('#modalCard').innerHTML = ''; }
+function closeModal() { $('#modal').hidden = true; $('#modalCard').innerHTML = ''; if (_livePending) { _livePending = false; render(); } }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
 /* ---------------- image resize ---------------- */
@@ -3843,6 +3844,30 @@ async function ensureData() {
   }
   _loaded = true;
 }
+// Re-render por un cambio en vivo, SIN interrumpir al usuario: si hay un modal abierto o está
+// escribiendo en un campo, deja el render pendiente y se aplica al cerrar el modal.
+function liveRerender() {
+  const modal = $('#modal'), ae = document.activeElement;
+  const busy = (modal && !modal.hidden) || (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName));
+  if (busy) { _livePending = true; return; }
+  _livePending = false; render();
+}
+// Arranca los listeners de Firestore: cada pantalla se actualiza en vivo cuando cambian los datos
+// (propios o de otros dispositivos) y mantiene la "foto" fresca para no pisar cambios ajenos al guardar.
+function startLiveSync() {
+  if (_liveOn || !FB() || !window.STORE.subscribe) return;
+  _liveOn = true;
+  window.STORE.subscribe((coll, data) => {
+    if (coll === 'settings') { if (data) DB.settings = data; }
+    else if (coll === 'users') { DB.users = data; }
+    else { DB[coll] = data || []; }
+    if (coll === 'players') (DB.players || []).forEach(syncCategory);
+    if (coll === 'tournaments') (DB.tournaments || []).forEach(t => (t.categorias || []).forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); }));
+    if (coll === 'tournaments' || coll === 'payments') mergePaymentsIntoEntrants();
+    try { window.STORE.primeLast(DB); } catch (e) {} // mantiene el baseline del diff-sync al día
+    liveRerender();
+  });
+}
 async function boot() {
   applyCachedTheme(); // pinta el tema publicado al instante (sirve para el login, antes de autenticar)
   if (!FB()) { // modo local (sin Firebase configurado): comportamiento de siempre
@@ -3869,6 +3894,7 @@ async function boot() {
       if (ud && fbUser.emailVerified && !ud.emailVerified) { try { await window.STORE.setUserDoc(fbUser.uid, { emailVerified: true }); } catch (e) {} }
       _loaded = false; await ensureData();
       await reconcileFbSession(); // datos viejos: admin global → superadmin; jugador sin escuela → la de su ficha
+      startLiveSync(); // actualización en vivo entre dispositivos (y mantiene los datos frescos)
     } else { _session = null; }
     _authReady = true;   // recién acá: ya está la sesión resuelta (evita flash de login durante los await)
     render();

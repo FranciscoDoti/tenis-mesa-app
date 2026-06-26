@@ -85,6 +85,21 @@
     return Promise.all(ops).catch(e => console.error('sync', e));
   };
 
+  // Suscripción en tiempo real: llama onChange(coll, data) cada vez que cambia una colección en la nube
+  // (la propia o por otro dispositivo). Devuelve una función para desuscribirse. Tolera errores de permiso
+  // (p. ej. un jugador no puede leer payAccounts/payments → ese listener simplemente no entrega datos).
+  STORE.subscribe = function (onChange) {
+    if (!STORE.enabled) return function () {};
+    const unsubs = [];
+    const parse = snap => snap.docs.map(d => { try { return JSON.parse(d.data().j); } catch (e) { return null; } }).filter(Boolean);
+    const watch = (coll, ref) => unsubs.push(ref.onSnapshot(s => { try { onChange(coll, parse(s)); } catch (e) {} }, function () {}));
+    ['players', 'gyms', 'tournaments', 'news', 'payments'].forEach(c => watch(c, db.collection(c)));
+    if (auth.currentUser) watch('payAccounts', db.collection('payAccounts').where('ownerUid', '==', auth.currentUser.uid));
+    unsubs.push(db.collection('users').onSnapshot(s => { try { onChange('users', s.docs.map(d => ({ uid: d.id, ...d.data() }))); } catch (e) {} }, function () {}));
+    unsubs.push(db.doc('app/settings').onSnapshot(d => { try { onChange('settings', d.exists ? JSON.parse(d.data().j) : null); } catch (e) {} }, function () {}));
+    return function () { unsubs.forEach(u => { try { u(); } catch (e) {} }); };
+  };
+
   // ---- auth ----
   const APP_URL = location.origin + location.pathname.replace(/[^/]*$/, ''); // base de la app (para volver al login)
   STORE.onAuth = cb => auth.onAuthStateChanged(cb);
