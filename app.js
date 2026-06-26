@@ -1943,7 +1943,7 @@ function renderReportes(app) {
         <div><label>Agrupar por</label><select onchange="setReport('mode', this.value)"><option value="cat" ${reportMode === 'cat' ? 'selected' : ''}>Categoría</option><option value="persona" ${reportMode === 'persona' ? 'selected' : ''}>Persona</option></select></div>
         ${single ? `<div><label>Categoría</label><select onchange="setReport('cat', this.value)"><option value="">Todas</option>${single.categorias.filter(c => catCost(c) > 0).map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
       </div>
-      <label>Buscar persona</label>${reportPersonPickerHtml(tList, single)}
+      <label>Buscar persona</label>${reportPersonPickerHtml()}
     </div>`;
   // Entradas (una por inscripción a categoría con costo), aplicando TODOS los filtros (torneo/categoría/estado/persona).
   const entries = [];
@@ -1959,7 +1959,7 @@ function renderReportes(app) {
   }));
   const pendTotal = entries.filter(e => !e.paid).reduce((s, e) => s + e.cost, 0);
   const paidTotal = entries.filter(e => e.paid).reduce((s, e) => s + e.cost, 0);
-  html += `<div class="report-total">Pendiente: <b>${money(pendTotal)}</b> · Pagado: <b>${money(paidTotal)}</b></div>`;
+  html += `<div class="report-total"><span class="pay-tag ok">✅ Pagado ${money(paidTotal)}</span><span class="pay-tag no">💲 Pendiente ${money(pendTotal)}</span></div>`;
   if (single && canEditT(single)) html += `<div class="row" style="margin:12px 0 4px">
       <button class="btn btn-accent" onclick="reportWhatsApp()">📲 Enviar pendientes por WhatsApp</button>
       <button class="btn btn-ghost" onclick="reportPDF()">📄 Exportar PDF</button></div>`;
@@ -1975,7 +1975,7 @@ function renderReportes(app) {
         .map(e => `<div class="report-row"><span>${esc(e.name)}</span>${tag(e)}</div>`).join('');
       return `<details class="card rep-card" open><summary class="rep-sum">
           <div class="rep-info"><div class="rep-tour">🏆 ${esc(g.tour)}</div><div class="rep-cat">${esc(g.cat)} · ${money(g.cost)} c/u · ${g.items.length} inscriptos</div></div>
-          <span class="rep-tot">${pendN ? `<span class="pay-tag no">Pend ${money(pendN * g.cost)}</span>` : ''}${paidN ? `<span class="pay-tag ok">Pag ${money(paidN * g.cost)}</span>` : ''}</span>
+          <span class="rep-tot">${paidN ? `<span class="pay-tag ok">✅ Pagado ${money(paidN * g.cost)}</span>` : ''}${pendN ? `<span class="pay-tag no">💲 Pendiente ${money(pendN * g.cost)}</span>` : ''}</span>
           <span class="cat-caret">▸</span></summary>
         <div class="rep-body">${rows}</div></details>`;
     }).join('');
@@ -1997,14 +1997,15 @@ function renderReportes(app) {
   app.innerHTML = html;
 }
 // Buscador de persona con SELECCIÓN (no filtra solo visualmente: al elegir, recalcula los totales para esa persona).
-function reportPersonPickerHtml(tList, single) {
+function reportPersonPickerHtml() {
   if (reportPerson) { const p = playerById(reportPerson); return `<div class="rp-sel">👤 <b>${esc(p ? fullName(p) : 'Jugador')}</b><button type="button" class="chip-x" onclick="setReportPerson('')" title="Quitar filtro">✕</button></div>`; }
-  const candMap = {};
-  tList.forEach(t => (t.categorias || []).forEach(c => { if (catCost(c) <= 0) return; if (single && reportCat && c.id !== reportCat) return; (c.entrants || []).forEach(e => e.players.forEach(pid => { const p = playerById(pid); if (p) candMap[pid] = p; })); }));
-  const cands = Object.values(candMap).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  // TODOS los jugadores en alcance (el admin ve los de su organización), no solo los que aparecen en los
+  // filtros actuales → así el buscador no es confuso y compone bien con el filtro de torneo.
+  const cands = (isAdmin() ? playersOfOrg(ctxOrgId()) : (DB.players || []).filter(p => !p.pending))
+    .slice().sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const opts = cands.map(p => `<li class="rp-opt" data-name="${esc(fullName(p)).toLowerCase()}" onclick="setReportPerson('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('');
   return `<div class="rp-picker"><input class="rp-search" placeholder="🔍 Escribí un nombre y elegilo de la lista…" autocomplete="off" oninput="rpFilter(this)"/>
-    <ul class="rp-results" id="rp-results" hidden>${opts || '<li class="muted" style="padding:8px 10px">Sin jugadores con inscripción paga.</li>'}</ul></div>`;
+    <ul class="rp-results" id="rp-results" hidden>${opts || '<li class="muted" style="padding:8px 10px">No hay jugadores.</li>'}</ul></div>`;
 }
 function setReportPerson(pid) { reportPerson = pid || ''; render(); }
 function rpFilter(inp) {
