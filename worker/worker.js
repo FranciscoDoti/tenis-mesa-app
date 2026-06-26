@@ -38,6 +38,7 @@ export default {
       if (req.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'tenis-mesa pagos' });
       if (req.method === 'POST' && url.pathname === '/create-preference') return await createPreference(req, env, url);
       if (req.method === 'POST' && url.pathname === '/create-account') return await createAccount(req, env);
+      if (req.method === 'POST' && url.pathname === '/delete-account') return await deleteAccount(req, env);
       if (req.method === 'POST' && url.pathname === '/webhook') return await handleWebhook(req, env, url);
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -134,6 +135,35 @@ async function createAccount(req, env) {
   }
   console.log('create-account', JSON.stringify({ uid, existed, email, emailSent, emailError }));
   return json({ ok: true, uid, existed, emailSent, emailError });
+}
+/* ---------- borrar la cuenta de acceso de un jugador (al eliminarlo) ----------
+   Borra la cuenta de Firebase Auth por uid (o por email, para limpiar huérfanas).
+   Requiere que la cuenta de servicio pueda administrar Auth (la del Admin SDK ya lo trae;
+   si diera 403, hay que darle el rol "Firebase Authentication Admin" en Google Cloud IAM). */
+async function deleteAccount(req, env) {
+  const { idToken, uid, email } = await req.json();
+  if (!idToken || (!uid && !email)) return json({ error: 'faltan datos' }, 400);
+  const apiKey = env.FIREBASE_API_KEY;
+  if (!apiKey) return json({ error: 'worker sin FIREBASE_API_KEY' }, 500);
+  let who; try { who = await idtPost(apiKey, 'accounts:lookup', { idToken }); } catch (e) { return json({ error: 'sesión inválida' }, 401); }
+  const adminUid = who.users && who.users[0] && who.users[0].localId;
+  if (!adminUid) return json({ error: 'sesión inválida' }, 401);
+  const role = await readUserRole(env, await getAccessToken(env), adminUid);
+  if (role !== 'admin' && role !== 'superadmin') return json({ error: 'no autorizado' }, 403);
+  const adminToken = await getAdminToken(env);
+  const PROJ = `https://identitytoolkit.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}`;
+  let targetUid = uid;
+  if (!targetUid && email) {
+    const lr = await fetch(`${PROJ}/accounts:lookup`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ email: [String(email).trim()] }) });
+    const ld = await lr.json().catch(() => ({}));
+    targetUid = ld.users && ld.users[0] && ld.users[0].localId;
+  }
+  if (!targetUid) return json({ ok: true, deleted: false, note: 'no había cuenta de Auth' });
+  const r = await fetch(`${PROJ}/accounts:delete`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ localId: targetUid }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { console.log('delete-account', JSON.stringify({ targetUid, error: (d.error && d.error.message) })); return json({ error: (d.error && d.error.message) || ('HTTP ' + r.status) }, 502); }
+  console.log('delete-account', JSON.stringify({ targetUid, deleted: true }));
+  return json({ ok: true, deleted: true });
 }
 async function readUserRole(env, token, uid) {
   const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/users/${uid}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -232,18 +262,14 @@ async function writeBlob(env, token, coll, id, obj) {
   return r.ok;
 }
 
-/* ---------- auth: access token de la cuenta de servicio (JWT RS256) ---------- */
-let _cachedToken = null, _cachedExp = 0;
-async function getAccessToken(env) {
+/* ---------- auth: access token de la cuenta de servicio (JWT RS256), cacheado por scope ---------- */
+const _tokCache = {};
+async function mintToken(env, scope) {
   const now = Math.floor(Date.now() / 1000);
-  if (_cachedToken && now < _cachedExp - 60) return _cachedToken;
+  const c = _tokCache[scope];
+  if (c && now < c.exp - 60) return c.tok;
   const header = { alg: 'RS256', typ: 'JWT' };
-  const claim = {
-    iss: env.FIREBASE_CLIENT_EMAIL,
-    scope: 'https://www.googleapis.com/auth/datastore',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now, exp: now + 3600,
-  };
+  const claim = { iss: env.FIREBASE_CLIENT_EMAIL, scope, aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 };
   const enc = o => b64url(new TextEncoder().encode(JSON.stringify(o)));
   const unsigned = `${enc(header)}.${enc(claim)}`;
   const key = await importKey(env.FIREBASE_PRIVATE_KEY);
@@ -255,9 +281,12 @@ async function getAccessToken(env) {
   });
   const data = await r.json();
   if (!data.access_token) throw new Error('no access_token: ' + JSON.stringify(data));
-  _cachedToken = data.access_token; _cachedExp = now + (data.expires_in || 3600);
-  return _cachedToken;
+  _tokCache[scope] = { tok: data.access_token, exp: now + (data.expires_in || 3600) };
+  return data.access_token;
 }
+// Token para Firestore (igual que antes) y token para administrar Auth (borrar cuentas).
+const getAccessToken = env => mintToken(env, 'https://www.googleapis.com/auth/datastore');
+const getAdminToken = env => mintToken(env, 'https://www.googleapis.com/auth/cloud-platform');
 async function importKey(pem) {
   const body = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s+/g, '');
   const der = Uint8Array.from(atob(body), c => c.charCodeAt(0));

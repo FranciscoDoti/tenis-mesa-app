@@ -1642,17 +1642,34 @@ async function invitePlayerAccount(p) {
     alert('Jugador creado, pero falló el envío de la invitación: ' + (e && e.message || e) + '.');
   }
 }
-// Borra el doc de cuenta (users) en Firestore. La cuenta de Auth queda huérfana (se borra desde la consola).
-function dropUserDoc(playerId) {
+// Borra el doc de cuenta (users) + el índice de username y, en Firebase, también la cuenta de Auth
+// (vía worker, por uid si lo hay o por email). Así no quedan cuentas huérfanas al eliminar un jugador.
+function dropUserDoc(playerId, email) {
   const acc = (DB.users || []).find(u => u.playerId === playerId);
   DB.users = (DB.users || []).filter(u => u.playerId !== playerId);
-  if (FB() && acc) { if (acc.uid) window.STORE.delUserDoc(acc.uid); if (acc.username) window.STORE.delUsername(acc.username); }
+  if (FB()) {
+    if (acc && acc.uid) window.STORE.delUserDoc(acc.uid);
+    if (acc && acc.username) window.STORE.delUsername(acc.username);
+    const uid = acc && acc.uid, em = email || (acc && acc.email);
+    if (uid || em) deleteAuthAccount(uid, em);
+  }
+}
+// Borra la cuenta de Firebase Auth de un jugador eliminado (vía worker). Best-effort: si no hay worker
+// o falla, no rompe el borrado (la cuenta queda huérfana como antes, pero la auto-reparación la maneja).
+async function deleteAuthAccount(uid, email) {
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  if (!wurl) return;
+  try {
+    const idToken = await window.STORE.idToken();
+    await fetch(wurl + '/delete-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, uid: uid || null, email: email || null }) });
+  } catch (e) {}
 }
 function delPlayer(id) {
   const p = playerById(id); if (!p || !canManagePlayer(p)) return;
   if (!confirm(`¿Eliminar a ${fullName(p)}?`)) return;
+  const em = p.email || null;
   DB.players = DB.players.filter(x => x.id !== id);
-  dropUserDoc(id);
+  dropUserDoc(id, em);
   DB.tournaments.forEach(t => t.categorias.forEach(c => { c.entrants = c.entrants.filter(e => !e.players.includes(id)); c.groups = null; c.matches = null; c.bracket = null; c.thirdPlace = null; }));
   save(DB); render();
 }
@@ -1679,8 +1696,9 @@ function approvePlayer(id) {
 function rejectPlayer(id) {
   const p = playerById(id); if (!p || !canManagePlayer(p)) return;
   if (!confirm(`¿Rechazar la solicitud de ${fullName(p)}? Se elimina el jugador y su cuenta.`)) return;
+  const em = p.email || null;
   DB.players = DB.players.filter(x => x.id !== id);
-  dropUserDoc(id);
+  dropUserDoc(id, em);
   save(DB); render();
 }
 
