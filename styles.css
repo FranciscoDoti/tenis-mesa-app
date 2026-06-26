@@ -141,6 +141,8 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
   border-radius:12px; background:#fff; margin-bottom:8px;
 }
 .player-row .pos{font-weight:800; color:var(--muted); width:28px; text-align:center}
+/* fila del propio jugador resaltada suavemente */
+.player-row.mine-row{border-color:var(--ball); box-shadow:0 0 0 1px var(--ball) inset; background:#fff8f0}
 .avatar{
   width:46px; height:46px; border-radius:50%; object-fit:cover; background:#dde3ea;
   display:flex; align-items:center; justify-content:center; font-weight:800; color:#5a6675; flex:0 0 auto; overflow:visible; position:relative;

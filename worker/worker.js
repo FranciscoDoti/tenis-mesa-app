@@ -49,36 +49,43 @@ export default {
   },
 };
 
-/* ---------- crear preferencia de pago ---------- */
+/* ---------- crear preferencia de pago (una o varias inscripciones, misma cuenta de cobro) ---------- */
 async function createPreference(req, env, url) {
-  const { tournamentId, categoryId, entrantId } = await req.json();
-  if (!tournamentId || !categoryId || !entrantId) return json({ error: 'faltan datos' }, 400);
+  const body = await req.json();
+  // Acepta {items:[{tournamentId,categoryId,entrantId}]} (varias) o los 3 campos sueltos (compat).
+  const reqItems = Array.isArray(body.items) && body.items.length
+    ? body.items
+    : [{ tournamentId: body.tournamentId, categoryId: body.categoryId, entrantId: body.entrantId }];
+  if (reqItems.some(i => !i || !i.tournamentId || !i.categoryId || !i.entrantId)) return json({ error: 'faltan datos' }, 400);
 
   const token = await getAccessToken(env);
-  const tournament = await readBlob(env, token, 'tournaments', tournamentId);
-  if (!tournament) return json({ error: 'torneo no encontrado' }, 404);
-  const cat = (tournament.categorias || []).find(c => c.id === categoryId);
-  if (!cat) return json({ error: 'categoría no encontrada' }, 404);
-  const amount = Number(cat.cost) || 0;
-  if (amount <= 0) return json({ error: 'la categoría no tiene costo' }, 400);
-  if (!tournament.payAccountId) return json({ error: 'el torneo no tiene cuenta de cobro' }, 400);
-
-  const acct = await readBlob(env, token, 'payAccounts', tournament.payAccountId);
+  const lineItems = [], refs = [];
+  let acctId = null;
+  for (const it of reqItems) {
+    const tournament = await readBlob(env, token, 'tournaments', it.tournamentId);
+    if (!tournament) return json({ error: 'torneo no encontrado' }, 404);
+    const cat = (tournament.categorias || []).find(c => c.id === it.categoryId);
+    if (!cat) return json({ error: 'categoría no encontrada' }, 404);
+    const amount = Number(cat.cost) || 0;
+    if (amount <= 0) return json({ error: 'la categoría no tiene costo' }, 400);
+    if (!tournament.payAccountId) return json({ error: 'el torneo no tiene cuenta de cobro' }, 400);
+    if (acctId && acctId !== tournament.payAccountId) return json({ error: 'las inscripciones son de cuentas de cobro distintas' }, 400);
+    acctId = tournament.payAccountId;
+    lineItems.push({ title: `Inscripción ${cat.name} — ${tournament.name}`, quantity: 1, unit_price: amount, currency_id: 'ARS' });
+    refs.push(`${it.tournamentId}|${it.categoryId}|${it.entrantId}`);
+  }
+  const acct = await readBlob(env, token, 'payAccounts', acctId);
   if (!acct || !acct.token) return json({ error: 'cuenta de cobro sin token' }, 400);
 
-  const entrant = (cat.entrants || []).find(e => e.id === entrantId);
-  const title = `Inscripción ${cat.name} — ${tournament.name}`;
   const self = `${url.protocol}//${url.host}`;
   const appUrl = env.APP_URL || self;
-
   // Llamada a MercadoPago con el token de ESA cuenta → la plata va a esa cuenta.
   const pref = {
-    items: [{ title, quantity: 1, unit_price: amount, currency_id: 'ARS' }],
-    external_reference: `${tournamentId}|${categoryId}|${entrantId}`,
-    notification_url: `${self}/webhook?acct=${encodeURIComponent(tournament.payAccountId)}`,
+    items: lineItems,
+    external_reference: refs.join(';'), // varias inscripciones separadas por ';'
+    notification_url: `${self}/webhook?acct=${encodeURIComponent(acctId)}`,
     back_urls: { success: appUrl, failure: appUrl, pending: appUrl },
     auto_return: 'approved',
-    metadata: { tournamentId, categoryId, entrantId },
   };
   const r = await fetch(`${MP_API}/checkout/preferences`, {
     method: 'POST',
@@ -252,28 +259,36 @@ async function handleWebhook(req, env, url) {
   if (!pr.ok) return json({ ok: true, note: 'pago no consultable' });
   if (pay.status !== 'approved') return json({ ok: true, status: pay.status });
 
-  const [tournamentId, categoryId, entrantId] = String(pay.external_reference || '').split('|');
-  if (!tournamentId || !entrantId) return json({ ok: true, note: 'sin external_reference' });
+  // Un pago puede cubrir VARIAS inscripciones (external_reference separadas por ';').
+  const refs = String(pay.external_reference || '').split(';').map(s => s.trim()).filter(Boolean);
+  if (!refs.length) return json({ ok: true, note: 'sin external_reference' });
 
   // IMPORTANTE: NO modificamos el torneo (evita pisar/borrar inscriptos por carreras con la app).
-  // Solo LEEMOS para enriquecer el registro; el "pagado" lo deduce la app desde la colección payments.
-  const tournament = await readBlob(env, token, 'tournaments', tournamentId);
-  const cat = tournament && (tournament.categorias || []).find(c => c.id === categoryId);
-  const entrant = cat && (cat.entrants || []).find(e => e.id === entrantId);
-  const playerId = entrant && entrant.players ? entrant.players[0] : null;
-  let playerName = '';
-  if (playerId) { const pl = await readBlob(env, token, 'players', playerId); if (pl) playerName = `${pl.firstName || ''} ${pl.lastName || ''}`.trim(); }
-
-  // Registro para el historial (idempotente: doc id = id del pago de MP).
-  const record = {
-    id: 'mp_' + paymentId, mpPaymentId: String(paymentId), tournamentId, tournamentName: (tournament && tournament.name) || '',
-    categoryId, categoryName: (cat && cat.name) || '', entrantId, playerId, playerName,
-    amount: Number(pay.transaction_amount) || 0, status: 'approved', payerEmail: (pay.payer && pay.payer.email) || '',
-    createdAt: pay.date_approved || new Date().toISOString(),
-    orgId: (tournament && tournament.orgId) || null, schoolId: (tournament && tournament.schoolId) || null,
-  };
-  await writeBlob(env, token, 'payments', record.id, record);
-  return json({ ok: true, recorded: true });
+  // Solo LEEMOS para enriquecer cada registro; el "pagado" lo deduce la app desde la colección payments.
+  let recorded = 0;
+  for (let i = 0; i < refs.length; i++) {
+    const [tournamentId, categoryId, entrantId] = refs[i].split('|');
+    if (!tournamentId || !entrantId) continue;
+    const tournament = await readBlob(env, token, 'tournaments', tournamentId);
+    const cat = tournament && (tournament.categorias || []).find(c => c.id === categoryId);
+    const entrant = cat && (cat.entrants || []).find(e => e.id === entrantId);
+    const playerId = entrant && entrant.players ? entrant.players[0] : null;
+    let playerName = '';
+    if (playerId) { const pl = await readBlob(env, token, 'players', playerId); if (pl) playerName = `${pl.firstName || ''} ${pl.lastName || ''}`.trim(); }
+    // doc id único por inscripción (idempotente). Con 1 sola inscripción mantiene el formato viejo.
+    const record = {
+      id: refs.length > 1 ? `mp_${paymentId}_${i}` : `mp_${paymentId}`, mpPaymentId: String(paymentId),
+      tournamentId, tournamentName: (tournament && tournament.name) || '',
+      categoryId, categoryName: (cat && cat.name) || '', entrantId, playerId, playerName,
+      amount: refs.length > 1 ? (Number(cat && cat.cost) || 0) : (Number(pay.transaction_amount) || 0),
+      status: 'approved', payerEmail: (pay.payer && pay.payer.email) || '',
+      createdAt: pay.date_approved || new Date().toISOString(),
+      orgId: (tournament && tournament.orgId) || null, schoolId: (tournament && tournament.schoolId) || null,
+    };
+    await writeBlob(env, token, 'payments', record.id, record);
+    recorded++;
+  }
+  return json({ ok: true, recorded });
 }
 
 /* ---------- otorgar puntos al ranking / cerrar categoría ----------

@@ -647,6 +647,10 @@ function myPaymentStatus(cat) {
   if (catCost(cat) <= 0) return null;          // sin costo → nada que pagar
   return { paid: !!e.paid, cost: catCost(cat) };
 }
+const hasPayWorker = () => !!(((DB.settings && DB.settings.mpWorkerUrl) || '').trim());
+// ¿Se puede pagar ONLINE (MercadoPago) esta categoría? Requiere: pagos habilitados en la organización,
+// costo > 0, el torneo con cuenta de cobro y la URL del worker configurada. Si no, solo mesa de control.
+function onlinePayReady(t, cat) { return paymentsOn() && catCost(cat) > 0 && !!(t && t.payAccountId) && hasPayWorker(); }
 // ¿La categoría ya arrancó? (se largó al menos una mesa: zona, llave, 3er puesto o partido individual)
 function catStarted(cat) {
   if (cat.zoneTable && Object.keys(cat.zoneTable).some(k => cat.zoneTable[k] != null)) return true;
@@ -659,24 +663,57 @@ function catStarted(cat) {
 // tiene inscripciones impagas. Marca las categorías que ya empezaron (primera mesa largada).
 let _payReminderDone = false;
 function maybePaymentReminder() { if (_payReminderDone) return; _payReminderDone = true; paymentReminder(); }
+let _reminderItems = []; // inscripciones impagas pagables ONLINE del recordatorio actual (con índice para los checkboxes)
 function paymentReminder() {
   const u = currentUser(), myId = u && u.playerId; if (!myId) return;
   const owed = [];
   (DB.tournaments || []).forEach(t => (t.categorias || []).forEach(c => {
     if (catCost(c) <= 0) return;
     const e = entrantOfPlayer(c, myId); if (!e || e.paid) return;
-    owed.push({ tour: t.name, cat: c.name, cost: catCost(c), started: catStarted(c) });
+    owed.push({ tid: t.id, cid: c.id, eid: e.id, payAcct: t.payAccountId || null, tour: t.name, cat: c.name, cost: catCost(c), started: catStarted(c), online: onlinePayReady(t, c) });
   }));
   if (!owed.length) return;
   owed.sort((a, b) => (b.started ? 1 : 0) - (a.started ? 1 : 0)); // primero las que ya empezaron
   const total = owed.reduce((s, o) => s + o.cost, 0);
-  const rows = owed.map(o => `<div class="report-row"><span>${esc(o.cat)} <span class="muted">· ${esc(o.tour)}</span>${o.started ? ' <span class="wo-tag">ya empezó</span>' : ''}</span><span class="pay-tag no">${money(o.cost)}</span></div>`).join('');
-  const anyStarted = owed.some(o => o.started);
+  const anyStarted = owed.some(o => o.started), anyOnline = owed.some(o => o.online);
+  _reminderItems = owed.filter(o => o.online);
+  const rows = owed.map(o => {
+    const oi = _reminderItems.indexOf(o);
+    const chk = o.online
+      ? `<input type="checkbox" class="pr-chk" data-i="${oi}" checked onchange="prUpdateTotal()">`
+      : `<span class="pr-nochk" title="Solo en mesa de control">·</span>`;
+    return `<label class="report-row pr-row"><span style="display:flex;align-items:center;gap:8px;min-width:0">${chk}
+        <span style="min-width:0">${esc(o.cat)} <span class="muted">· ${esc(o.tour)}</span>${o.started ? ' <span class="wo-tag">ya empezó</span>' : ''}${o.online ? '' : ' <span class="muted" style="font-size:11px">· mesa de control</span>'}</span></span>
+      <span class="pay-tag no">${money(o.cost)}</span></label>`;
+  }).join('');
+  const onlineTotal = _reminderItems.reduce((s, o) => s + o.cost, 0);
+  const footer = anyOnline
+    ? `<div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Después</button>
+        <button class="btn btn-primary" id="prPayBtn" onclick="payReminderSelected()">💳 Pagar seleccionadas (<span id="prTotal">${money(onlineTotal)}</span>)</button></div>
+       ${owed.some(o => !o.online) ? `<p class="muted" style="font-size:12px;margin:10px 0 0">Las marcadas como “mesa de control” se abonan en persona (un admin las marca pagadas).</p>` : ''}`
+    : `<div class="banner" style="margin-top:12px">💲 Acercate a <b>mesa de control</b> cuando puedas para abonar ${owed.length === 1 ? 'la inscripción' : 'las inscripciones'}. Un admin o colaborador las marca como pagadas.</div>
+       <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn btn-primary" onclick="closeModal()">Entendido</button></div>`;
   openModal(`<h3>💲 Tenés inscripciones sin pagar</h3>
-    <p class="muted" style="margin:0 0 12px">Acercate a pagar ${owed.length === 1 ? 'esta inscripción' : 'estas inscripciones'}${anyStarted ? ' — ⚠️ algunas categorías <b>ya empezaron</b>' : ''}:</p>
+    <p class="muted" style="margin:0 0 12px">${anyStarted ? '⚠️ Algunas categorías <b>ya empezaron</b>. ' : ''}${anyOnline ? 'Elegí cuáles pagar ahora:' : ''}</p>
     <div>${rows}</div>
     <div class="report-row" style="border-top:2px solid var(--line);font-weight:800;margin-top:4px"><span>Total</span><span>${money(total)}</span></div>
-    <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn btn-primary" onclick="closeModal()">Entendido</button></div>`);
+    ${footer}`);
+  if (anyOnline) prUpdateTotal();
+}
+function prUpdateTotal() {
+  let total = 0, n = 0;
+  document.querySelectorAll('.pr-chk:checked').forEach(ch => { const it = _reminderItems[+ch.dataset.i]; if (it) { total += it.cost; n++; } });
+  const el = $('#prTotal'); if (el) el.textContent = money(total);
+  const btn = $('#prPayBtn'); if (btn) { btn.disabled = n === 0; }
+}
+async function payReminderSelected() {
+  const sel = [];
+  document.querySelectorAll('.pr-chk:checked').forEach(ch => { const it = _reminderItems[+ch.dataset.i]; if (it) sel.push(it); });
+  if (!sel.length) return;
+  const byAcct = {}; sel.forEach(it => { (byAcct[it.payAcct] = byAcct[it.payAcct] || []).push(it); });
+  const groups = Object.values(byAcct);
+  if (groups.length > 1) alert('Las inscripciones elegidas son de torneos con cuentas de cobro distintas, así que se pagan por separado. Empezamos por el primer torneo; después volvé a entrar para pagar el resto.');
+  await startPaymentMulti(groups[0]);
 }
 function entName(cat, id) {
   if (id === 'BYE') return 'BYE'; if (!id) return '—';
@@ -2236,6 +2273,23 @@ async function startPayment(tid, cid, entId) {
     alert('No se pudo iniciar el pago: ' + ((d && d.error) || 'error desconocido') + '. Probá de nuevo o avisале al organizador.');
   } catch (e) { alert('No se pudo conectar con el servicio de pagos. Probá de nuevo en un rato.'); }
 }
+// Pago de VARIAS inscripciones en un solo checkout (todas de la misma cuenta de cobro).
+async function startPaymentMulti(items) {
+  if (!items || !items.length) return;
+  if (items.length === 1) return startPayment(items[0].tid, items[0].cid, items[0].eid);
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  if (!wurl) { alert('Los pagos online todavía no están configurados. Avisале al organizador.'); return; }
+  try {
+    if (FB() && window.STORE && window.STORE.sync) { try { await window.STORE.sync(DB); } catch (e) {} }
+    const r = await fetch(wurl + '/create-preference', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items.map(it => ({ tournamentId: it.tid, categoryId: it.cid, entrantId: it.eid })) }),
+    });
+    const d = await r.json();
+    if (d && d.init_point) { location.href = d.init_point; return; }
+    alert('No se pudo iniciar el pago: ' + ((d && d.error) || 'error desconocido') + '.');
+  } catch (e) { alert('No se pudo conectar con el servicio de pagos. Probá de nuevo en un rato.'); }
+}
 
 // Marca como pagados (en memoria) los inscriptos que tienen un pago aprobado. El "pagado" online se
 // DEDUCE de la colección payments — el Worker nunca toca el torneo, así no puede borrar inscriptos.
@@ -3350,6 +3404,7 @@ function entrantsListHtml(cat) {
   if (!cat.entrants.length) return `<div class="empty">Todavía no hay ${cat.format === 'double' ? 'parejas' : 'jugadores'} inscriptos.</div>`;
   const u = currentUser(), myId = u && u.playerId;
   const cost = catCost(cat), canPay = canEditCat(cat);
+  const t = tById(cat._tid), online = onlinePayReady(t, cat); // ¿el jugador puede pagar online desde acá?
   const byName = (a, b) => entName(cat, a.id).localeCompare(entName(cat, b.id));
   const row = (e, n) => {
     const mine = myId && e.players.includes(myId);
@@ -3360,9 +3415,11 @@ function entrantsListHtml(cat) {
     let pay = '';
     if (cost > 0) {
       if (canPay) pay = `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`;
-      else if (mine) pay = `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagaste' : `💲 Falta pagar ${money(cost)}`}</span>`;
+      else if (mine && e.paid) pay = `<span class="pay-tag ok">✅ Pagaste</span>`;
+      else if (mine && online) pay = `<button class="btn btn-accent btn-sm" onclick="startPayment('${cat._tid}','${cat.id}','${e.id}')">💳 Pagar ${money(cost)}</button>`;
+      else if (mine) pay = `<span class="pay-tag no">💲 Falta pagar ${money(cost)}</span>`;
     }
-    return `<div class="player-row"><span class="pos">${n}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
+    return `<div class="player-row${mine ? ' mine-row' : ''}"><span class="pos">${n}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
       <div class="meta"><div class="name">${entLink(cat, e.id)}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
       <div class="sub">${sub}</div></div>${pay}</div>`;
   };
@@ -3957,7 +4014,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
