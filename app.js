@@ -3958,13 +3958,33 @@ async function ensureData() {
     await window.STORE.sync(DB); window.STORE.primeLast(DB);
   } else {
     DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, news: data.news || [], payAccounts: data.payAccounts || [], payments: data.payments || [], settings: data.settings || {} };
+    // Foto de los campos que la normalización podría completar, ANTES de tocar nada (para detectar qué cambió).
+    const rawById = {}; (data.players || []).forEach(p => { rawById[p.id] = { orgId: p.orgId, schoolId: p.schoolId, gender: p.gender, category: p.category, username: p.username, openPoints: p.openPoints }; });
     applyMigrations();
     DB.players.forEach(syncCategory);
     DB.tournaments.forEach(t => t.categorias.forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); })); // snapshot: la regla se fija al crear, no se re-deriva del catálogo
     mergePaymentsIntoEntrants(); // deduce "pagado" de los pagos aprobados (antes de primeLast → no genera escritura)
     window.STORE.primeLast(DB);
+    persistNormalization(rawById); // si la normalización completó datos faltantes, guardarlos una vez (solo admin)
   }
   _loaded = true;
+}
+// Guarda en Firestore las fichas que la normalización completó (orgId/escuela/género/categoría/username),
+// para que el dato quede limpio y no dependa de recalcularse en cada carga. Solo escribe lo que el usuario
+// actual puede (admin de su escuela / superadmin), y solo lo que realmente cambió → tras la 1ª vez, nada.
+function persistNormalization(rawById) {
+  if (!FB() || !isAdmin()) return;
+  const FIELDS = ['orgId', 'schoolId', 'gender', 'category', 'username', 'openPoints'];
+  const changed = (DB.players || []).filter(p => {
+    if (!canManagePlayer(p)) return false;            // solo lo que este admin puede escribir
+    const raw = rawById[p.id]; if (!raw) return false;
+    return FIELDS.some(f => raw[f] !== p[f]);
+  });
+  if (!changed.length) return;
+  changed.forEach(p => { try { window.STORE.setPlayer(p); } catch (e) {} });
+  // Índice de username para los jugadores que ya tienen cuenta (login por usuario).
+  changed.forEach(p => { if (!p.username) return; const acc = (DB.users || []).find(u => u.playerId === p.id && u.uid); if (acc) { try { window.STORE.setUsername(p.username, { uid: acc.uid, email: acc.email || null }); } catch (e) {} } });
+  try { window.STORE.primeLast(DB); } catch (e) {} // baseline al día tras persistir
 }
 // Re-render por un cambio en vivo, SIN interrumpir al usuario: si hay un modal abierto o está
 // escribiendo en un campo, deja el render pendiente y se aplica al cerrar el modal.
