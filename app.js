@@ -648,9 +648,11 @@ function myPaymentStatus(cat) {
   return { paid: !!e.paid, cost: catCost(cat) };
 }
 const hasPayWorker = () => !!(((DB.settings && DB.settings.mpWorkerUrl) || '').trim());
-// ¿Se puede pagar ONLINE (MercadoPago) esta categoría? Requiere: pagos habilitados en la organización,
-// costo > 0, el torneo con cuenta de cobro y la URL del worker configurada. Si no, solo mesa de control.
-function onlinePayReady(t, cat) { return paymentsOn() && catCost(cat) > 0 && !!(t && t.payAccountId) && hasPayWorker(); }
+// ¿Se puede pagar ONLINE (MercadoPago) esta categoría? Dos niveles de habilitación:
+//   1) el superadmin habilita la funcionalidad para la organización (paymentsAllowed = interruptor maestro);
+//   2) el admin de la ESCUELA del que mira la activa para su escuela (paymentsEnabled).
+// Además: costo > 0, el torneo con cuenta de cobro y la URL del worker configurada. Si no, solo mesa de control.
+function onlinePayReady(t, cat) { return paymentsOn() && setting('paymentsEnabled') && catCost(cat) > 0 && !!(t && t.payAccountId) && hasPayWorker(); }
 // ¿La categoría ya arrancó? (se largó al menos una mesa: zona, llave, 3er puesto o partido individual)
 function catStarted(cat) {
   if (cat.zoneTable && Object.keys(cat.zoneTable).some(k => cat.zoneTable[k] != null)) return true;
@@ -682,8 +684,9 @@ function paymentReminder() {
     const chk = o.online
       ? `<input type="checkbox" class="pr-chk" data-i="${oi}" checked onchange="prUpdateTotal()">`
       : `<span class="pr-nochk" title="Solo en mesa de control">·</span>`;
-    return `<label class="report-row pr-row"><span style="display:flex;align-items:center;gap:8px;min-width:0">${chk}
-        <span style="min-width:0">${esc(o.cat)} <span class="muted">· ${esc(o.tour)}</span>${o.started ? ' <span class="wo-tag">ya empezó</span>' : ''}${o.online ? '' : ' <span class="muted" style="font-size:11px">· mesa de control</span>'}</span></span>
+    return `<label class="report-row pr-row">
+      <span class="pr-cell">${chk}</span>
+      <span class="pr-main">${esc(o.cat)} <span class="muted">· ${esc(o.tour)}</span>${o.started ? ' <span class="wo-tag">ya empezó</span>' : ''}${o.online ? '' : ' <span class="muted" style="font-size:11px">· mesa de control</span>'}</span>
       <span class="pay-tag no">${money(o.cost)}</span></label>`;
   }).join('');
   const onlineTotal = _reminderItems.reduce((s, o) => s + o.cost, 0);
@@ -1974,13 +1977,14 @@ function renderReportes(app) {
         <div style="margin-top:10px">${rows}</div></div>`;
     }).join('');
   } else {
-    // Agrupar por persona (incluso a través de torneos).
+    // Agrupar por persona (incluso a través de torneos). Cada inscripción se cuenta UNA sola vez:
+    // en dobles, el costo es de la PAREJA → se atribuye al primer integrante del entrante (no se duplica).
     const map = {};
-    entries.forEach(e => e.pids.forEach(pid => {
-      const p = playerById(pid); if (!p) return;
-      (map[pid] = map[pid] || { name: fullName(p), items: [], pend: 0 });
-      map[pid].items.push(e); if (!e.paid) map[pid].pend += e.cost;
-    }));
+    entries.forEach(e => {
+      const owner = e.pids[0]; const p = playerById(owner); if (!p) return;
+      (map[owner] = map[owner] || { name: fullName(p), items: [], pend: 0 });
+      map[owner].items.push(e); if (!e.paid) map[owner].pend += e.cost;
+    });
     html += Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(pe => `<div class="card report-person" data-name="${esc(pe.name).toLowerCase()}" style="margin-top:14px">
         <div class="row spread"><h3 style="margin:0">${esc(pe.name)}</h3>${pe.pend ? `<span class="pay-tag no">Debe ${money(pe.pend)}</span>` : `<span class="pay-tag ok">Al día ✅</span>`}</div>
         <div style="margin-top:8px">${pe.items.map(it => `<div class="report-row"><span>${esc(it.cat)} <span class="muted">· ${esc(it.tour)}</span></span>${tag(it)}</div>`).join('')}</div></div>`).join('');
@@ -3461,8 +3465,7 @@ function renderCategoria(app, tid, cid) {
     let payBtn = '';
     if (!mps.paid) {
       const tt = tById(tid), myEnt = entrantOfPlayer(cat, (currentUser() || {}).playerId);
-      const wurl = (DB.settings && DB.settings.mpWorkerUrl) || '';
-      if (tt && tt.payAccountId && wurl && myEnt) payBtn = ` <button class="btn btn-accent btn-sm" style="margin-left:8px" onclick="startPayment('${tid}','${cat.id}','${myEnt.id}')">💳 Pagar ahora</button>`;
+      if (onlinePayReady(tt, cat) && myEnt) payBtn = ` <button class="btn btn-accent btn-sm" style="margin-left:8px" onclick="startPayment('${tid}','${cat.id}','${myEnt.id}')">💳 Pagar ahora</button>`;
     }
     html += `<div class="banner ${mps.paid ? 'ok' : ''}" style="margin:12px 0">${mps.paid ? '✅ Ya pagaste tu inscripción a esta categoría.' : `💲 Te falta pagar la inscripción de esta categoría: <b>${money(mps.cost)}</b>.${payBtn}`}</div>`;
   }

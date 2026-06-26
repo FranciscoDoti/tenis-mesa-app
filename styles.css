@@ -278,6 +278,12 @@ ul.awarded li:last-child{border-bottom:0}
 .report-total{margin-top:16px; font-size:15px}
 .report-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 4px; border-bottom:1px solid var(--line)}
 .report-row:last-child{border-bottom:0}
+/* filas del recordatorio de pago: 3 columnas alineadas (check / texto / monto) */
+.report-row.pr-row{display:grid; grid-template-columns:24px 1fr auto; gap:10px; align-items:center; cursor:pointer}
+.pr-row .pr-cell{display:flex; align-items:center; justify-content:center}
+.pr-row .pr-cell input{margin:0}
+.pr-row .pr-main{min-width:0; line-height:1.3; overflow-wrap:anywhere}
+.pr-row .pr-nochk{color:var(--muted); font-weight:800}
 /* +N / −N que se gana/pierde por partido (Elo) */
 .elo-delta{display:inline-flex; gap:5px; align-items:center; flex:0 0 auto; white-space:nowrap}
 .elo-up{color:#0a7d2c; font-weight:800; font-size:12px}
