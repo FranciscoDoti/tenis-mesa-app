@@ -273,9 +273,9 @@ function seed() {
       categorias: [mayores, mkCat('Tercera', 'single'), mkCat('Sub 15', 'single'), mkCat('Maxi 40', 'single')],
     }],
     users: [
-      { username: 'admin', password: 'admin', role: 'superadmin', name: 'Super Admin' },
-      { username: 'adminBari', password: 'adminBari', role: 'admin', name: 'Admin Bariloche', orgId: 'org_byd', schoolId: 'sch_bari' },
-      { username: 'adminDina', password: 'adminDina', role: 'admin', name: 'Admin Dina', orgId: 'org_byd', schoolId: 'sch_dina' },
+      { username: 'admin', password: 'admin', role: 'superadmin', name: 'Super Admin', phone: ADMIN_PHONE },
+      { username: 'adminBari', password: 'adminBari', role: 'admin', name: 'Admin Bariloche', orgId: 'org_byd', schoolId: 'sch_bari', phone: ADMIN_PHONE },
+      { username: 'adminDina', password: 'adminDina', role: 'admin', name: 'Admin Dina', orgId: 'org_byd', schoolId: 'sch_dina', phone: ADMIN_PHONE },
       { username: 'jugador', password: 'jugador', role: 'player', name: 'Jugador', orgId: 'org_byd', schoolId: 'sch_bari' },
     ],
   };
@@ -754,6 +754,74 @@ function cityFieldHtml(sel, current) {
 function toggleCityOther(sel) { const w = $('#' + sel + '_otherwrap'); if (w) w.hidden = ($('#' + sel).value !== 'Otra'); }
 function readCityField(sel) { const v = $('#' + sel).value; return v === 'Otra' ? (($('#' + sel + '_other').value || '').trim().slice(0, 100)) : v; }
 
+/* ---------- teléfono / WhatsApp ----------
+   Campo partido en: país (con banderita y prefijo) + código de área + resto del número.
+   `nsn` = cantidad de dígitos del número nacional (área + resto) que admite el país.
+   `mob` = prefijo de móvil que WhatsApp exige y que NO escribe el usuario (Argentina: el 9). */
+const PHONE_COUNTRIES = [
+  { code: 'AR', name: 'Argentina',     dial: '54',  flag: '🇦🇷', mob: '9', nsn: [10],     ex: '11 6485 3799' },
+  { code: 'UY', name: 'Uruguay',       dial: '598', flag: '🇺🇾', nsn: [8],      ex: '9 123 456' },
+  { code: 'CL', name: 'Chile',         dial: '56',  flag: '🇨🇱', nsn: [9],      ex: '9 6123 4567' },
+  { code: 'BR', name: 'Brasil',        dial: '55',  flag: '🇧🇷', nsn: [10, 11], ex: '11 91234 5678' },
+  { code: 'PY', name: 'Paraguay',      dial: '595', flag: '🇵🇾', nsn: [9],      ex: '961 456 789' },
+  { code: 'BO', name: 'Bolivia',       dial: '591', flag: '🇧🇴', nsn: [8],      ex: '7 123 4567' },
+  { code: 'PE', name: 'Perú',          dial: '51',  flag: '🇵🇪', nsn: [9],      ex: '9 1234 5678' },
+  { code: 'EC', name: 'Ecuador',       dial: '593', flag: '🇪🇨', nsn: [9],      ex: '9 1234 5678' },
+  { code: 'CO', name: 'Colombia',      dial: '57',  flag: '🇨🇴', nsn: [10],     ex: '301 234 5678' },
+  { code: 'VE', name: 'Venezuela',     dial: '58',  flag: '🇻🇪', nsn: [10],     ex: '412 123 4567' },
+  { code: 'MX', name: 'México',        dial: '52',  flag: '🇲🇽', nsn: [10],     ex: '55 1234 5678' },
+  { code: 'ES', name: 'España',        dial: '34',  flag: '🇪🇸', nsn: [9],      ex: '612 345 678' },
+  { code: 'US', name: 'EE.UU./Canadá', dial: '1',   flag: '🇺🇸', nsn: [10],     ex: '305 123 4567' },
+];
+const PHONE_DEFAULT = 'AR';
+const phoneCountry = code => PHONE_COUNTRIES.find(c => c.code === code) || PHONE_COUNTRIES[0];
+// WhatsApp del administrador: destino de los reportes. Por ahora el mismo para todos los admins/superadmin.
+const ADMIN_WHATSAPP = '5491164853799';
+const ADMIN_PHONE = { country: 'AR', area: '11', rest: '64853799', e164: '5491164853799', intl: '+5491164853799', display: '+54 9 11 6485-3799' };
+// Link de WhatsApp con mensaje prellenado: abre el chat al número con el texto listo (el destinatario solo aprieta enviar).
+const waLink = (e164, txt) => `https://wa.me/${String(e164).replace(/\D/g, '')}${txt ? '?text=' + encodeURIComponent(txt) : ''}`;
+
+// Texto de ayuda debajo del campo, según el país elegido.
+function phoneHintText(code) {
+  const c = phoneCountry(code);
+  const tot = c.nsn.length > 1 ? `${Math.min(...c.nsn)} o ${Math.max(...c.nsn)}` : `${c.nsn[0]}`;
+  const noCero = `Escribí el <b>área</b> y el <b>número</b> sin el +${c.dial} y sin el 0 inicial`;
+  const arNote = c.code === 'AR' ? ' (tampoco el 15). El <b>9</b> de WhatsApp lo agregamos nosotros.' : '.';
+  return `📱 ${c.flag} <b>${c.name}</b>: ${noCero}${arNote} En total deben ser <b>${tot} dígitos</b> (área + número).<br>Ej: ${c.ex} → quedaría <b>+${c.dial}${c.mob ? ' ' + c.mob : ''} ${c.ex}</b>.`;
+}
+// Campo de teléfono. `val` es el objeto guardado { country, area, rest } o null.
+function phoneFieldHtml(sel, val) {
+  val = val || {};
+  const cur = val.country || PHONE_DEFAULT;
+  const opts = PHONE_COUNTRIES.map(c => `<option value="${c.code}" ${c.code === cur ? 'selected' : ''}>${c.flag} ${c.name} (+${c.dial})</option>`).join('');
+  return `<div class="phone-field">
+    <div class="phone-row">
+      <select id="${sel}_cc" class="phone-cc" onchange="onPhoneCountryChange('${sel}')" autocomplete="tel-country-code">${opts}</select>
+      <input id="${sel}_area" class="phone-area" inputmode="numeric" maxlength="5" autocomplete="tel-area-code" placeholder="área" value="${esc(val.area || '')}" oninput="this.value=this.value.replace(/[^0-9]/g,'')"/>
+      <input id="${sel}_num" class="phone-num" inputmode="numeric" maxlength="12" autocomplete="tel-local" placeholder="número" value="${esc(val.rest || '')}" oninput="this.value=this.value.replace(/[^0-9]/g,'')"/>
+    </div>
+    <p class="hint phone-hint" id="${sel}_hint">${phoneHintText(cur)}</p>
+  </div>`;
+}
+function onPhoneCountryChange(sel) { const h = $('#' + sel + '_hint'); if (h) h.innerHTML = phoneHintText($('#' + sel + '_cc').value); }
+// Lee y valida el campo. Devuelve { empty } | { error } | { country, area, rest, e164, intl, display }.
+function readPhoneField(sel) {
+  const ccEl = $('#' + sel + '_cc'); if (!ccEl) return { empty: true };
+  const c = phoneCountry(ccEl.value);
+  const area = ($('#' + sel + '_area').value || '').replace(/\D/g, '');
+  const rest = ($('#' + sel + '_num').value || '').replace(/\D/g, '');
+  const nsn = area + rest;
+  if (!nsn) return { empty: true };
+  if (!area) return { error: 'Indicá el código de área.' };
+  if (!rest) return { error: 'Escribí el número.' };
+  if (!c.nsn.includes(nsn.length)) {
+    const tot = c.nsn.length > 1 ? `${Math.min(...c.nsn)} o ${Math.max(...c.nsn)}` : `${c.nsn[0]}`;
+    return { error: `El teléfono de ${c.name} debe tener ${tot} dígitos en total (área + número). Pusiste ${nsn.length}.` };
+  }
+  const e164 = c.dial + (c.mob || '') + nsn; // solo dígitos, listo para wa.me
+  return { country: c.code, area, rest, e164, intl: '+' + e164, display: `+${c.dial}${c.mob ? ' ' + c.mob : ''} ${area} ${rest}` };
+}
+
 /* ---------- login / registro ---------- */
 function renderSplash(app) {
   app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><p class="page-sub" style="margin-top:10px">Cargando…</p></div>`;
@@ -841,6 +909,7 @@ function renderRegister(app) {
         <div><label>Organización</label>${orgSelectHtml('r_org', (DB.orgs[0] || {}).id, "syncSchoolOptions('r_org','r_school')")}</div>
         <div><label>Escuela</label><select id="r_school">${schoolOptionsHtml((DB.orgs[0] || {}).id, null)}</select></div>
       </div>
+      <label>Teléfono / WhatsApp</label>${phoneFieldHtml('r_phone', null)}
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
       ${fb ? `<label>Usuario <span class="muted">(opcional, para ingresar sin el email)</span></label><input id="r_username" placeholder="ej: juanperez"/>` : ''}
       <div class="grid2">
@@ -875,8 +944,11 @@ async function doRegister() {
   const orgId = ($('#r_org') && $('#r_org').value) || (DB.orgs[0] || {}).id;
   const schoolId = ($('#r_school') && $('#r_school').value) || ((orgById(orgId) || {}).schools || [{}])[0].id;
   if (!orgId || !schoolId) return fail('Elegí organización y escuela.');
+  const phone = readPhoneField('r_phone');
+  if (phone.empty) return fail('Cargá tu número de teléfono / WhatsApp.');
+  if (phone.error) return fail(phone.error);
   const photo = window.__rphoto ? window.__rphoto() : null;
-  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, gender: ($('#r_gender') && $('#r_gender').value) || guessGender(first), orgId, schoolId, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
+  const player = { id: uid('p_'), firstName: first, lastName: last, dob: $('#r_dob').value || null, city, gender: ($('#r_gender') && $('#r_gender').value) || guessGender(first), phone, orgId, schoolId, points: NEW_PLAYER_POINTS, category: levelFromPoints(NEW_PLAYER_POINTS), photo, pending: true };
   if (FB()) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cred)) return fail('Escribí un email válido (ej: nombre@gmail.com).');
     const uname = ($('#r_username') && $('#r_username').value.trim().toLowerCase()) || '';
@@ -1279,6 +1351,7 @@ function renderProfile(app, viewId) {
         <div><label>Fecha de nacimiento</label><input id="pf_dob" type="date" value="${p.dob || ''}"/></div>
         <div><label>Género</label>${genderField('pf_gender', genderOf(p))}</div>
       </div>
+      <label>Teléfono / WhatsApp</label>${phoneFieldHtml('pf_phone', p.phone)}
       <label>Foto</label>${photoButtonsHtml('pf_photo')}
       <div id="pf_err" class="banner" hidden></div>
       <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="saveProfile()">Guardar cambios</button></div>
@@ -1307,6 +1380,10 @@ function saveProfile() {
   const u = currentUser(), p = playerById(u.playerId), e = $('#pf_err');
   const first = $('#pf_first').value.trim(), last = $('#pf_last').value.trim();
   if (!first || !last) { e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
+  const phone = readPhoneField('pf_phone');
+  if (phone.empty) { e.hidden = false; e.textContent = 'Cargá tu número de teléfono / WhatsApp.'; return; }
+  if (phone.error) { e.hidden = false; e.textContent = phone.error; return; }
+  p.phone = phone;
   p.firstName = first; p.lastName = last; p.city = readCityField('pf_city') || p.city; p.dob = $('#pf_dob').value || null;
   if ($('#pf_gender')) p.gender = $('#pf_gender').value;
   p.photo = window.__pfphoto ? window.__pfphoto() : p.photo;
@@ -1385,6 +1462,7 @@ function playerForm(id) {
     <label>Email <span class="muted">(opcional)</span></label>
     <input id="f_email" type="email" value="${esc(curEmail)}" placeholder="tu@email.com" ${hasLogin ? 'disabled' : ''}/>
     ${hasLogin ? `<p class="hint" style="margin-top:4px">El email de acceso lo cambia el jugador desde su cuenta.</p>` : ''}
+    <label>Teléfono / WhatsApp <span class="muted">(opcional)</span></label>${phoneFieldHtml('f_phone', p.phone)}
     <p class="hint">Categoría: <b>${levelFromPoints(p.points)}</b> — se calcula por puntos (>800 1ra · >600 2da · >300 3ra · resto 4ta). Nuevos arrancan con ${NEW_PLAYER_POINTS}.${id && ageFromDob(p.dob) != null ? ` · Edad: <b>${ageFromDob(p.dob)} años</b>` : ''}</p>
     <label>Foto</label>${photoButtonsHtml('f_photo')}
     <div id="ferr" class="banner" hidden></div>
@@ -1400,6 +1478,9 @@ function savePlayer(id) {
   const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: readCityField('f_city'), gender: ($('#f_gender') && $('#f_gender').value) || 'M', points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
   if (emailInp && !emailInp.disabled) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
   if (emailInp && !emailInp.disabled && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { const e = $('#ferr'); e.hidden = false; e.textContent = 'El email no es válido (ej: nombre@gmail.com).'; return; }
+  const phone = readPhoneField('f_phone'); // opcional para el admin, pero si lo carga tiene que ser válido
+  if (phone.error) { const e = $('#ferr'); e.hidden = false; e.textContent = phone.error; return; }
+  data.phone = phone.empty ? (id ? playerById(id).phone || null : null) : phone;
   let target;
   if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), orgId: ctxOrgId(), schoolId: ctxSchoolId(), openPoints: 0, ...data }; DB.players.push(target); } // el admin solo da de alta en su escuela (contexto)
   syncCategory(target);  // categoría derivada de los puntos
@@ -1622,7 +1703,9 @@ function renderReportes(app) {
   if (!cats.length) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">No hay categorías con costo de inscripción${reportCat ? ' para ese filtro' : ' en este torneo'}.</div>`; return; }
 
   let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
-  html += `<div class="report-total">Pendiente total del torneo: <b>${money(grand)}</b></div>`;
+  html += `<div class="report-total">Pendiente total del torneo: <b>${money(grand)}</b></div>
+    <div class="row" style="margin:12px 0 4px"><button class="btn btn-accent" onclick="reportWhatsApp()">📲 Enviar reporte por WhatsApp</button></div>
+    <p class="hint" style="margin-top:0">Abre WhatsApp con el reporte ya escrito (tal como está filtrado) para enviárselo al administrador.</p>`;
 
   if (reportMode === 'cat') {
     html += cats.map(c => {
@@ -1650,6 +1733,42 @@ function renderReportes(app) {
       : `<div class="empty" style="margin-top:14px">Nadie tiene pagos pendientes 🎉</div>`;
   }
   app.innerHTML = html;
+}
+// Arma el reporte como texto y abre WhatsApp al número del administrador, respetando los filtros actuales.
+function reportWhatsApp() {
+  const t = reportTid ? tById(reportTid) : null;
+  if (!t) { alert('Elegí un torneo primero.'); return; }
+  const cats = t.categorias.filter(c => catCost(c) > 0 && (!reportCat || c.id === reportCat));
+  if (!cats.length) { alert('No hay categorías con costo de inscripción para reportar.'); return; }
+  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
+  const L = ['📋 *Pagos de inscripción pendientes*', '🏆 ' + t.name + (t.date ? ' · ' + t.date : '')];
+  if (reportCat) L.push('🗂️ Categoría: ' + cats[0].name);
+  L.push('');
+  if (reportMode === 'cat') {
+    cats.forEach(c => {
+      const unpaid = c.entrants.filter(e => !e.paid).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
+      L.push(`*${c.name}* — ${money(catCost(c))} c/u · pendiente ${money(unpaid.length * catCost(c))}`);
+      if (unpaid.length) unpaid.forEach(e => L.push('• ' + entName(c, e.id))); else L.push('• Todos pagaron ✅');
+      L.push('');
+    });
+  } else {
+    const map = {};
+    cats.forEach(c => c.entrants.filter(e => !e.paid).forEach(e => e.players.forEach(pid => {
+      const p = playerById(pid); if (!p) return;
+      (map[pid] = map[pid] || { name: fullName(p), items: [], total: 0 });
+      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c) });
+      map[pid].total += catCost(c);
+    })));
+    const people = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+    if (!people.length) L.push('Nadie tiene pagos pendientes 🎉');
+    people.forEach(pe => {
+      L.push(`*${pe.name}* — ${money(pe.total)}`);
+      pe.items.forEach(it => L.push('• ' + it.cat + ': ' + money(it.cost)));
+      L.push('');
+    });
+  }
+  L.push('💰 *Pendiente total: ' + money(grand) + '*');
+  window.open(waLink(ADMIN_WHATSAPP, L.join('\n')), '_blank');
 }
 
 /* ---------- ajustes (admin) ---------- */

@@ -115,6 +115,13 @@ input,select{
 input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; border-color:var(--table)}
 .grid2{display:grid; grid-template-columns:1fr 1fr; gap:0 16px}
 
+/* ---------- teléfono / WhatsApp ---------- */
+.phone-row{display:flex; gap:8px; flex-wrap:wrap}
+.phone-cc{flex:1 1 150px; min-width:130px}
+.phone-area{flex:1 1 70px; min-width:60px; max-width:110px}
+.phone-num{flex:2 1 150px; min-width:130px}
+.phone-hint{margin-top:8px}
+
 /* ---------- cards ---------- */
 .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px}
 .cards{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px}
