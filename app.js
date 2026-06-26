@@ -3945,7 +3945,7 @@ async function boot() {
   window.STORE.onAuth(async (fbUser) => {
     if (window.__registering) return; // el alta maneja su propia sesión/render
     if (fbUser) {
-      const ud = await window.STORE.getUserDoc(fbUser.uid);
+      let ud = await window.STORE.getUserDoc(fbUser.uid);
       _session = ud
         ? { uid: fbUser.uid, email: fbUser.email, role: ud.role || 'player', name: ud.name || fbUser.email, playerId: ud.playerId || null, orgId: ud.orgId || null, schoolId: ud.schoolId || null, emailVerified: !!fbUser.emailVerified }
         : { uid: fbUser.uid, email: fbUser.email, role: 'player', name: fbUser.email, playerId: null, orgId: null, schoolId: null, emailVerified: !!fbUser.emailVerified };
@@ -3953,6 +3953,19 @@ async function boot() {
       // reflejar la verificación en el doc para que el admin la vea en Altas
       if (ud && fbUser.emailVerified && !ud.emailVerified) { try { await window.STORE.setUserDoc(fbUser.uid, { emailVerified: true }); } catch (e) {} }
       _loaded = false; await ensureData();
+      // Auto-reparación: cuenta SIN doc users (p. ej. alta por admin que no llegó a crearlo) → la
+      // vinculamos a la ficha que coincide por email y creamos el doc + el índice de usuario.
+      if (!ud) {
+        const em = (fbUser.email || '').toLowerCase();
+        const p = em && (DB.players || []).find(x => (x.email || '').toLowerCase() === em);
+        if (p) {
+          const data = { role: 'player', name: fullName(p), playerId: p.id, email: fbUser.email, emailVerified: !!fbUser.emailVerified, username: p.username || null, orgId: p.orgId || null, schoolId: p.schoolId || null };
+          try { await window.STORE.setUserDoc(fbUser.uid, data); } catch (e) {}
+          if (p.username) { try { await window.STORE.setUsername(p.username, { uid: fbUser.uid, email: fbUser.email }); } catch (e) {} }
+          ud = data;
+          _session = { uid: fbUser.uid, email: fbUser.email, role: 'player', name: data.name, playerId: p.id, orgId: p.orgId || null, schoolId: p.schoolId || null, emailVerified: !!fbUser.emailVerified };
+        }
+      }
       await reconcileFbSession(); // datos viejos: admin global → superadmin; jugador sin escuela → la de su ficha
       startLiveSync(); // actualización en vivo entre dispositivos (y mantiene los datos frescos)
     } else { _session = null; }
