@@ -1635,7 +1635,8 @@ async function invitePlayerAccount(p) {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { alert('Jugador creado, pero no se pudo crear la cuenta de acceso: ' + (d.error || r.status) + '. Podés reintentarlo editando y guardando.'); return; }
-    if (d.emailSent === false) { alert(`Cuenta creada para ${p.email}, pero el envío del email falló: ${d.emailError || 'desconocido'}. La persona igual puede entrar usando "¿Olvidaste tu contraseña?" con ese email.`); return; }
+    if (d.emailSent === false) { alert(`Cuenta lista para ${p.email}, pero el envío del email falló: ${d.emailError || 'desconocido'}. La persona igual puede entrar usando "¿Olvidaste tu contraseña?" con ese email.`); return; }
+    if (d.existed) { alert(`ℹ️ Ese email (${p.email}) ya tenía una cuenta de acceso (de un alta anterior). Le reenviamos el email para poner contraseña y, al iniciar sesión, se vincula sola a esta ficha. No hace falta nada más.`); return; }
     alert(`✅ Cuenta creada. Le enviamos un email a ${p.email} para que ponga su contraseña (al hacerlo también queda verificado). Si no llega, que use "¿Olvidaste tu contraseña?" con ese email.`);
   } catch (e) {
     alert('Jugador creado, pero falló el envío de la invitación: ' + (e && e.message || e) + '.');
