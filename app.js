@@ -1704,8 +1704,10 @@ function renderReportes(app) {
 
   let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
   html += `<div class="report-total">Pendiente total del torneo: <b>${money(grand)}</b></div>
-    <div class="row" style="margin:12px 0 4px"><button class="btn btn-accent" onclick="reportWhatsApp()">📲 Enviar reporte por WhatsApp</button></div>
-    <p class="hint" style="margin-top:0">Abre WhatsApp con el reporte ya escrito (tal como está filtrado) para enviárselo al administrador.</p>`;
+    <div class="row" style="margin:12px 0 4px">
+      <button class="btn btn-accent" onclick="reportWhatsApp()">📲 Enviar reporte por WhatsApp</button>
+      <button class="btn btn-ghost" onclick="reportPDF()">📄 Exportar PDF</button></div>
+    <p class="hint" style="margin-top:0">WhatsApp abre el reporte ya escrito para enviárselo al administrador. Exportar PDF abre el diálogo de impresión (elegí “Guardar como PDF”). Ambos respetan los filtros actuales.</p>`;
 
   if (reportMode === 'cat') {
     html += cats.map(c => {
@@ -1769,6 +1771,56 @@ function reportWhatsApp() {
   }
   L.push('💰 *Pendiente total: ' + money(grand) + '*');
   window.open(waLink(ADMIN_WHATSAPP, L.join('\n')), '_blank');
+}
+// Exporta el reporte (con los filtros actuales) a PDF vía el diálogo de impresión del navegador.
+function reportPDF() {
+  const t = reportTid ? tById(reportTid) : null;
+  if (!t) { alert('Elegí un torneo primero.'); return; }
+  const cats = t.categorias.filter(c => catCost(c) > 0 && (!reportCat || c.id === reportCat));
+  if (!cats.length) { alert('No hay categorías con costo de inscripción para reportar.'); return; }
+  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
+  let body = '';
+  if (reportMode === 'cat') {
+    cats.forEach(c => {
+      const unpaid = c.entrants.filter(e => !e.paid).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
+      body += `<h2>${esc(c.name)} <span class="sub">— ${esc(money(catCost(c)))} c/u · pendiente ${esc(money(unpaid.length * catCost(c)))}</span></h2>`;
+      body += unpaid.length
+        ? `<table><tbody>${unpaid.map(e => `<tr><td>${esc(entName(c, e.id))}</td><td class="r">${esc(money(catCost(c)))}</td></tr>`).join('')}</tbody></table>`
+        : `<p class="ok">Todos pagaron ✅</p>`;
+    });
+  } else {
+    const map = {};
+    cats.forEach(c => c.entrants.filter(e => !e.paid).forEach(e => e.players.forEach(pid => {
+      const p = playerById(pid); if (!p) return;
+      (map[pid] = map[pid] || { name: fullName(p), items: [], total: 0 });
+      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c) });
+      map[pid].total += catCost(c);
+    })));
+    const people = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+    if (!people.length) body += `<p class="ok">Nadie tiene pagos pendientes 🎉</p>`;
+    people.forEach(pe => {
+      body += `<h2>${esc(pe.name)} <span class="sub">— ${esc(money(pe.total))}</span></h2>`;
+      body += `<table><tbody>${pe.items.map(it => `<tr><td>${esc(it.cat)}</td><td class="r">${esc(money(it.cost))}</td></tr>`).join('')}</tbody></table>`;
+    });
+  }
+  const head = `<h1>Pagos de inscripción pendientes</h1>
+    <p class="meta">🏆 ${esc(t.name)}${t.date ? ' · ' + esc(t.date) : ''}${reportCat ? ' · Categoría: ' + esc(cats[0].name) : ''}</p>
+    <p class="total">Pendiente total: <b>${esc(money(grand))}</b></p>`;
+  const css = `body{font-family:Arial,Helvetica,sans-serif;color:#1d2433;margin:32px;font-size:13px}
+    h1{font-size:20px;margin:0 0 4px} .meta{color:#555;margin:0 0 2px}
+    .total{margin:6px 0 18px;font-size:15px}
+    h2{font-size:14px;margin:16px 0 6px;border-bottom:2px solid #1e6b3a;padding-bottom:3px}
+    h2 .sub{font-weight:400;color:#666;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px}
+    td{padding:5px 8px;border-bottom:1px solid #e6e9ee} td.r{text-align:right;white-space:nowrap;color:#c1121f;font-weight:700}
+    .ok{color:#16a34a;margin:4px 0 10px} .foot{margin-top:24px;color:#999;font-size:11px}
+    @media print{body{margin:14mm} h2{break-after:avoid} tr{break-inside:avoid}}`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('El navegador bloqueó la ventana. Permití las ventanas emergentes para exportar el PDF.'); return; }
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Reporte — ${esc(t.name)}</title><style>${css}</style></head>
+    <body>${head}${body}<p class="foot">Generado desde la app de Tenis de Mesa.</p>
+    <script>window.onload=function(){window.focus();window.print();}<\/script></body></html>`);
+  w.document.close();
 }
 
 /* ---------- ajustes (admin) ---------- */
