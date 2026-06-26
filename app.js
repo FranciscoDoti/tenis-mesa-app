@@ -580,7 +580,14 @@ function schoolOptionsHtml(orgId, schoolId) { const o = orgById(orgId) || (DB.or
 function syncSchoolOptions(orgSel, schoolSel) { const sel = $('#' + schoolSel); if (sel) sel.innerHTML = schoolOptionsHtml($('#' + orgSel).value, null); }
 // Colaborador de un torneo: jugador designado por el admin con permisos de edición sobre ese torneo.
 const isCollaboratorOf = t => { const u = currentUser(); return !!(u && u.playerId && t && (t.collaborators || []).includes(u.playerId)); };
-const canEditT = t => isAdmin() || isCollaboratorOf(t);          // permisos operativos sobre un torneo
+// Dueño del torneo = el admin que lo creó. Los torneos viejos sin dueño los gestiona un admin de su misma escuela/org (para no bloquearlos).
+function ownsTournament(t) {
+  const u = currentUser(); if (!u || !t) return false;
+  if (t.ownerUid || t.ownerUsername) return !!((u.uid && t.ownerUid === u.uid) || (u.username && t.ownerUsername === u.username));
+  return isSchoolAdmin() && !!u.orgId && t.orgId === u.orgId && t.schoolId === u.schoolId; // legado: sin dueño registrado
+}
+// Permisos operativos sobre un torneo: el superadmin todo; cada admin SOLO el torneo que armó; más sus colaboradores.
+const canEditT = t => isSuperadmin() || ownsTournament(t) || isCollaboratorOf(t);
 const canEditCat = cat => canEditT(tById(cat && cat._tid));      // idem, a partir de una categoría (usa cat._tid)
 const tournStarted = t => !!(t && t.started);                    // ¿ya se inició el torneo? (habilita largar zonas / cargar / sugerencias)
 const catTournStarted = cat => tournStarted(tById(cat && cat._tid)); // ¿el torneo de esta categoría está iniciado?
@@ -1958,7 +1965,7 @@ function renderSettings(app) {
         'Habilitar el ranking de dobles (por pareja) y que los torneos de dobles sumen puntos. El puntaje de la pareja para el cálculo es el promedio del ranking individual de sus integrantes. Solo el superadmin lo controla (a nivel organización).',
         setting('doublesRanking'), 'toggleDoublesRanking') : ''}
       ${isSuperadmin() ? settingRow('🏫 Ranking de escuelas ' + orgScope,
-        'Habilitar el ranking de escuelas (suma de los puntos ganados en torneos abiertos por los jugadores de cada escuela). Solo el superadmin lo ve. Aparece en el menú de Rankings.',
+        'Habilitar el ranking de escuelas (suma de los puntos ganados en torneos abiertos por los jugadores de cada escuela). Solo el superadmin lo activa o desactiva (a nivel organización); una vez activo, lo ven <b>todos los miembros</b> de la organización en el menú de Rankings.',
         setting('schoolRanking'), 'toggleSchoolRanking') : ''}
     </div>`;
 }
@@ -2417,8 +2424,8 @@ function upcomingCardHtml(t) {
     <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span>${live ? `<span class="tag tag-live">${liveMatchesOf(t).length} en juego</span>` : ''}</div>
     ${podiumBlockHtml(t)}
     <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ ${draft ? 'Editar' : 'Ver'}</button>
-      ${draft && isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar</button>` : ''}
-      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
+      ${draft && canEditT(t) ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar</button>` : ''}
+      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function pastCardHtml(t) {
   const gym = gymById(t.gymId), pod = podiumBlockHtml(t);
@@ -2429,14 +2436,14 @@ function pastCardHtml(t) {
       <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span></div></div>
     <div class="th-podium">${pod || '<span class="muted">Sin resultados cargados</span>'}</div>
     <div class="th-actions"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ Ver</button>
-      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
+      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
 }
 function renderTournaments(app) {
   const oid = ctxOrgId(), sid = ctxSchoolId();
   // visibles del contexto: misma org y (abierto a la org · de mi escuela · soy superadmin)
   const inScope = t => t.orgId === oid && (isSuperadmin() || t.open || t.schoolId === sid);
-  // los borradores (no publicados) solo los ve el admin
-  const all = DB.tournaments.filter(t => inScope(t) && (t.published || isAdmin())).slice().sort(byDateDesc);
+  // los borradores (no publicados) solo los ve quien puede editarlos (su dueño / superadmin / colaborador)
+  const all = DB.tournaments.filter(t => inScope(t) && (t.published || canEditT(t))).slice().sort(byDateDesc);
   const upcoming = all.filter(t => !isPastTournament(t));
   const past = all.filter(t => isPastTournament(t));
   const upCards = upcoming.map(upcomingCardHtml).join('');
@@ -2582,11 +2589,12 @@ function tournamentDateConflicts(data) {
 }
 function confirmCreateTournament() { const d = window.__pendingTournament; window.__pendingTournament = null; if (d) createTournament(d); }
 function createTournament(data) {
-  const tnew = Object.assign({ id: uid('t_'), enrollClosed: false, published: false, started: false }, data);
+  const u = currentUser() || {};
+  const tnew = Object.assign({ id: uid('t_'), enrollClosed: false, published: false, started: false, ownerUid: u.uid || null, ownerUsername: u.username || null }, data);
   DB.tournaments.push(tnew);
   save(DB); closeModal(); view = 'torneo:' + tnew.id; render(); // abre el borrador para seguir editándolo
 }
-function delTournament(id) { if (confirm('¿Eliminar torneo?')) { DB.tournaments = DB.tournaments.filter(t => t.id !== id); save(DB); render(); } }
+function delTournament(id) { if (!canEditT(tById(id))) return; if (confirm('¿Eliminar torneo?')) { DB.tournaments = DB.tournaments.filter(t => t.id !== id); save(DB); render(); } }
 
 /* ----- colaboradores del torneo (admin) ----- */
 function collaboratorsModal(tid) {
@@ -2992,7 +3000,7 @@ function estStartLabel(m) {
 
 function renderTournament(app, tid) {
   const t = tById(tid); if (!t) { app.innerHTML = '<div class="empty">No encontrado.</div>'; return; }
-  if (!t.published && !isAdmin()) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
+  if (!t.published && !canEditT(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
   const cards = t.categorias.map(c => {
     c._tid = t.id;
     const champ = c.bracket ? brWinner(c, c.bracket.length - 1, 0) : null;
@@ -3042,7 +3050,7 @@ function renderTournament(app, tid) {
   const collabBanner = (!isAdmin() && isCollaboratorOf(t)) ? `<div class="banner ok" style="margin:8px 0 0">🤝 Sos colaborador: podés gestionar todo el torneo (inscribir, resultados, mesas, categorías, abrir/cerrar y finalizar). Otorgar puntos al ranking lo hace el admin.</div>` : '';
   const draftBanner = !t.published ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span>📝 <b>Borrador</b> — solo vos lo ves. Configurá las reglas y, cuando esté listo, publicalo.</span>
-      ${isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar torneo</button>` : ''}</div>` : '';
+      ${canEditT(t) ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar torneo</button>` : ''}</div>` : '';
   const finishedBanner = t.finished ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span>🏁 <b>Torneo finalizado.</b> Los jugadores lo ven en modo lectura.</span>
       ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="reopenTournament('${t.id}')">♻️ Reabrir torneo</button>` : ''}</div>` : '';
