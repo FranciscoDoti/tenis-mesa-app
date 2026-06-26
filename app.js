@@ -3418,14 +3418,16 @@ function renderCategoria(app, tid, cid) {
   if (canEditCat(cat)) {
     const finalDone = cat.bracket && brWinner(cat, cat.bracket.length - 1, 0);
     const thirdReady = !cat.thirdPlace || matchDone(cat.thirdPlace, cat);
+    const started = catStarted(cat);            // ya se largó/jugó algún partido
     const canToggle = !cat.groups && !cat.closed;
+    const preStart = !started && !cat.closed;   // anotar / armar grupos: solo antes de empezar
     html += `<details class="cat-actions"><summary>⋯ Acciones</summary><div class="cat-actions-body">
-      <button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>
+      ${preStart ? `<button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>` : ''}
       <button class="btn btn-ghost" onclick="categoryTimeModal('${tid}','${cid}')">🕒 ${cat.startAt ? 'Horario' : 'Poner horario'}</button>
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
-      <button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>
-      ${cat.groups ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
+      ${preStart ? `<button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>` : ''}
+      ${cat.groups && !cat.bracket && !cat.closed ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
       ${finalDone && thirdReady && !cat.closed && canAwardPoints(t) ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>` : ''}
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
