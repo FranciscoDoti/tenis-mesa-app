@@ -758,7 +758,7 @@ function wirePhoto(id, set) {
 /* ================= VIEWS ================= */
 let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
-let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = ''; // estado de la sección Reportes
+let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = '', reportStatus = 'all'; // estado del historial de pagos
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(); // categorías del ranking desplegadas (todas colapsadas por defecto; se ve el líder en el encabezado)
 let catTab = null, catTabFor = null; // pestaña activa del detalle de categoría (Inscriptos/Grupos/Llave) y para qué categoría
@@ -820,7 +820,7 @@ function render() {
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
   if (view === 'apariencia') return isAdmin() ? renderAppearance(app) : renderRanking(app);
   if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
-  if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
+  if (view === 'reportes') return renderReportes(app); // estado de pagos: admin/colaborador con filtros, jugador solo su historial
   if (view === 'cuentas') return (isAdmin() && setting('paymentsAllowed')) ? renderPayAccounts(app) : renderRanking(app);
   if (view === 'pagos') return (isAdmin() && setting('paymentsAllowed')) ? renderPayHistory(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
@@ -1810,62 +1810,94 @@ function delCatalogEntry(id) {
 }
 
 /* ---------- reportes (admin): pagos de inscripción pendientes ---------- */
-function setReport(field, val) { if (field === 'tid') { reportTid = val; reportCat = ''; } else if (field === 'mode') reportMode = val; else if (field === 'cat') reportCat = val; render(); }
+function setReport(field, val) { if (field === 'tid') { reportTid = val; reportCat = ''; } else if (field === 'mode') reportMode = val; else if (field === 'cat') reportCat = val; else if (field === 'status') reportStatus = val; render(); }
 function reportFilterPerson(inp) { const q = inp.value.toLowerCase(); document.querySelectorAll('.report-row[data-name], .report-person[data-name]').forEach(el => { el.style.display = el.dataset.name.includes(q) ? '' : 'none'; }); }
+// Historial de pagos de un jugador (todas sus inscripciones con costo, pagadas o no).
+function myPaymentsViewHtml(pid) {
+  let html = `<div class="page-title"><h1>💲 Mis pagos</h1></div>
+    <p class="page-sub">Tu historial de inscripciones con costo.</p>`;
+  if (!pid) return html + `<div class="empty">Tu cuenta no está vinculada a un jugador.</div>`;
+  const rows = [];
+  DB.tournaments.forEach(t => (t.categorias || []).forEach(c => {
+    if (catCost(c) <= 0) return;
+    const e = c.entrants.find(en => en.players.includes(pid)); if (!e) return;
+    rows.push({ tour: t.name, date: t.date, cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c), paid: !!e.paid });
+  }));
+  if (!rows.length) return html + `<div class="empty">No tenés inscripciones con costo. 🎉</div>`;
+  rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const pend = rows.filter(r => !r.paid).reduce((s, r) => s + r.cost, 0);
+  html += `<div class="report-total">Pendiente total: <b>${money(pend)}</b></div>`;
+  html += rows.map(r => `<div class="player-row"><div class="meta"><div class="name">${esc(r.cat)}</div><div class="sub">🏆 ${esc(r.tour)}${r.date ? ' · ' + esc(r.date) : ''}</div></div>
+    <span class="pay-tag ${r.paid ? 'ok' : 'no'}">${r.paid ? '✅ Pagado' : '💲 ' + money(r.cost)}</span></div>`).join('');
+  return html;
+}
 function renderReportes(app) {
-  const tours = DB.tournaments.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const tOpts = `<option value="">— Elegí un torneo —</option>` + tours.map(t => `<option value="${t.id}" ${reportTid === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
-  let html = `<div class="page-title"><h1>📋 Reportes</h1></div>
-    <p class="page-sub">Pagos de inscripción pendientes por torneo. Agrupá por categoría o por persona y filtrá.</p>
+  const adm = isAdmin(), me = currentUser(), myPid = me && me.playerId;
+  // Torneos que puede ver: admin → los de su organización; colaborador → los que gestiona; jugador común → ninguno.
+  const accessible = (adm ? DB.tournaments.filter(t => t.orgId === ctxOrgId()) : DB.tournaments.filter(t => isCollaboratorOf(t)))
+    .slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  // Jugador sin torneos a cargo → solo su propio historial.
+  if (!accessible.length) { app.innerHTML = myPaymentsViewHtml(myPid); return; }
+  if (reportTid && !accessible.some(t => t.id === reportTid)) reportTid = ''; // por las dudas, no dejar un torneo fuera de alcance
+  const single = reportTid ? tById(reportTid) : null;
+  const tList = single ? [single] : accessible;
+  const tOpts = `<option value="">Todos los torneos</option>` + accessible.map(t => `<option value="${t.id}" ${reportTid === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+  const stOpts = [['all', 'Todos'], ['pending', 'Pendientes'], ['paid', 'Pagados']].map(([v, l]) => `<option value="${v}" ${reportStatus === v ? 'selected' : ''}>${l}</option>`).join('');
+  let html = `<div class="page-title"><h1>💲 Estado de pagos</h1></div>
+    <p class="page-sub">Quién pagó la inscripción${adm ? '' : ' en tus torneos'}. Filtrá por torneo, categoría, estado o persona.</p>
     <div class="card" style="max-width:680px">
-      <label>Torneo</label><select onchange="setReport('tid', this.value)">${tOpts}</select>`;
-  const t = reportTid ? tById(reportTid) : null;
-  if (t) {
-    const allCats = t.categorias.filter(c => catCost(c) > 0);
-    const catOpts = `<option value="">Todas las categorías</option>` + allCats.map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
-    html += `<div class="grid2" style="margin-top:10px">
-        <div><label>Agrupar por</label><select onchange="setReport('mode', this.value)"><option value="cat" ${reportMode === 'cat' ? 'selected' : ''}>Categoría</option><option value="persona" ${reportMode === 'persona' ? 'selected' : ''}>Persona</option></select></div>
-        <div><label>Categoría</label><select onchange="setReport('cat', this.value)">${catOpts}</select></div>
+      <div class="grid2">
+        <div><label>Torneo</label><select onchange="setReport('tid', this.value)">${tOpts}</select></div>
+        <div><label>Estado</label><select onchange="setReport('status', this.value)">${stOpts}</select></div>
       </div>
-      <label>Buscar persona</label><input class="report-search" placeholder="🔍 Filtrar por nombre…" oninput="reportFilterPerson(this)"/>`;
-  }
-  html += `</div>`;
-  if (!t) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">Elegí un torneo para ver el reporte.</div>`; return; }
-
-  const cats = t.categorias.filter(c => catCost(c) > 0 && (!reportCat || c.id === reportCat));
-  if (!cats.length) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">No hay categorías con costo de inscripción${reportCat ? ' para ese filtro' : ' en este torneo'}.</div>`; return; }
-
-  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
-  html += `<div class="report-total">Pendiente total del torneo: <b>${money(grand)}</b></div>
-    <div class="row" style="margin:12px 0 4px">
-      <button class="btn btn-accent" onclick="reportWhatsApp()">📲 Enviar reporte por WhatsApp</button>
-      <button class="btn btn-ghost" onclick="reportPDF()">📄 Exportar PDF</button></div>
-    <p class="hint" style="margin-top:0">WhatsApp abre el reporte ya escrito para enviárselo al administrador. Exportar PDF abre el diálogo de impresión (elegí “Guardar como PDF”). Ambos respetan los filtros actuales.</p>`;
-
+      <div class="grid2" style="margin-top:6px">
+        <div><label>Agrupar por</label><select onchange="setReport('mode', this.value)"><option value="cat" ${reportMode === 'cat' ? 'selected' : ''}>Categoría</option><option value="persona" ${reportMode === 'persona' ? 'selected' : ''}>Persona</option></select></div>
+        ${single ? `<div><label>Categoría</label><select onchange="setReport('cat', this.value)"><option value="">Todas</option>${single.categorias.filter(c => catCost(c) > 0).map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
+      </div>
+      <label>Buscar persona</label><input class="report-search" placeholder="🔍 Filtrar por nombre…" oninput="reportFilterPerson(this)"/>
+    </div>`;
+  // Entradas (una por inscripción a categoría con costo), aplicando filtros de torneo/categoría/estado.
+  const entries = [];
+  tList.forEach(t => (t.categorias || []).forEach(c => {
+    if (catCost(c) <= 0) return;
+    if (single && reportCat && c.id !== reportCat) return;
+    c.entrants.forEach(e => {
+      if (reportStatus === 'paid' && !e.paid) return;
+      if (reportStatus === 'pending' && e.paid) return;
+      entries.push({ tId: t.id, tour: t.name, date: t.date, cId: c.id, cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c), paid: !!e.paid, name: entName(c, e.id), pids: e.players.slice() });
+    });
+  }));
+  const pendTotal = entries.filter(e => !e.paid).reduce((s, e) => s + e.cost, 0);
+  const paidTotal = entries.filter(e => e.paid).reduce((s, e) => s + e.cost, 0);
+  html += `<div class="report-total">Pendiente: <b>${money(pendTotal)}</b> · Pagado: <b>${money(paidTotal)}</b></div>`;
+  if (single && canEditT(single)) html += `<div class="row" style="margin:12px 0 4px">
+      <button class="btn btn-accent" onclick="reportWhatsApp()">📲 Enviar pendientes por WhatsApp</button>
+      <button class="btn btn-ghost" onclick="reportPDF()">📄 Exportar PDF</button></div>`;
+  const tag = e => `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagado' : '💲 ' + money(e.cost)}</span>`;
+  if (!entries.length) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">No hay inscripciones con costo para esos filtros.</div>`; return; }
   if (reportMode === 'cat') {
-    html += cats.map(c => {
-      const unpaid = c.entrants.filter(e => !e.paid).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
-      const rows = unpaid.length
-        ? unpaid.map(e => `<div class="report-row" data-name="${esc(entName(c, e.id)).toLowerCase()}"><span>${esc(entName(c, e.id))}</span><span class="pay-tag no">${money(catCost(c))}</span></div>`).join('')
-        : `<div class="report-row"><span class="muted">Todos pagaron ✅</span></div>`;
-      return `<div class="card" style="margin-top:14px"><div class="row spread"><h3 style="margin:0">${esc(c.name)}</h3>
-        <span class="muted">${money(catCost(c))} c/u · pendiente ${money(unpaid.length * catCost(c))}</span></div>
+    // Agrupar por torneo + categoría.
+    const groups = {};
+    entries.forEach(e => { const k = e.tId + '|' + e.cId; (groups[k] = groups[k] || { tour: e.tour, cat: e.cat, cost: e.cost, items: [] }).items.push(e); });
+    html += Object.values(groups).map(g => {
+      const pend = g.items.filter(i => !i.paid).length;
+      const rows = g.items.slice().sort((a, b) => a.name.localeCompare(b.name))
+        .map(e => `<div class="report-row" data-name="${esc(e.name).toLowerCase()}"><span>${esc(e.name)}</span>${tag(e)}</div>`).join('');
+      return `<div class="card" style="margin-top:14px"><div class="row spread"><h3 style="margin:0">${esc(g.cat)}</h3>
+        <span class="muted">🏆 ${esc(g.tour)} · ${money(g.cost)} c/u · pendiente ${money(pend * g.cost)}</span></div>
         <div style="margin-top:10px">${rows}</div></div>`;
     }).join('');
   } else {
+    // Agrupar por persona (incluso a través de torneos).
     const map = {};
-    cats.forEach(c => c.entrants.filter(e => !e.paid).forEach(e => e.players.forEach(pid => {
+    entries.forEach(e => e.pids.forEach(pid => {
       const p = playerById(pid); if (!p) return;
-      (map[pid] = map[pid] || { name: fullName(p), items: [], total: 0 });
-      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c) });
-      map[pid].total += catCost(c);
-    })));
-    const people = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
-    html += people.length
-      ? people.map(pe => `<div class="card report-person" data-name="${esc(pe.name).toLowerCase()}" style="margin-top:14px">
-          <div class="row spread"><h3 style="margin:0">${esc(pe.name)}</h3><span class="pay-tag no">${money(pe.total)}</span></div>
-          <div style="margin-top:8px">${pe.items.map(it => `<div class="report-row"><span>${esc(it.cat)}</span><span class="muted">${money(it.cost)}</span></div>`).join('')}</div></div>`).join('')
-      : `<div class="empty" style="margin-top:14px">Nadie tiene pagos pendientes 🎉</div>`;
+      (map[pid] = map[pid] || { name: fullName(p), items: [], pend: 0 });
+      map[pid].items.push(e); if (!e.paid) map[pid].pend += e.cost;
+    }));
+    html += Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(pe => `<div class="card report-person" data-name="${esc(pe.name).toLowerCase()}" style="margin-top:14px">
+        <div class="row spread"><h3 style="margin:0">${esc(pe.name)}</h3>${pe.pend ? `<span class="pay-tag no">Debe ${money(pe.pend)}</span>` : `<span class="pay-tag ok">Al día ✅</span>`}</div>
+        <div style="margin-top:8px">${pe.items.map(it => `<div class="report-row"><span>${esc(it.cat)} <span class="muted">· ${esc(it.tour)}</span></span>${tag(it)}</div>`).join('')}</div></div>`).join('');
   }
   app.innerHTML = html;
 }
