@@ -157,13 +157,38 @@ function ensurePlayerUsers() {
   let added = 0;
   DB.players.forEach(p => {
     if (DB.users.some(u => u.playerId === p.id)) return;
-    let base = usernameFor(p) || 'jugador', un = base, i = 2;
+    let base = (p.username || usernameFor(p) || 'jugador'), un = base, i = 2;
     while (taken.has(un)) { un = base + i; i++; }
     taken.add(un);
+    if (!p.username) p.username = un;   // username canónico, también en el jugador
     DB.users.push({ username: un, password: un, role: 'player', name: fullName(p), playerId: p.id });
     added++;
   });
   return added;
+}
+// ¿El username ya lo tiene otro jugador o cuenta? (case-insensitive; excluye al propio jugador al editar)
+function usernameTaken(uname, exceptPlayerId) {
+  uname = (uname || '').toLowerCase();
+  return (DB.players || []).some(p => p.id !== exceptPlayerId && (p.username || '').toLowerCase() === uname)
+    || (DB.users || []).some(u => u.playerId !== exceptPlayerId && (u.username || '').toLowerCase() === uname);
+}
+// Garantiza que TODO jugador tenga username (de su cuenta si la hay; si no, inicial+apellido deduplicado).
+// Devuelve la lista de los que se completaron (para avisar). Corre en cada carga (idempotente).
+function backfillUsernames() {
+  const players = DB.players || [], taken = new Set();
+  players.forEach(p => p.username && taken.add(p.username.toLowerCase()));
+  (DB.users || []).forEach(u => u.username && taken.add(u.username.toLowerCase()));
+  const filled = [];
+  players.forEach(p => {
+    if (p.username) return;
+    const acc = (DB.users || []).find(u => u.playerId === p.id);
+    if (acc && acc.username) { p.username = acc.username; taken.add(acc.username.toLowerCase()); filled.push(`${fullName(p)} → ${acc.username} (de su cuenta)`); return; }
+    let base = (usernameFor(p) || 'jugador').toLowerCase(), un = base, i = 2;
+    while (taken.has(un)) { un = base + i; i++; }
+    p.username = un; taken.add(un); filled.push(`${fullName(p)} → ${un} (auto)`);
+  });
+  if (filled.length) { try { console.warn(`[username] Se completó el username de ${filled.length} jugador(es) que no tenían:\n` + filled.join('\n')); } catch (e) {} }
+  return filled;
 }
 // Categoría de escalafón derivada por puntos (solo 1ra/2da/3ra/4ta ascienden/descienden).
 function levelFromPoints(pts) { pts = pts || 0; return pts > 800 ? '1ra' : pts > 600 ? '2da' : pts > 300 ? '3ra' : '4ta'; }
@@ -495,6 +520,7 @@ function applyMigrations() {
   if (!Array.isArray(DB.settings.pairs)) DB.settings.pairs = []; // ranking de dobles (por pareja)
   DB.settings.pairs.forEach(pr => { if (!pr.catName) pr.catName = 'Dobles'; }); // parejas viejas → bucket genérico
   (DB.players || []).forEach(p => { if (!p.gender) p.gender = guessGender(p.firstName); }); // género (mujer/varón) por nombre
+  backfillUsernames(); // todo jugador debe tener username (canónico en el jugador)
   // Catálogo global de categorías: se siembra una vez desde el CATALOG fijo (luego lo edita el admin).
   if (!Array.isArray(DB.settings.categoryCatalog) || !DB.settings.categoryCatalog.length) {
     DB.settings.categoryCatalog = CATALOG.map(c => ({ id: uid('cc_'), name: c.name, rule: c.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20, cost: 0 }));
@@ -977,7 +1003,7 @@ function renderRegister(app) {
       </div>
       <label>Teléfono / WhatsApp</label>${phoneFieldHtml('r_phone', null)}
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
-      ${fb ? `<label>Usuario <span class="muted">(opcional, para ingresar sin el email)</span></label><input id="r_username" placeholder="ej: juanperez"/>` : ''}
+      ${fb ? `<label>Usuario</label><input id="r_username" placeholder="ej: juanperez" autocomplete="off"/><p class="hint" style="margin-top:4px">Obligatorio. 3 a 20 caracteres (letras, números, . _ -). Sirve para ingresar además del email.</p>` : ''}
       <div class="grid2">
         <div><label>Contraseña</label>${pwFieldHtml('r_pw1', 'new-password')}</div>
         <div><label>Repetir contraseña</label>${pwFieldHtml('r_pw2', 'new-password')}</div>
@@ -1018,15 +1044,17 @@ async function doRegister() {
   if (FB()) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cred)) return fail('Escribí un email válido (ej: nombre@gmail.com).');
     const uname = ($('#r_username') && $('#r_username').value.trim().toLowerCase()) || '';
-    if (uname && !/^[a-z0-9._-]{3,20}$/.test(uname)) return fail('El usuario: 3 a 20 caracteres (letras, números, . _ -).');
-    if (uname) { const taken = await window.STORE.lookupUsername(uname); if (taken) return fail('Ese usuario ya está en uso, probá otro.'); }
+    if (!uname) return fail('Elegí un nombre de usuario.');
+    if (!/^[a-z0-9._-]{3,20}$/.test(uname)) return fail('El usuario: 3 a 20 caracteres (letras, números, . _ -).');
+    const taken = await window.STORE.lookupUsername(uname); if (taken) return fail('Ese usuario ya está en uso, probá otro.');
+    player.username = uname;
     window.__registering = true;
     try {
       const c = await window.STORE.signUp(cred, pw1);
       const uidv = c.user.uid;
-      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false, username: uname || null, orgId, schoolId });
+      await window.STORE.setUserDoc(uidv, { role: 'player', name: fullName(player), playerId: player.id, email: cred, emailVerified: false, username: uname, orgId, schoolId });
       await window.STORE.setPlayer(player);
-      if (uname) { try { await window.STORE.setUsername(uname, { uid: uidv, email: cred }); } catch (e) {} }
+      try { await window.STORE.setUsername(uname, { uid: uidv, email: cred }); } catch (e) {}
       try { await window.STORE.sendVerification(); } catch (e) {}   // mail de verificación nativo
       await window.STORE.signOut();                                  // NO queda logueado: vuelve al login
       _session = null; authMode = 'login'; view = 'ranking';
@@ -1037,7 +1065,8 @@ async function doRegister() {
     return;
   }
   const user = cred.toLowerCase();
-  if ((DB.users || []).some(u => (u.username || '').toLowerCase() === user)) return fail('Ese usuario ya existe, probá con otro.');
+  if (usernameTaken(user, null)) return fail('Ese usuario ya existe, probá con otro.');
+  player.username = user;
   DB.players.push(player);
   DB.users.push({ username: user, password: pw1, role: 'player', name: fullName(player), playerId: player.id });
   save(DB);
@@ -1503,7 +1532,7 @@ function renderPlayers(app) {
   const oid = ctxOrgId(), sid = ctxSchoolId();
   const active = playersOfSchool(sid, oid);
   const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
-    <div class="meta"><div class="name">${nameLink(p)}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(u && (u.username || u.email)) ? ` · 👤 ${esc(u.username || u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
+    <div class="meta"><div class="name">${nameLink(p)}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(p.username || (u && u.username)) ? ` · 👤 ${esc(p.username || u.username)}` : ''}${(u && u.email) ? ` · 📧 ${esc(u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
@@ -1528,6 +1557,9 @@ function playerForm(id) {
       <div><label>Fecha de nacimiento</label><input id="f_dob" type="date" value="${p.dob || ''}"/></div>
       <div><label>Género</label>${genderField('f_gender', genderOf(p))}</div>
     </div>
+    <label>Usuario</label>
+    <input id="f_username" value="${esc(p.username || (acc && acc.username) || '')}" placeholder="con el que ingresa el jugador" autocomplete="off"/>
+    <p class="hint" style="margin-top:4px">Obligatorio. 3 a 20 caracteres (letras, números, . _ -). Es el usuario con el que el jugador inicia sesión.</p>
     <label>Email <span class="muted">(opcional)</span></label>
     <input id="f_email" type="email" value="${esc(curEmail)}" placeholder="tu@email.com" ${hasLogin ? 'disabled' : ''}/>
     ${hasLogin ? `<p class="hint" style="margin-top:4px">El email de acceso lo cambia el jugador desde su cuenta.</p>` : ''}
@@ -1539,13 +1571,25 @@ function playerForm(id) {
       <button class="btn btn-primary" onclick="savePlayer('${id || ''}')">Guardar</button></div>`);
   let photo = p.photo; wirePhoto('f_photo', d => { photo = d; });
   window.__photo = () => photo;
+  if (!id) { // alta nueva: sugerir el usuario desde el nombre mientras no lo toquen a mano
+    const un = $('#f_username');
+    const suggest = () => { if (!un.dataset.touched) un.value = usernameFor({ firstName: $('#f_first').value, lastName: $('#f_last').value }); };
+    $('#f_first').addEventListener('input', suggest);
+    $('#f_last').addEventListener('input', suggest);
+    un.addEventListener('input', () => { un.dataset.touched = '1'; });
+  }
 }
 function savePlayer(id) {
   if (id && !canManagePlayer(playerById(id))) return; // un admin solo edita jugadores de su escuela
+  const err = m => { const e = $('#ferr'); e.hidden = false; e.textContent = m; };
   const first = $('#f_first').value.trim(), last = $('#f_last').value.trim();
-  if (!first || !last) { const e = $('#ferr'); e.hidden = false; e.textContent = 'Nombre y apellido obligatorios.'; return; }
+  if (!first || !last) { err('Nombre y apellido obligatorios.'); return; }
+  const uname = ($('#f_username') ? $('#f_username').value : '').trim().toLowerCase();
+  if (!uname) { err('Elegí un usuario para el jugador (obligatorio).'); return; }
+  if (!/^[a-z0-9._-]{3,20}$/.test(uname)) { err('El usuario: 3 a 20 caracteres (letras, números, . _ -).'); return; }
+  if (usernameTaken(uname, id || null)) { err('Ese usuario ya está en uso, probá otro.'); return; }
   const emailInp = $('#f_email');
-  const data = { firstName: first, lastName: last, dob: $('#f_dob').value || null, city: readCityField('f_city'), gender: ($('#f_gender') && $('#f_gender').value) || 'M', points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
+  const data = { firstName: first, lastName: last, username: uname, dob: $('#f_dob').value || null, city: readCityField('f_city'), gender: ($('#f_gender') && $('#f_gender').value) || 'M', points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
   if (emailInp && !emailInp.disabled) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
   if (emailInp && !emailInp.disabled && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { const e = $('#ferr'); e.hidden = false; e.textContent = 'El email no es válido (ej: nombre@gmail.com).'; return; }
   const phone = readPhoneField('f_phone'); // opcional para el admin, pero si lo carga tiene que ser válido
@@ -1554,7 +1598,19 @@ function savePlayer(id) {
   let target;
   if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), orgId: ctxOrgId(), schoolId: ctxSchoolId(), openPoints: 0, ...data }; DB.players.push(target); } // el admin solo da de alta en su escuela (contexto)
   syncCategory(target);  // categoría derivada de los puntos
-  if (!FB()) ensurePlayerUsers();   // en modo local: crea la cuenta del nuevo jugador (user = inicial+apellido)
+  if (!FB()) {
+    ensurePlayerUsers();   // modo local: crea la cuenta del jugador nuevo (con el usuario elegido)
+    const acc = DB.users.find(u => u.playerId === target.id); if (acc && acc.username !== uname) acc.username = uname; // al editar, mantener la cuenta en sync
+  } else {
+    // Firebase: si el jugador ya tiene cuenta de acceso, reflejar el usuario en su doc y en el índice de login.
+    const acc = DB.users.find(u => u.playerId === target.id && u.uid);
+    if (acc && (acc.username || '').toLowerCase() !== uname) {
+      const prev = acc.username; acc.username = uname;
+      try { window.STORE.setUserDoc(acc.uid, { username: uname }); } catch (e) {}
+      try { window.STORE.setUsername(uname, { uid: acc.uid, email: acc.email || null }); } catch (e) {}
+      if (prev) { try { window.STORE.delUsername(prev); } catch (e) {} }
+    }
+  }
   save(DB); closeModal(); render();
 }
 // Borra el doc de cuenta (users) en Firestore. La cuenta de Auth queda huérfana (se borra desde la consola).
