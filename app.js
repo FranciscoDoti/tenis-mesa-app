@@ -54,10 +54,18 @@ function catSetsFmt(cat) {
 }
 // Catálogo global de categorías (lo administra el admin; se guarda en app/settings → solo admin escribe).
 // Si todavía no se sembró, devuelve uno derivado del CATALOG fijo para que la app siempre funcione.
+// Catálogo de categorías EFECTIVO de la escuela del contexto: su propio override → el global heredado → defaults.
 function catCatalog() {
-  const c = DB.settings && DB.settings.categoryCatalog;
+  const b = settingsBag('school', ctxSchoolId());
+  const c = (b && b.categoryCatalog) || (DB.settings && DB.settings.categoryCatalog);
   if (Array.isArray(c) && c.length) return c;
   return CATALOG.map(x => ({ id: 'cc_' + x.name, name: x.name, rule: x.rule, format: 'single', setsFormat: 'all5', groupMin: 3, groupMax: 4, championPoints: 20, cost: 0 }));
+}
+// Lista de catálogo PROPIA de la escuela del contexto (copy-on-write desde el efectivo). null si no hay escuela.
+function schoolCatalog() {
+  const bag = settingsBag('school', ctxSchoolId(), true); if (!bag) return null;
+  if (!Array.isArray(bag.categoryCatalog) || !bag.categoryCatalog.length) bag.categoryCatalog = catCatalog().map(x => Object.assign({}, x));
+  return bag.categoryCatalog;
 }
 const catEntryByName = name => catCatalog().find(c => c.name === name) || null;
 const catalogRule = name => (catEntryByName(name) || CATALOG.find(c => c.name === name) || {}).rule || { type: 'open' };
@@ -410,9 +418,11 @@ function shadeHex(hex, amt) {
   r = f(r); g = f(g); b = f(b);
   return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
 }
-// Tema guardado (el que ve todo el mundo) y tema "en edición" (borrador o guardado).
-const savedThemeOf = () => Object.assign({}, DEFAULT_THEME, (DB.settings && DB.settings.theme) || {});
-const themeOf = () => Object.assign({}, DEFAULT_THEME, themeDraft || (DB.settings && DB.settings.theme) || {});
+// Tema guardado de la escuela del que mira (su override propio → el global heredado → defaults)
+// y tema "en edición" (borrador o guardado). El admin lo edita por escuela; el superadmin, la del contexto.
+function schoolThemeRaw() { const b = settingsBag('school', ctxSchoolId()); return (b && b.theme) || (DB.settings && DB.settings.theme) || {}; }
+const savedThemeOf = () => Object.assign({}, DEFAULT_THEME, schoolThemeRaw());
+const themeOf = () => Object.assign({}, DEFAULT_THEME, themeDraft || schoolThemeRaw());
 const themeDirty = () => JSON.stringify(themeOf()) !== JSON.stringify(savedThemeOf());
 // Aplica un tema concreto a las variables CSS, el color de la barra, el emoji y el logo.
 function setThemeVars(t) {
@@ -1626,9 +1636,10 @@ function renderCatalog(app) {
         <button class="btn btn-ghost btn-sm icon-btn" title="Eliminar" onclick="delCatalogEntry('${c.id}')">🗑️</button>
       </div></div></div>`;
   }).join('');
+  const sName = schoolName(ctxOrgId(), ctxSchoolId());
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>🗂️ Categorías</h1></div>
     <button class="btn btn-primary" onclick="catalogEntryForm()">➕ Nueva categoría</button></div>
-    <p class="page-sub">Catálogo de categorías del club y sus reglas por defecto. Al crear un torneo, las categorías que marques <b>heredan</b> estas reglas (después podés ajustarlas dentro de cada torneo). Solo el administrador puede gestionarlo.</p>
+    <p class="page-sub">Catálogo de <b>${esc(sName)}</b> <span class="scope-tag scope-school">🏫 ${esc(sName)}</span> y sus reglas por defecto. Al crear un torneo, las categorías que marques <b>heredan</b> estas reglas (después podés ajustarlas dentro de cada torneo).${isSuperadmin() ? ' Cambiá de escuela desde la barra de contexto de arriba.' : ''}</p>
     <div class="cat-list">${cards || '<div class="empty">Sin categorías en el catálogo.</div>'}</div>`;
 }
 function catalogEntryForm(id) {
@@ -1681,7 +1692,7 @@ function catFmtChange(prefix) {
 function saveCatalogEntry(id) {
   const e = $('#ccerr'), name = $('#cc_name').value.trim();
   if (!name) { e.hidden = false; e.textContent = 'El nombre es obligatorio.'; return; }
-  const list = (DB.settings.categoryCatalog && DB.settings.categoryCatalog.length) ? DB.settings.categoryCatalog : (DB.settings.categoryCatalog = catCatalog().map(x => Object.assign({}, x)));
+  const list = schoolCatalog(); if (!list) { e.hidden = false; e.textContent = 'Elegí una escuela para gestionar su catálogo.'; return; }
   if (list.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) { e.hidden = false; e.textContent = 'Ya existe una categoría con ese nombre.'; return; }
   const type = $('#cc_ruletype').value;
   let rule = { type: 'open' };
@@ -1703,10 +1714,11 @@ function saveCatalogEntry(id) {
   save(DB); closeModal(); render();
 }
 function delCatalogEntry(id) {
-  const list = (DB.settings.categoryCatalog && DB.settings.categoryCatalog.length) ? DB.settings.categoryCatalog : (DB.settings.categoryCatalog = catCatalog().map(x => Object.assign({}, x)));
+  const list = schoolCatalog(); if (!list) return;
   const c = list.find(x => x.id === id); if (!c) return;
   if (!confirm(`¿Quitar "${c.name}" del catálogo? Los torneos ya creados no se modifican.`)) return;
-  DB.settings.categoryCatalog = list.filter(x => x.id !== id);
+  const bag = settingsBag('school', ctxSchoolId(), true);
+  bag.categoryCatalog = list.filter(x => x.id !== id);
   save(DB); render();
 }
 
@@ -2052,8 +2064,9 @@ function renderAppearance(app) {
       <input class="color-input" type="color" value="${esc(t[key])}" aria-label="${esc(name)}" oninput="setThemeField('${key}', this.value)"/>
     </div>`;
   const fontOpts = Object.entries(FONTS).map(([k, f]) => `<option value="${k}" ${t.font === k ? 'selected' : ''} style="font-family:${esc(f.stack)}">${esc(f.label)}</option>`).join('');
+  const sName = schoolName(ctxOrgId(), ctxSchoolId());
   app.innerHTML = `<div class="page-title"><h1>🎨 Apariencia</h1></div>
-    <p class="page-sub">Previsualizá los cambios acá. El sitio recién cambia para todos cuando tocás <b>Publicar cambios</b>.</p>
+    <p class="page-sub">El tema y el ícono se aplican a los miembros de <b>${esc(sName)}</b> <span class="scope-tag scope-school">🏫 ${esc(sName)}</span>. Previsualizá acá; recién cambia al tocar <b>Publicar cambios</b>.${isSuperadmin() ? ' Cambiá de escuela desde la barra de contexto de arriba.' : ''}</p>
     ${msg ? `<div class="banner ok">${esc(msg)}</div>` : ''}
     <div class="appearance-grid">
       <div class="card">
@@ -2164,11 +2177,10 @@ function resetTheme() { themeDraft = Object.assign({}, DEFAULT_THEME); render();
 function discardTheme() { themeDraft = null; schoolDraft = null; render(); }       // descarta el borrador (tema + escuelas) y vuelve a lo guardado
 function publishTheme() {
   if (!themeDirty() && !schoolsDirty()) return;
-  ensureTheme();
-  if (themeDraft) DB.settings.theme = Object.assign({}, themeOf());
+  if (themeDraft) { const bag = settingsBag('school', ctxSchoolId(), true); if (bag) bag.theme = Object.assign({}, themeOf()); else { ensureTheme(); DB.settings.theme = Object.assign({}, themeOf()); } }
   if (schoolDraft) Object.entries(schoolDraft).forEach(([sid, d]) => { const s = schoolById(d.orgId, sid); if (s) { s.name = (d.name || '').trim() || s.name; s.logo = d.logo || DEFAULT_SCHOOL_LOGO; } });
   themeDraft = null; schoolDraft = null; save(DB);
-  themeMsg = '✅ Cambios publicados. Ya los ve todo el club.';
+  themeMsg = '✅ Cambios publicados. Ya los ven los miembros de la escuela.';
   render();
 }
 // Selector de emojis anclado al botón (reutiliza el popover de mesas).
