@@ -841,8 +841,8 @@ function renderRegister(app) {
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
       ${fb ? `<label>Usuario <span class="muted">(opcional, para ingresar sin el email)</span></label><input id="r_username" placeholder="ej: juanperez"/>` : ''}
       <div class="grid2">
-        <div><label>Contraseña</label><input id="r_pw1" type="password"/></div>
-        <div><label>Repetir contraseña</label><input id="r_pw2" type="password"/></div>
+        <div><label>Contraseña</label>${pwFieldHtml('r_pw1', 'new-password')}</div>
+        <div><label>Repetir contraseña</label>${pwFieldHtml('r_pw2', 'new-password')}</div>
       </div>
       <label>Foto <span class="muted">(opcional)</span></label>${photoButtonsHtml('r_photo')}
       <div id="r_err" class="banner" hidden></div>
@@ -1141,8 +1141,8 @@ function renderProfile(app, viewId) {
            <div id="pf_pwerr" class="banner" hidden></div>
            <div class="row" style="margin-top:6px"><button class="btn btn-primary" onclick="requestPasswordChange()">📧 Enviar email para cambiar contraseña</button></div>`
         : `<p class="hint" style="margin-top:0">Escribí la nueva contraseña dos veces (sin requisitos).</p>
-           <label>Nueva contraseña</label><input id="pf_pw1" type="password"/>
-           <label>Repetir contraseña</label><input id="pf_pw2" type="password"/>
+           <label>Nueva contraseña</label>${pwFieldHtml('pf_pw1', 'new-password')}
+           <label>Repetir contraseña</label>${pwFieldHtml('pf_pw2', 'new-password')}
            <div id="pf_pwerr" class="banner" hidden></div>
            <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="changePassword()">Cambiar contraseña</button></div>`}
     </div>`;
@@ -2020,7 +2020,34 @@ function saveTournament() {
   let schoolId = ($('#t_school') && $('#t_school').value) || ctxSchoolId();
   if (!schoolById(orgId, schoolId)) schoolId = ((orgById(orgId) || {}).schools || [{}])[0].id; // coherencia org/escuela
   const open = (($('#t_open') && $('#t_open').value) || 'open') === 'open';
-  const tnew = { id: uid('t_'), name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, orgId, schoolId, open, enrollClosed: false, published: false, categorias };
+  const data = { name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, orgId, schoolId, open, categorias };
+  // Advertencia si ya hay un torneo de la misma org/escuela en esas fechas.
+  const conflicts = tournamentDateConflicts(data);
+  if (conflicts.length) {
+    window.__pendingTournament = data;
+    const list = conflicts.map(c => `<li><b>${esc(c.name)}</b> — ${esc(dateRangeLabel(c))} <span class="muted">(${c.schoolId === data.schoolId ? 'misma escuela' : 'misma organización'})</span></li>`).join('');
+    openModal(`<h3>⚠️ Ya hay un torneo en esas fechas</h3>
+      <p>El torneo que estás creando se superpone con:</p>
+      <ul style="margin:8px 0 0;padding-left:20px">${list}</ul>
+      <p style="margin-top:12px">¿Querés crearlo igual?</p>
+      <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmCreateTournament()">Crear igual</button></div>`);
+    return;
+  }
+  createTournament(data);
+}
+// Torneos de la MISMA organización cuyo rango de fechas se solapa con el nuevo.
+function tournamentDateConflicts(data) {
+  const aS = data.date, aE = data.dateEnd || data.date;
+  return (DB.tournaments || []).filter(t => {
+    if (t.orgId !== data.orgId) return false;
+    const bS = t.date, bE = t.dateEnd || t.date;
+    return aS <= bE && bS <= aE; // solapamiento de rangos (fechas YYYY-MM-DD comparables como strings)
+  });
+}
+function confirmCreateTournament() { const d = window.__pendingTournament; window.__pendingTournament = null; if (d) createTournament(d); }
+function createTournament(data) {
+  const tnew = Object.assign({ id: uid('t_'), enrollClosed: false, published: false }, data);
   DB.tournaments.push(tnew);
   save(DB); closeModal(); view = 'torneo:' + tnew.id; render(); // abre el borrador para seguir editándolo
 }
@@ -3142,7 +3169,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
