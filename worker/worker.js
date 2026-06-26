@@ -107,24 +107,33 @@ async function createAccount(req, env) {
   const token = await getAccessToken(env);
   const role = await readUserRole(env, token, adminUid);
   if (role !== 'admin' && role !== 'superadmin') return json({ error: 'no autorizado' }, 403);
-  // 2) crear la cuenta con contraseña aleatoria (no la conoce nadie; el jugador la fija por email)
-  let signUp;
-  try { signUp = await idtPost(apiKey, 'accounts:signUp', { email: String(email).trim(), password: randomPassword(), returnSecureToken: false }); }
-  catch (e) { return json({ error: e.message === 'EMAIL_EXISTS' ? 'Ya existe una cuenta con ese email.' : ('auth: ' + e.message) }, 400); }
-  const uid = signUp.localId;
-  // 3) doc de usuario + índice de username (campos nativos, como espera la app)
+  // 2) crear la cuenta con contraseña aleatoria (no la conoce nadie; el jugador la fija por email).
+  //    Si el email YA existía (p. ej. un intento previo que creó la cuenta pero no mandó el mail),
+  //    no es error: seguimos y le reenviamos el "poné tu contraseña" (idempotente).
   const S = v => ({ stringValue: String(v) });
-  await writeDoc(env, token, 'users/' + uid, {
-    role: S('player'), name: S(name || ''), playerId: S(playerId), email: S(email),
-    emailVerified: { booleanValue: false }, username: username ? S(username) : { nullValue: null },
-    orgId: orgId ? S(orgId) : { nullValue: null }, schoolId: schoolId ? S(schoolId) : { nullValue: null },
-  });
-  if (username) await writeDoc(env, token, 'usernames/' + String(username).toLowerCase(), { uid: S(uid), email: S(email) });
-  // 4) email para fijar la contraseña (al completarlo, el email queda verificado)
-  const oob = { requestType: 'PASSWORD_RESET', email: String(email).trim() };
-  if (env.APP_URL) oob.continueUrl = env.APP_URL;
-  try { await idtPost(apiKey, 'accounts:sendOobCode', oob); } catch (e) {}
-  return json({ ok: true, uid });
+  let uid = null, existed = false;
+  try { const su = await idtPost(apiKey, 'accounts:signUp', { email: String(email).trim(), password: randomPassword(), returnSecureToken: false }); uid = su.localId; }
+  catch (e) { if (e.message === 'EMAIL_EXISTS') existed = true; else return json({ error: 'auth: ' + e.message }, 400); }
+  // 3) doc de usuario + índice de username (solo si recién la creamos; campos nativos como espera la app)
+  if (uid) {
+    await writeDoc(env, token, 'users/' + uid, {
+      role: S('player'), name: S(name || ''), playerId: S(playerId), email: S(email),
+      emailVerified: { booleanValue: false }, username: username ? S(username) : { nullValue: null },
+      orgId: orgId ? S(orgId) : { nullValue: null }, schoolId: schoolId ? S(schoolId) : { nullValue: null },
+    });
+    if (username) await writeDoc(env, token, 'usernames/' + String(username).toLowerCase(), { uid: S(uid), email: S(email) });
+  }
+  // 4) email para fijar la contraseña (al completarlo, el email queda verificado).
+  //    Probamos CON continueUrl (vuelve a la app); si el dominio no está autorizado, reintentamos SIN él.
+  const base = { requestType: 'PASSWORD_RESET', email: String(email).trim() };
+  let emailSent = false, emailError = null;
+  try { await idtPost(apiKey, 'accounts:sendOobCode', env.APP_URL ? { ...base, continueUrl: env.APP_URL } : base); emailSent = true; }
+  catch (e) {
+    try { await idtPost(apiKey, 'accounts:sendOobCode', base); emailSent = true; emailError = 'enviado sin redirección a la app (' + e.message + ')'; }
+    catch (e2) { emailError = e2.message; }
+  }
+  console.log('create-account', JSON.stringify({ uid, existed, email, emailSent, emailError }));
+  return json({ ok: true, uid, existed, emailSent, emailError });
 }
 async function readUserRole(env, token, uid) {
   const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/users/${uid}`, { headers: { Authorization: `Bearer ${token}` } });
