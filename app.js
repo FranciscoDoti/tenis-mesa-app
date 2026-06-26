@@ -619,6 +619,9 @@ function ownsTournament(t) {
 }
 // Permisos operativos sobre un torneo: el superadmin todo; cada admin SOLO el torneo que armó; más sus colaboradores.
 const canEditT = t => isSuperadmin() || ownsTournament(t) || isCollaboratorOf(t);
+// Cerrar categoría y otorgar puntos al ranking: solo superadmin o un admin de la escuela del torneo
+// (NO colaboradores, porque escribe fichas de jugadores y el ranking de dobles).
+function canAwardPoints(t) { const u = currentUser(); if (!u || !t) return false; if (isSuperadmin()) return true; return isSchoolAdmin() && !!u.orgId && u.orgId === t.orgId && u.schoolId === t.schoolId; }
 const canEditCat = cat => canEditT(tById(cat && cat._tid));      // idem, a partir de una categoría (usa cat._tid)
 const tournStarted = t => !!(t && t.started);                    // ¿ya se inició el torneo? (habilita largar zonas / cargar / sugerencias)
 const catTournStarted = cat => tournStarted(tById(cat && cat._tid)); // ¿el torneo de esta categoría está iniciado?
@@ -3413,7 +3416,7 @@ function renderCategoria(app, tid, cid) {
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
       <button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>
       ${cat.groups ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
-      ${finalDone && thirdReady && !cat.closed ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>` : ''}
+      ${finalDone && thirdReady && !cat.closed && canAwardPoints(t) ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>` : ''}
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
   } else {
@@ -3855,6 +3858,7 @@ function placements(cat) {
 function awardPoints(tid, cid) {
   const cat = getCat(tid, cid);
   const t = tById(tid), tOpen = !!(t && t.open); // torneo abierto → los puntos también cuentan para el ranking de escuelas
+  if (!canAwardPoints(t)) return; // solo admin de la escuela del torneo / superadmin
   if (cat.closed) return;
   if (!cat.bracket || !brWinner(cat, cat.bracket.length - 1, 0)) { alert('La final todavía no tiene ganador.'); return; }
   if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { alert('Falta el resultado del partido por 3er puesto.'); return; }
@@ -3889,7 +3893,30 @@ function awardPoints(tid, cid) {
       cat.awarded[eid] = applied;
     });
   }
-  cat.closed = true; save(DB); render();
+  cat.closed = true;
+  // Persistencia: en Firebase, escribir las fichas de jugadores (posiblemente de otras escuelas en
+  // torneos abiertos) y el ranking de dobles lo hace el worker (el admin no puede por las reglas).
+  if (FB()) { awardViaWorker(t, cat); return; }
+  save(DB); render();
+}
+// Manda al worker el cierre de categoría + los puntos ya calculados, para que los persista con la
+// cuenta de servicio. El cliente ya mutó el DB en memoria; el live-sync confirma esos mismos valores.
+async function awardViaWorker(t, cat) {
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  if (!wurl) { alert('No se pudieron otorgar los puntos: falta configurar la URL del servicio (worker) en Ajustes.'); render(); return; }
+  const ids = new Set((cat.entrants || []).flatMap(e => e.players || []));
+  const players = [...ids].map(id => playerById(id)).filter(Boolean)
+    .map(p => ({ id: p.id, points: p.points, openPoints: p.openPoints || 0, category: p.category }));
+  try {
+    const idToken = await window.STORE.idToken();
+    const r = await fetch(wurl + '/award', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, tournamentId: t.id, categoryId: cat.id, awarded: cat.awarded || {}, players, pairs: cat.format === 'double' ? (DB.settings.pairs || []) : null }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert('No se pudieron otorgar los puntos: ' + (d.error || r.status) + '. Probá de nuevo.'); }
+  } catch (e) { alert('Error otorgando puntos: ' + (e && e.message || e)); }
+  render(); // el live-sync trae el estado confirmado
 }
 
 /* ---------------- nav ---------------- */

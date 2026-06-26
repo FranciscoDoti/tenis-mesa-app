@@ -40,6 +40,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/create-account') return await createAccount(req, env);
       if (req.method === 'POST' && url.pathname === '/delete-account') return await deleteAccount(req, env);
       if (req.method === 'POST' && url.pathname === '/enroll') return await enroll(req, env);
+      if (req.method === 'POST' && url.pathname === '/award') return await award(req, env);
       if (req.method === 'POST' && url.pathname === '/webhook') return await handleWebhook(req, env, url);
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -273,6 +274,64 @@ async function handleWebhook(req, env, url) {
   };
   await writeBlob(env, token, 'payments', record.id, record);
   return json({ ok: true, recorded: true });
+}
+
+/* ---------- otorgar puntos al ranking / cerrar categoría ----------
+   Lo dispara el admin de la escuela del torneo (o superadmin). El cliente calcula los puntos
+   (Elo + podio + topes) y el worker los PERSISTE con la cuenta de servicio: así se actualizan
+   también las fichas de jugadores de OTRAS escuelas (en torneos abiertos), que el admin no podría
+   escribir directamente por las reglas. Idempotente: si la categoría ya está cerrada, no reaplica. */
+async function award(req, env) {
+  const { idToken, tournamentId, categoryId, awarded, players, pairs } = await req.json();
+  if (!idToken || !tournamentId || !categoryId) return json({ error: 'faltan datos' }, 400);
+  const apiKey = env.FIREBASE_API_KEY;
+  if (!apiKey) return json({ error: 'worker sin FIREBASE_API_KEY' }, 500);
+  let who; try { who = await idtPost(apiKey, 'accounts:lookup', { idToken }); } catch (e) { return json({ error: 'sesión inválida' }, 401); }
+  const uid = who.users && who.users[0] && who.users[0].localId;
+  if (!uid) return json({ error: 'sesión inválida' }, 401);
+  const token = await getAccessToken(env);
+  const me = await readUserDoc(env, token, uid);
+  const t = await readBlob(env, token, 'tournaments', tournamentId);
+  if (!t) return json({ error: 'torneo no encontrado' }, 404);
+  // Autorización: superadmin, o admin de la MISMA escuela desde la que se creó el torneo.
+  const ok = me && (me.role === 'superadmin' || (me.role === 'admin' && me.orgId === t.orgId && me.schoolId === t.schoolId));
+  if (!ok) return json({ error: 'no autorizado' }, 403);
+  const cat = (t.categorias || []).find(c => c.id === categoryId);
+  if (!cat) return json({ error: 'categoría no encontrada' }, 404);
+  if (cat.closed) return json({ ok: true, already: true }); // idempotente: ya se otorgaron
+  // 1) cerrar la categoría y guardar el detalle de puntos otorgados
+  cat.closed = true; cat.awarded = awarded || {};
+  await writeBlob(env, token, 'tournaments', tournamentId, t);
+  // 2) aplicar puntos a las fichas (solo a participantes de la categoría, por seguridad)
+  const allowed = new Set((cat.entrants || []).flatMap(e => e.players || []));
+  for (const pu of (players || [])) {
+    if (!pu || !allowed.has(pu.id)) continue;
+    const p = await readBlob(env, token, 'players', pu.id);
+    if (!p) continue;
+    if (typeof pu.points === 'number') p.points = pu.points;
+    if (typeof pu.openPoints === 'number') p.openPoints = pu.openPoints;
+    if (pu.category) p.category = pu.category;
+    await writeBlob(env, token, 'players', pu.id, p);
+  }
+  // 3) ranking de dobles (parejas) en settings, si corresponde
+  if (Array.isArray(pairs)) {
+    const s = await readSettings(env, token); if (s) { s.pairs = pairs; await writeSettings(env, token, s); }
+  }
+  console.log('award', JSON.stringify({ tournamentId, categoryId, players: (players || []).length, pairs: Array.isArray(pairs) ? pairs.length : 0 }));
+  return json({ ok: true });
+}
+async function readSettings(env, token) {
+  const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/app/settings`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return null;
+  const doc = await r.json(); const j = doc.fields && doc.fields.j && doc.fields.j.stringValue;
+  try { return j ? JSON.parse(j) : null; } catch (e) { return null; }
+}
+async function writeSettings(env, token, obj) {
+  const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/app/settings`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fields: { j: { stringValue: JSON.stringify(obj) } } }),
+  });
+  return r.ok;
 }
 
 /* ---------- Firestore REST (blobs { id, j }) ---------- */
