@@ -1939,10 +1939,7 @@ function renderReportes(app) {
         <div><label>Torneo</label><select onchange="setReport('tid', this.value)">${tOpts}</select></div>
         <div><label>Estado</label><select onchange="setReport('status', this.value)">${stOpts}</select></div>
       </div>
-      <div class="grid2" style="margin-top:6px">
-        <div><label>Agrupar por</label><select onchange="setReport('mode', this.value)"><option value="cat" ${reportMode === 'cat' ? 'selected' : ''}>Categoría</option><option value="persona" ${reportMode === 'persona' ? 'selected' : ''}>Persona</option></select></div>
-        ${single ? `<div><label>Categoría</label><select onchange="setReport('cat', this.value)"><option value="">Todas</option>${single.categorias.filter(c => catCost(c) > 0).map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
-      </div>
+      ${single ? `<div style="margin-top:6px"><label>Categoría</label><select onchange="setReport('cat', this.value)"><option value="">Todas las categorías</option>${single.categorias.filter(c => catCost(c) > 0).map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
       <label>Buscar persona</label>${reportPersonPickerHtml()}
     </div>`;
   // Entradas (una por inscripción a categoría con costo), aplicando TODOS los filtros (torneo/categoría/estado/persona).
@@ -1965,35 +1962,19 @@ function renderReportes(app) {
       <button class="btn btn-ghost" onclick="reportPDF()">📄 Exportar PDF</button></div>`;
   const tag = e => `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagado' : '💲 ' + money(e.cost)}</span>`;
   if (!entries.length) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">No hay inscripciones con costo para esos filtros.</div>`; return; }
-  if (reportMode === 'cat') {
-    // Agrupar por torneo + categoría. Tarjeta colapsable con el TORNEO destacado y totales en el resumen.
-    const groups = {};
-    entries.forEach(e => { const k = e.tId + '|' + e.cId; (groups[k] = groups[k] || { tour: e.tour, cat: e.cat, cost: e.cost, items: [] }).items.push(e); });
-    html += Object.values(groups).map(g => {
-      const pendN = g.items.filter(i => !i.paid).length, paidN = g.items.length - pendN;
-      const rows = g.items.slice().sort((a, b) => a.name.localeCompare(b.name))
-        .map(e => `<div class="report-row"><span>${esc(e.name)}</span>${tag(e)}</div>`).join('');
-      return `<details class="card rep-card" open><summary class="rep-sum">
-          <div class="rep-info"><div class="rep-tour">🏆 ${esc(g.tour)}</div><div class="rep-cat">${esc(g.cat)} · ${money(g.cost)} c/u · ${g.items.length} inscriptos</div></div>
-          <span class="rep-tot">${paidN ? `<span class="pay-tag ok">✅ Pagado ${money(paidN * g.cost)}</span>` : ''}${pendN ? `<span class="pay-tag no">💲 Pendiente ${money(pendN * g.cost)}</span>` : ''}</span>
-          <span class="cat-caret">▸</span></summary>
-        <div class="rep-body">${rows}</div></details>`;
-    }).join('');
-  } else {
-    // Agrupar por persona (incluso a través de torneos). Cada inscripción se cuenta UNA sola vez:
-    // en dobles, el costo es de la PAREJA → se atribuye al primer integrante del entrante (no se duplica).
-    const map = {};
-    entries.forEach(e => {
-      const owner = e.pids[0]; const p = playerById(owner); if (!p) return;
-      (map[owner] = map[owner] || { name: fullName(p), items: [], pend: 0, paid: 0 });
-      map[owner].items.push(e); if (!e.paid) map[owner].pend += e.cost; else map[owner].paid += e.cost;
-    });
-    html += Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(pe => `<details class="card rep-card report-person" open><summary class="rep-sum">
-        <div class="rep-info"><div class="rep-tour">${esc(pe.name)}</div><div class="rep-cat">${pe.items.length} inscripción${pe.items.length === 1 ? '' : 'es'}${pe.paid ? ` · pagado ${money(pe.paid)}` : ''}</div></div>
-        <span class="rep-tot">${pe.pend ? `<span class="pay-tag no">Debe ${money(pe.pend)}</span>` : `<span class="pay-tag ok">Al día ✅</span>`}</span>
+  // Agrupar por torneo + categoría. Tarjeta colapsable con el TORNEO destacado y totales en el resumen.
+  const groups = {};
+  entries.forEach(e => { const k = e.tId + '|' + e.cId; (groups[k] = groups[k] || { tour: e.tour, cat: e.cat, cost: e.cost, items: [] }).items.push(e); });
+  html += Object.values(groups).map(g => {
+    const pendN = g.items.filter(i => !i.paid).length, paidN = g.items.length - pendN;
+    const rows = g.items.slice().sort((a, b) => a.name.localeCompare(b.name))
+      .map(e => `<div class="report-row"><span>${esc(e.name)}</span>${tag(e)}</div>`).join('');
+    return `<details class="card rep-card" open><summary class="rep-sum">
+        <div class="rep-info"><div class="rep-tour">🏆 ${esc(g.tour)}</div><div class="rep-cat">${esc(g.cat)} · ${money(g.cost)} c/u · ${g.items.length} inscriptos</div></div>
+        <span class="rep-tot">${paidN ? `<span class="pay-tag ok">✅ Pagado ${money(paidN * g.cost)}</span>` : ''}${pendN ? `<span class="pay-tag no">💲 Pendiente ${money(pendN * g.cost)}</span>` : ''}</span>
         <span class="cat-caret">▸</span></summary>
-      <div class="rep-body">${pe.items.map(it => `<div class="report-row"><span><b>🏆 ${esc(it.tour)}</b> <span class="muted">· ${esc(it.cat)}</span></span>${tag(it)}</div>`).join('')}</div></details>`).join('');
-  }
+      <div class="rep-body">${rows}</div></details>`;
+  }).join('');
   app.innerHTML = html;
 }
 // Buscador de persona con SELECCIÓN (no filtra solo visualmente: al elegir, recalcula los totales para esa persona).
