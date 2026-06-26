@@ -177,7 +177,10 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .tag{background:#eef4f0; color:var(--table-dark); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:600}
 .groups{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; margin-top:14px}
 .group-card{border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff}
-.group-card h4{margin:0; padding:10px 12px; background:var(--table); color:#fff; font-size:14px}
+.group-card h4{margin:0; padding:10px 12px; background:var(--table); color:#fff; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; user-select:none}
+.group-card .grp-caret{font-size:12px; transition:transform .15s}
+.group-card.collapsed .grp-caret{transform:rotate(-90deg)}
+.group-card.collapsed .group-body{display:none}
 .zone-bar{display:flex; justify-content:center; padding:8px 8px 0}
 .zone-bar .start-btn,.zone-bar .mesa-badge{width:100%; text-align:center; justify-content:center}
 .wo-tag{flex:0 0 auto; font-size:10px; font-weight:800; color:#8a5400; background:#fff3e0; border:1px solid #ffd8a8; border-radius:6px; padding:0 5px}
@@ -223,14 +226,19 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .rank-body .player-row:last-child{margin-bottom:8px}
 
 /* ---------- group matches + bracket ---------- */
-.matches{border-top:1px solid var(--line); margin-top:4px}
-.bmatch{display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:13px}
+.matches{border-top:2px solid #c9cfd8; margin-top:4px}
+.bmatch{display:flex; align-items:center; gap:8px; padding:7px 10px; font-size:13px}
 .bmatch:nth-child(even){background:#f7f9fb}
+.bmatch + .bmatch{border-top:1px solid #cfd5dd}            /* divisor más oscuro entre partidos */
 .bmatch>span{flex:1 1 38%; min-width:0; overflow-wrap:anywhere; line-height:1.2}
 .bmatch>span:last-of-type{text-align:right}
 .bmatch .score{flex:0 0 auto; background:#eef4f0; border-radius:6px; padding:2px 8px; color:var(--table-dark)}
 .bmatch .win,.br-slot.win{font-weight:800; color:var(--table-dark)}
 .bmatch .btn-sm{flex:0 0 auto}
+/* fila de acciones del partido (Cargar / 🚷 / Aplazar / Iniciar) — juntas, no se parten en 2 líneas */
+.bmatch-actions{display:flex; align-items:center; gap:8px; flex:0 0 auto}
+.bmatch-actions .start-btn{width:auto}
+.bmatch-actions .btn-sm{flex:0 0 auto}
 .bracket{display:flex; gap:26px; overflow-x:auto; padding:10px 2px 16px}
 .br-col{display:flex; flex-direction:column; justify-content:space-around; gap:14px; min-width:200px}
 .br-rtitle{font-weight:800; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px}
@@ -354,6 +362,8 @@ ul.awarded li:last-child{border-bottom:0}
 /* ---------- mesa por partido ---------- */
 .mesa-sel{flex:0 0 auto; width:auto; padding:4px 6px; font-size:12px; font-weight:600; border-radius:8px}
 .bmatch{flex-wrap:wrap}
+/* los controles del partido van todos juntos en una sola fila propia (no se parten en 2 líneas) */
+.bmatch-actions{flex:0 0 100%; margin-top:3px; flex-wrap:wrap}
 .bmatch-mesa{flex-basis:100%; display:flex; align-items:center; gap:8px; margin-top:2px}
 .bmatch-mesa .mesa-sel{width:100%}
 .mesa-badge{flex:0 0 auto; background:#fff3e0; color:#8a5400; border:1px solid #ffd8a8; border-radius:999px; padding:2px 9px; font-size:12px; font-weight:700; white-space:nowrap}
@@ -396,6 +406,10 @@ ul.awarded li:last-child{border-bottom:0}
 
 /* ---------- torneos destacados ---------- */
 .tourn-card{position:relative}
+/* cards de torneo: clic en cualquier parte entra (los botones internos frenan la propagación) */
+.card.clickable{cursor:pointer; transition:box-shadow .15s ease, transform .08s ease, border-color .15s}
+.card.clickable:hover{box-shadow:0 10px 26px rgba(16,32,24,.14); border-color:#d3d9e0}
+.card.clickable:active{transform:translateY(1px)}
 .tourn-live{border-color:#e5484d; box-shadow:0 0 0 2px #e5484d, var(--shadow)}
 .t-badges{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px}
 .t-badge{font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; letter-spacing:.3px}
@@ -417,6 +431,15 @@ ul.awarded li:last-child{border-bottom:0}
 .cat-card-info{flex:1; min-width:0}
 .cat-card-name{font-weight:700; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .cat-card-meta{font-size:12px; color:var(--muted); margin-top:2px}
+/* contadores visibles sin expandir (inscriptos / pagaron / faltan) */
+.cat-card-counts{display:flex; gap:6px; flex-wrap:wrap; margin-top:5px}
+.cc-chip{font-size:11px; font-weight:700; padding:1px 8px; border-radius:999px; background:var(--bg); color:var(--muted); white-space:nowrap}
+.cc-chip.ok{background:#eaf7ee; color:#0a7d2c}
+.cc-chip.no{background:#fdecec; color:#c1121f}
+/* secciones de inscriptos (faltan pagar / pagaron) */
+.enr-sec-h{font-size:12px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin:14px 0 6px}
+.enr-sec:first-child .enr-sec-h{margin-top:4px}
+.enr-sec.paid{opacity:.9}
 .cat-card-actions{flex:0 0 auto; display:flex; gap:6px; align-items:center}
 .icon-btn{padding:6px 9px}
 .cat-card .champ{margin-top:10px}

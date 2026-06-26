@@ -2578,27 +2578,25 @@ function podiumBlockHtml(t) {
 }
 function upcomingCardHtml(t) {
   const live = isLiveTournament(t), gym = gymById(t.gymId), draft = !t.published;
-  return `<div class="card tourn-card${draft ? ' tourn-draft' : live ? ' tourn-live' : ''}">
+  const actions = `${draft && canEditT(t) ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar</button>` : ''}${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}`;
+  return `<div class="card tourn-card clickable${draft ? ' tourn-draft' : live ? ' tourn-live' : ''}" onclick="go('torneo:${t.id}')" title="${draft ? 'Editar torneo' : 'Ver torneo'}">
     ${(draft || live) ? `<div class="t-badges">${draft ? '<span class="t-badge draft">📝 Borrador</span>' : ''}${live ? '<span class="t-badge live">🔴 En vivo</span>' : ''}</div>` : ''}
     <h3 style="margin:0">${esc(t.name)}</h3>
     <div class="when">📅 ${dateRangeLabel(t)}</div>
     ${gym ? `<div class="when">📍 ${esc(gym.name)}</div>` : ''}
     <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span>${live ? `<span class="tag tag-live">${liveMatchesOf(t).length} en juego</span>` : ''}</div>
     ${podiumBlockHtml(t)}
-    <div class="row" style="margin-top:14px"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ ${draft ? 'Editar' : 'Ver'}</button>
-      ${draft && canEditT(t) ? `<button class="btn btn-primary btn-sm" onclick="publishTournament('${t.id}')">🚀 Publicar</button>` : ''}
-      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
+    ${actions ? `<div class="row" style="margin-top:14px" onclick="event.stopPropagation()">${actions}</div>` : ''}</div>`;
 }
 function pastCardHtml(t) {
   const gym = gymById(t.gymId), pod = podiumBlockHtml(t);
   const search = esc(`${t.name} ${gym ? gym.name : ''} ${dateRangeLabel(t)}`.toLowerCase());
-  return `<div class="card tourn-card-h tourn-old-card" data-search="${search}">
+  return `<div class="card tourn-card-h tourn-old-card clickable" data-search="${search}" onclick="go('torneo:${t.id}')" title="Ver torneo">
     <div class="th-main"><h3 style="margin:0">${esc(t.name)}</h3>
       <div class="when">📅 ${dateRangeLabel(t)}${gym ? ` · 📍 ${esc(gym.name)}` : ''}</div>
       <div class="tags"><span class="tag">${t.categorias.length} categoría(s)</span></div></div>
     <div class="th-podium">${pod || '<span class="muted">Sin resultados cargados</span>'}</div>
-    <div class="th-actions"><button class="btn btn-accent btn-sm" onclick="go('torneo:${t.id}')">👁️ Ver</button>
-      ${canEditT(t) ? `<button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button>` : ''}</div></div>`;
+    ${canEditT(t) ? `<div class="th-actions" onclick="event.stopPropagation()"><button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button></div>` : ''}</div>`;
 }
 function renderTournaments(app) {
   const oid = ctxOrgId(), sid = ctxSchoolId();
@@ -3174,11 +3172,17 @@ function renderTournament(app, tid) {
       catCost(c) > 0 ? `💲 ${money(catCost(c))}` : null,
       c.startAt ? `🕒 ${fmtStartAt(c.startAt)}` : null].filter(Boolean).join(' · ');
     const pay = (() => { const m = myPaymentStatus(c); return m ? `<div class="pay-line ${m.paid ? 'ok' : 'no'}">${m.paid ? '✅ Inscripción pagada' : `💲 Te falta pagar ${money(m.cost)}`}</div>` : ''; })();
+    // Resumen visible SIN expandir: inscriptos y (si la categoría tiene costo) cuántos pagaron / faltan.
+    const nEnr = c.entrants.length, nPaid = c.entrants.filter(e => e.paid).length;
+    const counts = catCost(c) > 0
+      ? `<span class="cc-chip">👥 ${nEnr}</span><span class="cc-chip ok">✅ ${nPaid} pagaron</span><span class="cc-chip no">💲 ${nEnr - nPaid} faltan</span>`
+      : `<span class="cc-chip">👥 ${nEnr} ${c.format === 'double' ? 'parejas' : 'inscriptos'}</span>`;
     return `<details class="cat-card">
       <summary class="cat-card-head">
         <span class="cat-ico">${c.format === 'double' ? '👥' : '👤'}</span>
         <div class="cat-card-info">
           <div class="cat-card-name">${esc(c.name)} <span class="t-badge ${stCls}">${st}</span></div>
+          <div class="cat-card-counts">${counts}</div>
         </div>
         <span class="cat-caret">▸</span>
       </summary>
@@ -3245,7 +3249,7 @@ function renderTournament(app, tid) {
     ${collabBanner}
     ${(collabNames.length || isAdmin()) ? `<p class="page-sub" style="margin:10px 0 0">🤝 Colaboradores: ${collabNames.length ? collabNames.map(esc).join(', ') : '<span class="muted">ninguno</span>'}</p>` : ''}
     ${suggestPanelHtml(t)}
-    ${liveHtml}
+    ${tournStarted(t) ? liveHtml : ''}
     <div class="section-head"><h2>Categorías (sub-torneos)</h2>${canEditT(t) ? `<button class="btn btn-primary" onclick="categoriaForm('${t.id}')">➕ Crear categoría</button>` : ''}</div>
     <div class="cat-list">${cards || '<div class="empty">Sin categorías. Creá una.</div>'}</div>`;
 }
@@ -3345,9 +3349,9 @@ function saveCategoryTime(tid, cid, clear) {
 function entrantsListHtml(cat) {
   if (!cat.entrants.length) return `<div class="empty">Todavía no hay ${cat.format === 'double' ? 'parejas' : 'jugadores'} inscriptos.</div>`;
   const u = currentUser(), myId = u && u.playerId;
-  const list = cat.entrants.slice().sort((a, b) => entName(cat, a.id).localeCompare(entName(cat, b.id)));
   const cost = catCost(cat), canPay = canEditCat(cat);
-  return list.map((e, i) => {
+  const byName = (a, b) => entName(cat, a.id).localeCompare(entName(cat, b.id));
+  const row = (e, n) => {
     const mine = myId && e.players.includes(myId);
     const p = playerById(e.players[0]);
     const sub = cat.format === 'double'
@@ -3358,10 +3362,16 @@ function entrantsListHtml(cat) {
       if (canPay) pay = `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`;
       else if (mine) pay = `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagaste' : `💲 Falta pagar ${money(cost)}`}</span>`;
     }
-    return `<div class="player-row"><span class="pos">${i + 1}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
+    return `<div class="player-row"><span class="pos">${n}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
       <div class="meta"><div class="name">${entLink(cat, e.id)}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
       <div class="sub">${sub}</div></div>${pay}</div>`;
-  }).join('');
+  };
+  // Sin costo → una sola lista. Con costo → arriba los que NO pagaron, abajo los que pagaron.
+  if (cost <= 0) { let n = 0; return cat.entrants.slice().sort(byName).map(e => row(e, ++n)).join(''); }
+  const unpaid = cat.entrants.filter(e => !e.paid).sort(byName), paid = cat.entrants.filter(e => e.paid).sort(byName);
+  let n = 0;
+  const sec = (title, arr, cls) => arr.length ? `<div class="enr-sec ${cls}"><div class="enr-sec-h">${title} <span class="muted">(${arr.length})</span></div>${arr.map(e => row(e, ++n)).join('')}</div>` : '';
+  return sec('💲 Falta pagar', unpaid, 'unpaid') + sec('✅ Pagaron', paid, 'paid');
 }
 function renderCategoria(app, tid, cid) {
   const t = tById(tid), cat = getCat(tid, cid);
@@ -3643,6 +3653,8 @@ function groupStandings(cat, gi) {
   return ids.map(id => s[id]).sort((x, y) => y.pg - x.pg || (y.sf - y.sc) - (x.sf - x.sc) || (y.pf - y.pc) - (x.pf - x.pc));
 }
 const groupStageComplete = cat => cat.matches && cat.matches.length > 0 && cat.matches.every(m => matchDone(m, cat));
+const _grpCollapsed = new Set(); // grupos colapsados (clave "catId:gi")
+function toggleGroup(cid, gi) { const k = cid + ':' + gi; if (_grpCollapsed.has(k)) _grpCollapsed.delete(k); else _grpCollapsed.add(k); render(); }
 function groupCardHtml(cat, gi) {
   const st = groupStandings(cat, gi);
   const head = `<li class="grp-head"><span>Jugador</span><span class="grp-stat">Ganados · Sets</span></li>`;
@@ -3657,17 +3669,21 @@ function groupCardHtml(cat, gi) {
       if (m.postponed) ctl = `<span class="post-tag">⏸ Aplazado</span>${startControl(cat, 'group', idx, null, null, m)}<button class="btn btn-ghost btn-sm" onclick="resumeMatch('${cat._tid}','${cat.id}',${idx})" title="Volver a la mesa de la zona">↩️</button>`;
       else if (zoneStarted) ctl = `<button class="btn btn-ghost btn-sm" onclick="postponeMatch('${cat._tid}','${cat.id}',${idx})" title="Aplazar: saca este partido de la mesa de la zona">⏸ Aplazar</button>`;
     }
+    // Todos los controles (Cargar / 🚷 / Aplazar / Iniciar) van juntos en una sola fila, así no se parten en dos líneas.
+    const actions = canEditCat(cat)
+      ? `<div class="bmatch-actions">${resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️')}${!done ? noShowBtn(cat, 'group', idx, null, null) : ''}${ctl}</div>`
+      : '';
     return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${entLink(cat, m.a)}</span>
       <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>${wo}
       <span class="${w === 'b' ? 'win' : ''}">${entLink(cat, m.b)}</span>
-      ${canEditCat(cat) ? resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️') : ''}
-      ${canEditCat(cat) && !done ? noShowBtn(cat, 'group', idx, null, null) : ''}
       ${done ? eloLabel(cat, m, m.a, m.b) : estStartLabel(m)}
-      ${ctl ? `<div class="bmatch-mesa">${ctl}</div>` : ''}</div>`;
+      ${actions}</div>`;
   }).join('');
   const zc = zoneControl(cat, gi);
-  return `<div class="group-card"><h4>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</h4>
-    ${zc ? `<div class="zone-bar">${zc}</div>` : ''}<ul>${rows}</ul><div class="matches">${ms}</div></div>`;
+  const key = cat.id + ':' + gi, collapsed = _grpCollapsed.has(key);
+  return `<div class="group-card${collapsed ? ' collapsed' : ''}">
+    <h4 onclick="toggleGroup('${cat.id}',${gi})">Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length} <span class="grp-caret">▾</span></h4>
+    <div class="group-body">${zc ? `<div class="zone-bar">${zc}</div>` : ''}<ul>${rows}</ul><div class="matches">${ms}</div></div></div>`;
 }
 
 /* ----- bracket ----- */
@@ -3837,7 +3853,11 @@ function matchEloOf(cat, mm, a, b) {
 // Etiqueta "+N / −N" al costado del partido (verde lo que sumó el ganador, rojo lo que perdió el perdedor).
 function eloLabel(cat, mm, a, b) {
   const e = matchEloOf(cat, mm, a, b); if (!e) return '';
-  return `<span class="elo-delta" title="El ganador suma +${e.n} y el perdedor pierde −${e.n} (se aplica al cerrar la categoría)"><span class="elo-up">+${e.n}</span><span class="elo-down">−${e.n}</span></span>`;
+  const w = matchWinnerSide(mm, cat); // ganador: 'a' (izq) | 'b' (der)
+  const up = `<span class="elo-up">+${e.n}</span>`, down = `<span class="elo-down">−${e.n}</span>`;
+  // El + (verde) va del lado del ganador: si ganó el de la derecha, queda a la derecha.
+  const inner = w === 'b' ? down + up : up + down;
+  return `<span class="elo-delta" title="El ganador suma +${e.n} y el perdedor pierde −${e.n} (se aplica al cerrar la categoría)">${inner}</span>`;
 }
 // Recorre todos los partidos de la categoría (grupos + llave + 3er puesto) con sus contendientes.
 function eachMatch(cat, cb) {
@@ -3924,6 +3944,7 @@ function go(v) { view = v; closeModal(); closeDrawer(); window.scrollTo(0, 0); r
 function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!d) return; const open = d.classList.toggle('open'); if (o) o.hidden = !open; }
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 function toggleRankGroup() { const g = $('#rankGroup'); if (g) g.classList.toggle('collapsed'); }
+function toggleNavGroup(el) { const g = el && el.closest('.nav-group'); if (g) g.classList.toggle('collapsed'); }
 // Expandir/colapsar una zona en "Partidos en vivo" (muestra sus partidos pendientes). Solo una abierta a la vez.
 function toggleLiveZone(el) {
   const wasOpen = el.classList.contains('expanded');
@@ -3934,7 +3955,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {

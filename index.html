@@ -49,7 +49,7 @@
     <nav class="nav" id="nav" hidden>
       <div id="ctxBar"></div>
       <div class="nav-group" id="rankGroup">
-        <button class="nav-grouphdr" type="button" onclick="toggleRankGroup()">🏆 Rankings <span class="ng-caret">▾</span></button>
+        <button class="nav-grouphdr" type="button" onclick="toggleNavGroup(this)">🏆 Rankings <span class="ng-caret">▾</span></button>
         <div class="nav-groupbody">
           <button data-view="ranking" class="nav-btn nav-sub active">🏆 Mi escuela</button>
           <button data-view="orgrank" class="nav-btn nav-sub">🌐 Organización</button>
@@ -60,17 +60,22 @@
       <button data-view="torneos" class="nav-btn">📅 Torneos</button>
       <button data-view="historial" class="nav-btn">📊 Historial</button>
       <button data-view="noticias" class="nav-btn news-only">📰 Noticias</button>
-      <button data-view="perfil" class="nav-btn profile-only">👤 Perfil</button>
-      <button data-view="jugadores" class="nav-btn admin-only">👥 Jugadores</button>
-      <button data-view="aprobaciones" class="nav-btn admin-only">🙋 Altas</button>
-      <button data-view="gimnasios" class="nav-btn admin-only">🏟️ Gimnasios</button>
-      <button data-view="categorias" class="nav-btn admin-only">🗂️ Categorías</button>
-      <button data-view="reportes" class="nav-btn">💲 Estado de pagos</button>
-      <button data-view="cuentas" class="nav-btn payments-only">💳 Cuentas de cobro</button>
-      <button data-view="pagos" class="nav-btn payments-only">🧾 Historial de pagos</button>
-      <button data-view="apariencia" class="nav-btn admin-only">🎨 Apariencia</button>
-      <button data-view="settings" class="nav-btn admin-only">⚙️ Ajustes</button>
       <button data-view="reglamento" class="nav-btn reglamento-link">📜 Reglamento</button>
+      <button data-view="perfil" class="nav-btn profile-only">👤 Mi perfil</button>
+      <div class="nav-group admin-only" id="adminGroup">
+        <button class="nav-grouphdr" type="button" onclick="toggleNavGroup(this)">🛠️ Administración <span class="ng-caret">▾</span></button>
+        <div class="nav-groupbody">
+          <button data-view="jugadores" class="nav-btn nav-sub">👥 Jugadores</button>
+          <button data-view="aprobaciones" class="nav-btn nav-sub">🙋 Altas</button>
+          <button data-view="gimnasios" class="nav-btn nav-sub">🏟️ Gimnasios</button>
+          <button data-view="categorias" class="nav-btn nav-sub">🗂️ Categorías</button>
+          <button data-view="reportes" class="nav-btn nav-sub">💲 Estado de pagos</button>
+          <button data-view="cuentas" class="nav-btn nav-sub payments-only">💳 Cuentas de cobro</button>
+          <button data-view="pagos" class="nav-btn nav-sub payments-only">🧾 Historial de pagos</button>
+          <button data-view="apariencia" class="nav-btn nav-sub">🎨 Apariencia</button>
+          <button data-view="settings" class="nav-btn nav-sub">⚙️ Ajustes</button>
+        </div>
+      </div>
     </nav>
     <div class="user-area" id="userArea"></div>
   </aside>
