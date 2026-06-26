@@ -1943,14 +1943,15 @@ function renderReportes(app) {
         <div><label>Agrupar por</label><select onchange="setReport('mode', this.value)"><option value="cat" ${reportMode === 'cat' ? 'selected' : ''}>Categoría</option><option value="persona" ${reportMode === 'persona' ? 'selected' : ''}>Persona</option></select></div>
         ${single ? `<div><label>Categoría</label><select onchange="setReport('cat', this.value)"><option value="">Todas</option>${single.categorias.filter(c => catCost(c) > 0).map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
       </div>
-      <label>Buscar persona</label><input class="report-search" placeholder="🔍 Filtrar por nombre…" oninput="reportFilterPerson(this)"/>
+      <label>Buscar persona</label>${reportPersonPickerHtml(tList, single)}
     </div>`;
-  // Entradas (una por inscripción a categoría con costo), aplicando filtros de torneo/categoría/estado.
+  // Entradas (una por inscripción a categoría con costo), aplicando TODOS los filtros (torneo/categoría/estado/persona).
   const entries = [];
   tList.forEach(t => (t.categorias || []).forEach(c => {
     if (catCost(c) <= 0) return;
     if (single && reportCat && c.id !== reportCat) return;
     c.entrants.forEach(e => {
+      if (reportPerson && !e.players.includes(reportPerson)) return; // filtro REAL por jugador (no solo visual)
       if (reportStatus === 'paid' && !e.paid) return;
       if (reportStatus === 'pending' && e.paid) return;
       entries.push({ tId: t.id, tour: t.name, date: t.date, cId: c.id, cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c), paid: !!e.paid, name: entName(c, e.id), pids: e.players.slice() });
@@ -1965,16 +1966,18 @@ function renderReportes(app) {
   const tag = e => `<span class="pay-tag ${e.paid ? 'ok' : 'no'}">${e.paid ? '✅ Pagado' : '💲 ' + money(e.cost)}</span>`;
   if (!entries.length) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">No hay inscripciones con costo para esos filtros.</div>`; return; }
   if (reportMode === 'cat') {
-    // Agrupar por torneo + categoría.
+    // Agrupar por torneo + categoría. Tarjeta colapsable con el TORNEO destacado y totales en el resumen.
     const groups = {};
     entries.forEach(e => { const k = e.tId + '|' + e.cId; (groups[k] = groups[k] || { tour: e.tour, cat: e.cat, cost: e.cost, items: [] }).items.push(e); });
     html += Object.values(groups).map(g => {
-      const pend = g.items.filter(i => !i.paid).length;
+      const pendN = g.items.filter(i => !i.paid).length, paidN = g.items.length - pendN;
       const rows = g.items.slice().sort((a, b) => a.name.localeCompare(b.name))
-        .map(e => `<div class="report-row" data-name="${esc(e.name).toLowerCase()}"><span>${esc(e.name)}</span>${tag(e)}</div>`).join('');
-      return `<div class="card" style="margin-top:14px"><div class="row spread"><h3 style="margin:0">${esc(g.cat)}</h3>
-        <span class="muted">🏆 ${esc(g.tour)} · ${money(g.cost)} c/u · pendiente ${money(pend * g.cost)}</span></div>
-        <div style="margin-top:10px">${rows}</div></div>`;
+        .map(e => `<div class="report-row"><span>${esc(e.name)}</span>${tag(e)}</div>`).join('');
+      return `<details class="card rep-card" open><summary class="rep-sum">
+          <div class="rep-info"><div class="rep-tour">🏆 ${esc(g.tour)}</div><div class="rep-cat">${esc(g.cat)} · ${money(g.cost)} c/u · ${g.items.length} inscriptos</div></div>
+          <span class="rep-tot">${pendN ? `<span class="pay-tag no">Pend ${money(pendN * g.cost)}</span>` : ''}${paidN ? `<span class="pay-tag ok">Pag ${money(paidN * g.cost)}</span>` : ''}</span>
+          <span class="cat-caret">▸</span></summary>
+        <div class="rep-body">${rows}</div></details>`;
     }).join('');
   } else {
     // Agrupar por persona (incluso a través de torneos). Cada inscripción se cuenta UNA sola vez:
@@ -1982,14 +1985,33 @@ function renderReportes(app) {
     const map = {};
     entries.forEach(e => {
       const owner = e.pids[0]; const p = playerById(owner); if (!p) return;
-      (map[owner] = map[owner] || { name: fullName(p), items: [], pend: 0 });
-      map[owner].items.push(e); if (!e.paid) map[owner].pend += e.cost;
+      (map[owner] = map[owner] || { name: fullName(p), items: [], pend: 0, paid: 0 });
+      map[owner].items.push(e); if (!e.paid) map[owner].pend += e.cost; else map[owner].paid += e.cost;
     });
-    html += Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(pe => `<div class="card report-person" data-name="${esc(pe.name).toLowerCase()}" style="margin-top:14px">
-        <div class="row spread"><h3 style="margin:0">${esc(pe.name)}</h3>${pe.pend ? `<span class="pay-tag no">Debe ${money(pe.pend)}</span>` : `<span class="pay-tag ok">Al día ✅</span>`}</div>
-        <div style="margin-top:8px">${pe.items.map(it => `<div class="report-row"><span>${esc(it.cat)} <span class="muted">· ${esc(it.tour)}</span></span>${tag(it)}</div>`).join('')}</div></div>`).join('');
+    html += Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(pe => `<details class="card rep-card report-person" open><summary class="rep-sum">
+        <div class="rep-info"><div class="rep-tour">${esc(pe.name)}</div><div class="rep-cat">${pe.items.length} inscripción${pe.items.length === 1 ? '' : 'es'}${pe.paid ? ` · pagado ${money(pe.paid)}` : ''}</div></div>
+        <span class="rep-tot">${pe.pend ? `<span class="pay-tag no">Debe ${money(pe.pend)}</span>` : `<span class="pay-tag ok">Al día ✅</span>`}</span>
+        <span class="cat-caret">▸</span></summary>
+      <div class="rep-body">${pe.items.map(it => `<div class="report-row"><span><b>🏆 ${esc(it.tour)}</b> <span class="muted">· ${esc(it.cat)}</span></span>${tag(it)}</div>`).join('')}</div></details>`).join('');
   }
   app.innerHTML = html;
+}
+// Buscador de persona con SELECCIÓN (no filtra solo visualmente: al elegir, recalcula los totales para esa persona).
+function reportPersonPickerHtml(tList, single) {
+  if (reportPerson) { const p = playerById(reportPerson); return `<div class="rp-sel">👤 <b>${esc(p ? fullName(p) : 'Jugador')}</b><button type="button" class="chip-x" onclick="setReportPerson('')" title="Quitar filtro">✕</button></div>`; }
+  const candMap = {};
+  tList.forEach(t => (t.categorias || []).forEach(c => { if (catCost(c) <= 0) return; if (single && reportCat && c.id !== reportCat) return; (c.entrants || []).forEach(e => e.players.forEach(pid => { const p = playerById(pid); if (p) candMap[pid] = p; })); }));
+  const cands = Object.values(candMap).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  const opts = cands.map(p => `<li class="rp-opt" data-name="${esc(fullName(p)).toLowerCase()}" onclick="setReportPerson('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('');
+  return `<div class="rp-picker"><input class="rp-search" placeholder="🔍 Escribí un nombre y elegilo de la lista…" autocomplete="off" oninput="rpFilter(this)"/>
+    <ul class="rp-results" id="rp-results" hidden>${opts || '<li class="muted" style="padding:8px 10px">Sin jugadores con inscripción paga.</li>'}</ul></div>`;
+}
+function setReportPerson(pid) { reportPerson = pid || ''; render(); }
+function rpFilter(inp) {
+  const q = (inp.value || '').trim().toLowerCase(), box = $('#rp-results'); if (!box) return;
+  let any = false;
+  box.querySelectorAll('.rp-opt').forEach(li => { const show = !!q && li.dataset.name.includes(q); li.style.display = show ? '' : 'none'; if (show) any = true; });
+  box.hidden = !any;
 }
 // Teléfono (solo dígitos, formato wa.me) del usuario logueado. Lo busca en la sesión, en su registro
 // de `users` (la sesión no arrastra el phone) o en su ficha de jugador. Devuelve null si no tiene.
@@ -4017,7 +4039,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
