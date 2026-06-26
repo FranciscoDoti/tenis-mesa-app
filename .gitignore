@@ -9,3 +9,7 @@ serviceAccountKey.json
 # Claves de service account / admin SDK de Firebase (NUNCA subir: el repo es público)
 *-firebase-adminsdk-*.json
 *serviceAccount*.json
+# Tokens / credenciales de Cloudflare (NUNCA subir)
+cloudflare_token.json
+cf-token.txt
+*cloudflare*token*
