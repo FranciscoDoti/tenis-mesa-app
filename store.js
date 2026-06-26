@@ -109,6 +109,7 @@
   STORE.resetPassword = async email => { email = email.trim(); try { await auth.sendPasswordResetEmail(email, { url: APP_URL }); } catch (e) { await auth.sendPasswordResetEmail(email); } };
   STORE.updatePassword = pwd => auth.currentUser.updatePassword(pwd);
   STORE.uid = () => auth.currentUser && auth.currentUser.uid;
+  STORE.idToken = () => auth.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null); // para autenticar llamadas al worker
   STORE.setPlayer = p => db.collection('players').doc(p.id).set(docFor('players', p));
   STORE.getUserDoc = async uid => { const d = await db.doc('users/' + uid).get(); return d.exists ? { uid, ...d.data() } : null; };
   STORE.setUserDoc = (uid, data) => db.doc('users/' + uid).set(data, { merge: true });

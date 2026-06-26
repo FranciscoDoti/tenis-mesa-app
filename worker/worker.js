@@ -37,6 +37,7 @@ export default {
     try {
       if (req.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'tenis-mesa pagos' });
       if (req.method === 'POST' && url.pathname === '/create-preference') return await createPreference(req, env, url);
+      if (req.method === 'POST' && url.pathname === '/create-account') return await createAccount(req, env);
       if (req.method === 'POST' && url.pathname === '/webhook') return await handleWebhook(req, env, url);
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -84,6 +85,71 @@ async function createPreference(req, env, url) {
   const data = await r.json();
   if (!r.ok) return json({ error: 'mercadopago', detail: data }, 502);
   return json({ init_point: data.init_point, id: data.id });
+}
+
+/* ---------- crear cuenta de acceso de un jugador (alta por admin) ----------
+   El admin no puede crear la cuenta desde el navegador (lo deslogearía). Acá:
+   1) verificamos que quien llama sea admin (su idToken + su rol en Firestore),
+   2) creamos la cuenta de Firebase Auth con una contraseña aleatoria,
+   3) escribimos el doc users/{uid} y el índice usernames/{username},
+   4) le mandamos un email de "poner contraseña" (PASSWORD_RESET). Completar ese
+      reset también deja el email VERIFICADO en Firebase.
+   Necesita el secret FIREBASE_API_KEY (la API key web pública del proyecto). */
+async function createAccount(req, env) {
+  const { idToken, email, name, playerId, username, orgId, schoolId } = await req.json();
+  if (!idToken || !email || !playerId) return json({ error: 'faltan datos' }, 400);
+  const apiKey = env.FIREBASE_API_KEY;
+  if (!apiKey) return json({ error: 'worker sin FIREBASE_API_KEY' }, 500);
+  // 1) ¿quien llama es admin? validamos su idToken y leemos su rol
+  let who; try { who = await idtPost(apiKey, 'accounts:lookup', { idToken }); } catch (e) { return json({ error: 'sesión inválida' }, 401); }
+  const adminUid = who.users && who.users[0] && who.users[0].localId;
+  if (!adminUid) return json({ error: 'sesión inválida' }, 401);
+  const token = await getAccessToken(env);
+  const role = await readUserRole(env, token, adminUid);
+  if (role !== 'admin' && role !== 'superadmin') return json({ error: 'no autorizado' }, 403);
+  // 2) crear la cuenta con contraseña aleatoria (no la conoce nadie; el jugador la fija por email)
+  let signUp;
+  try { signUp = await idtPost(apiKey, 'accounts:signUp', { email: String(email).trim(), password: randomPassword(), returnSecureToken: false }); }
+  catch (e) { return json({ error: e.message === 'EMAIL_EXISTS' ? 'Ya existe una cuenta con ese email.' : ('auth: ' + e.message) }, 400); }
+  const uid = signUp.localId;
+  // 3) doc de usuario + índice de username (campos nativos, como espera la app)
+  const S = v => ({ stringValue: String(v) });
+  await writeDoc(env, token, 'users/' + uid, {
+    role: S('player'), name: S(name || ''), playerId: S(playerId), email: S(email),
+    emailVerified: { booleanValue: false }, username: username ? S(username) : { nullValue: null },
+    orgId: orgId ? S(orgId) : { nullValue: null }, schoolId: schoolId ? S(schoolId) : { nullValue: null },
+  });
+  if (username) await writeDoc(env, token, 'usernames/' + String(username).toLowerCase(), { uid: S(uid), email: S(email) });
+  // 4) email para fijar la contraseña (al completarlo, el email queda verificado)
+  const oob = { requestType: 'PASSWORD_RESET', email: String(email).trim() };
+  if (env.APP_URL) oob.continueUrl = env.APP_URL;
+  try { await idtPost(apiKey, 'accounts:sendOobCode', oob); } catch (e) {}
+  return json({ ok: true, uid });
+}
+async function readUserRole(env, token, uid) {
+  const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/users/${uid}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return null;
+  const doc = await r.json();
+  return (doc.fields && doc.fields.role && doc.fields.role.stringValue) || null;
+}
+async function writeDoc(env, token, path, fields) {
+  const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/${path}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fields }),
+  });
+  return r.ok;
+}
+async function idtPost(apiKey, method, body) {
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/${method}?key=${apiKey}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error((d.error && d.error.message) || ('HTTP ' + r.status));
+  return d;
+}
+function randomPassword() {
+  const a = new Uint8Array(18); crypto.getRandomValues(a);
+  return 'Aa1!' + b64url(a); // larga y con complejidad mínima; el jugador la reemplaza
 }
 
 /* ---------- webhook: confirmar pago ---------- */

@@ -10,3 +10,4 @@ APP_URL = "https://FranciscoDoti.github.io/tenis-mesa-app/"
 #   wrangler secret put FIREBASE_PROJECT_ID
 #   wrangler secret put FIREBASE_CLIENT_EMAIL
 #   wrangler secret put FIREBASE_PRIVATE_KEY
+#   wrangler secret put FIREBASE_API_KEY    # API key web pública (firebase-config.js) — para crear cuentas/enviar emails de acceso

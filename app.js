@@ -1589,30 +1589,57 @@ function savePlayer(id) {
   if (!uname) { err('Elegí un usuario para el jugador (obligatorio).'); return; }
   if (!/^[a-z0-9._-]{3,20}$/.test(uname)) { err('El usuario: 3 a 20 caracteres (letras, números, . _ -).'); return; }
   if (usernameTaken(uname, id || null)) { err('Ese usuario ya está en uso, probá otro.'); return; }
-  const emailInp = $('#f_email');
+  const emailInp = $('#f_email'), emailEditable = emailInp && !emailInp.disabled;
   const data = { firstName: first, lastName: last, username: uname, dob: $('#f_dob').value || null, city: readCityField('f_city'), gender: ($('#f_gender') && $('#f_gender').value) || 'M', points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
-  if (emailInp && !emailInp.disabled) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
-  if (emailInp && !emailInp.disabled && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { const e = $('#ferr'); e.hidden = false; e.textContent = 'El email no es válido (ej: nombre@gmail.com).'; return; }
-  const phone = readPhoneField('f_phone'); // opcional para el admin, pero si lo carga tiene que ser válido
-  if (phone.error) { const e = $('#ferr'); e.hidden = false; e.textContent = phone.error; return; }
-  data.phone = phone.empty ? (id ? playerById(id).phone || null : null) : phone;
+  if (emailEditable) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
+  if (FB() && emailEditable && !data.email) { err('El email es obligatorio: con él se crea la cuenta de acceso del jugador.'); return; }
+  if (emailEditable && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { err('El email no es válido (ej: nombre@gmail.com).'); return; }
+  const phone = readPhoneField('f_phone'); // obligatorio (igual que en el registro de jugadores)
+  if (phone.empty) { err('Cargá el teléfono / WhatsApp del jugador.'); return; }
+  if (phone.error) { err(phone.error); return; }
+  data.phone = phone;
   let target;
   if (id) { target = Object.assign(playerById(id), data); } else { target = { id: uid('p_'), orgId: ctxOrgId(), schoolId: ctxSchoolId(), openPoints: 0, ...data }; DB.players.push(target); } // el admin solo da de alta en su escuela (contexto)
   syncCategory(target);  // categoría derivada de los puntos
   if (!FB()) {
     ensurePlayerUsers();   // modo local: crea la cuenta del jugador nuevo (con el usuario elegido)
     const acc = DB.users.find(u => u.playerId === target.id); if (acc && acc.username !== uname) acc.username = uname; // al editar, mantener la cuenta en sync
-  } else {
-    // Firebase: si el jugador ya tiene cuenta de acceso, reflejar el usuario en su doc y en el índice de login.
-    const acc = DB.users.find(u => u.playerId === target.id && u.uid);
+    save(DB); closeModal(); render(); return;
+  }
+  // ----- Firebase -----
+  const acc = DB.users.find(u => u.playerId === target.id && u.uid);
+  if (id) { // editar: si ya tiene cuenta, reflejar el usuario en su doc y en el índice de login
     if (acc && (acc.username || '').toLowerCase() !== uname) {
       const prev = acc.username; acc.username = uname;
       try { window.STORE.setUserDoc(acc.uid, { username: uname }); } catch (e) {}
       try { window.STORE.setUsername(uname, { uid: acc.uid, email: acc.email || null }); } catch (e) {}
       if (prev) { try { window.STORE.delUsername(prev); } catch (e) {} }
     }
+    save(DB); closeModal(); render(); return;
   }
+  // alta NUEVA: reservar el username (que nadie más lo elija) y crear la cuenta + invitación por email.
+  try { window.STORE.setUsername(uname, { playerId: target.id, email: data.email || null }); } catch (e) {}
   save(DB); closeModal(); render();
+  invitePlayerAccount(target); // async: crea la cuenta de acceso y manda el email para fijar contraseña
+}
+// Crea la cuenta de acceso del jugador y le manda un email para poner su contraseña (vía worker).
+// Completar ese reset también verifica el email (cubre la verificación). Si no hay worker, avisa.
+async function invitePlayerAccount(p) {
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  if (!p.email) { alert(`Jugador creado. Sin email no se puede crear la cuenta de acceso (cargá un email para invitarlo).`); return; }
+  if (!wurl) { alert(`Jugador creado. Para enviarle la invitación de acceso por email, configurá la URL del worker en Ajustes y volvé a guardar el jugador.`); return; }
+  try {
+    const idToken = await window.STORE.idToken();
+    const r = await fetch(wurl + '/create-account', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, email: p.email, name: fullName(p), playerId: p.id, username: p.username, orgId: p.orgId, schoolId: p.schoolId }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert('Jugador creado, pero no se pudo crear la cuenta de acceso: ' + (d.error || r.status) + '. Podés reintentarlo editando y guardando.'); return; }
+    alert(`✅ Cuenta creada. Le enviamos un email a ${p.email} para que ponga su contraseña (al hacerlo también queda verificado).`);
+  } catch (e) {
+    alert('Jugador creado, pero falló el envío de la invitación: ' + (e && e.message || e) + '.');
+  }
 }
 // Borra el doc de cuenta (users) en Firestore. La cuenta de Auth queda huérfana (se borra desde la consola).
 function dropUserDoc(playerId) {
