@@ -374,7 +374,7 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, mpWorkerUrl: '', matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
 // Ajustes con alcance por ESCUELA (los controla el admin de la escuela, afectan solo a sus miembros)
 // y por ORGANIZACIÓN (los controla el superadmin, afectan a todos los miembros de la organización).
 const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard'];
@@ -467,12 +467,13 @@ function applyTheme() {
   if (!draftPreview && loaded) cacheTheme(savedThemeOf());
 }
 
-let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], payAccounts: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
+let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], payAccounts: [], payments: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
 // Migraciones aditivas (no destructivas) sobre el DB ya cargado en memoria.
 function applyMigrations() {
   if (!DB.gyms) DB.gyms = defaultGyms();
   if (!DB.news) DB.news = [];
   if (!Array.isArray(DB.payAccounts)) DB.payAccounts = []; // cuentas de cobro (MercadoPago) por admin
+  if (!Array.isArray(DB.payments)) DB.payments = [];       // historial de pagos (lo escribe el Worker)
   // Organizaciones / escuelas (sistema multi-org). Datos viejos → Bariloche&DinaHuapi / escuela por localidad.
   if (!Array.isArray(DB.orgs) || !DB.orgs.length) DB.orgs = defaultOrgs();
   // logo por escuela (emoji por defecto si falta) + acumulador de puntos en torneos abiertos
@@ -774,6 +775,7 @@ function render() {
   if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
   if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
   if (view === 'cuentas') return (isAdmin() && setting('paymentsAllowed')) ? renderPayAccounts(app) : renderRanking(app);
+  if (view === 'pagos') return (isAdmin() && setting('paymentsAllowed')) ? renderPayHistory(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return setting('news') ? renderNoticias(app) : renderRanking(app);
   if (view === 'dobles') return renderDoublesRanking(app); // el menú ya se oculta si la feature está apagada
@@ -1926,6 +1928,12 @@ function renderSettings(app) {
       ${setting('paymentsAllowed') ? settingRow('💳 Pagos para inscripciones ' + schoolScope,
         'Cobrar la inscripción <b>online al anotarse</b> (con MercadoPago). La cuenta donde recibís la plata se configura en <b>💳 Cuentas de cobro</b> y se elige al crear cada torneo.<br>⚠️ <b>MercadoPago cobra una comisión (~3,7%) por cada pago recibido</b> — la podés trasladar al jugador. No hay cuotas ni costos fijos.',
         setting('paymentsEnabled'), 'togglePayments') : ''}
+      ${isSuperadmin() && setting('paymentsAllowed') ? `<div class="setting-row"><div class="setting-text" style="width:100%">
+        <div class="setting-name">🔗 URL del servicio de pagos ${orgScope}</div>
+        <div class="setting-desc">Pegá la URL del Worker de Cloudflare (la da <code>wrangler deploy</code>), ej: <code>https://tenis-mesa-pagos.tu-usuario.workers.dev</code>. Sin esto, el botón “Pagar ahora” no aparece.</div>
+        <div class="row" style="margin-top:8px"><input id="set_wurl" value="${esc(DB.settings.mpWorkerUrl || '')}" placeholder="https://...workers.dev"/>
+          <button class="btn btn-primary btn-sm" onclick="saveMpWorkerUrl()">Guardar</button></div>
+      </div></div>` : ''}
       ${settingRow('🕒 Horarios estimados de partidos ' + schoolScope,
         'Muestra una hora aproximada de comienzo de cada partido, estimada según la hora actual, el horario de cada categoría, la duración por cantidad de sets, las mesas disponibles y cómo vienen los partidos (con un margen de seguridad). Es una estimación.',
         setting('matchTimeEstimates'), 'toggleMatchTimes')}
@@ -1955,6 +1963,7 @@ function toggleSetting(key) {
 function toggleTableSuggestion() { toggleScopedSetting('tableSuggestion'); }
 function togglePayments() { toggleScopedSetting('paymentsEnabled'); }
 function togglePaymentsAllowed() { if (!isSuperadmin()) return; toggleScopedSetting('paymentsAllowed'); }
+function saveMpWorkerUrl() { if (!isSuperadmin()) return; if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS); DB.settings.mpWorkerUrl = ($('#set_wurl').value || '').trim(); save(DB); render(); }
 function toggleMatchTimes() { toggleScopedSetting('matchTimeEstimates'); }
 function toggleNews() { toggleScopedSetting('news'); }
 function toggleReglamento() { toggleScopedSetting('reglamento'); }
@@ -2046,6 +2055,38 @@ function delPayAccount(id) {
   if (!confirm(msg)) return;
   DB.payAccounts = (DB.payAccounts || []).filter(x => x.id !== id);
   save(DB); render();
+}
+// Inicia el pago online: pide la preferencia al Worker y redirige a MercadoPago.
+async function startPayment(tid, cid, entId) {
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  if (!wurl) { alert('Los pagos online todavía no están configurados. Avisале al organizador.'); return; }
+  try {
+    const r = await fetch(wurl + '/create-preference', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tournamentId: tid, categoryId: cid, entrantId: entId }),
+    });
+    const d = await r.json();
+    if (d && d.init_point) { location.href = d.init_point; return; }
+    alert('No se pudo iniciar el pago: ' + ((d && d.error) || 'error desconocido') + '. Probá de nuevo o avisале al organizador.');
+  } catch (e) { alert('No se pudo conectar con el servicio de pagos. Probá de nuevo en un rato.'); }
+}
+
+/* ---------- historial de pagos (admin / superadmin) ---------- */
+function renderPayHistory(app) {
+  const oid = ctxOrgId(), sid = ctxSchoolId();
+  // El admin ve los pagos de su escuela; el superadmin, los de la organización del contexto.
+  const list = (DB.payments || [])
+    .filter(p => isSuperadmin() ? p.orgId === oid : p.schoolId === sid)
+    .slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const fmtDate = s => { if (!s) return '—'; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); };
+  const rows = list.map(p => `<div class="player-row">
+    <div class="meta"><div class="name">${esc(p.payerName || p.playerName || p.payerEmail || 'Pago')}</div>
+      <div class="sub">${esc(p.tournamentName || '')}${p.categoryName ? ' · ' + esc(p.categoryName) : ''} · ${fmtDate(p.createdAt)}</div></div>
+    <span class="pay-tag ok">${money(p.amount)}</span></div>`).join('');
+  app.innerHTML = `<div class="page-title"><h1>🧾 Historial de pagos</h1></div>
+    <p class="page-sub">Pagos online aprobados${isSuperadmin() ? ` de ${esc(orgName(oid))}` : ` de ${esc(schoolName(oid, sid))}`}. ${list.length} pago(s) · total <b>${money(total)}</b>.</p>
+    ${list.length ? rows : '<div class="empty">Todavía no hay pagos registrados.</div>'}`;
 }
 
 /* ---------- noticias ---------- */
@@ -3171,7 +3212,15 @@ function renderCategoria(app, tid, cid) {
     </div>`;
   // Estado de pago del jugador logueado (si está inscripto y la categoría tiene costo)
   const mps = myPaymentStatus(cat);
-  if (mps) html += `<div class="banner ${mps.paid ? 'ok' : ''}" style="margin:12px 0">${mps.paid ? '✅ Ya pagaste tu inscripción a esta categoría.' : `💲 Te falta pagar la inscripción de esta categoría: <b>${money(mps.cost)}</b>.`}</div>`;
+  if (mps) {
+    let payBtn = '';
+    if (!mps.paid) {
+      const tt = tById(tid), myEnt = entrantOfPlayer(cat, (currentUser() || {}).playerId);
+      const wurl = (DB.settings && DB.settings.mpWorkerUrl) || '';
+      if (tt && tt.payAccountId && wurl && myEnt) payBtn = ` <button class="btn btn-accent btn-sm" style="margin-left:8px" onclick="startPayment('${tid}','${cat.id}','${myEnt.id}')">💳 Pagar ahora</button>`;
+    }
+    html += `<div class="banner ${mps.paid ? 'ok' : ''}" style="margin:12px 0">${mps.paid ? '✅ Ya pagaste tu inscripción a esta categoría.' : `💲 Te falta pagar la inscripción de esta categoría: <b>${money(mps.cost)}</b>.${payBtn}`}</div>`;
+  }
   // Resumen de pagos para admin/colaborador
   if (canEditCat(cat) && catCost(cat) > 0) {
     const paid = cat.entrants.filter(e => e.paid).length, pend = cat.entrants.length - paid;
@@ -3666,7 +3715,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
@@ -3689,7 +3738,7 @@ async function ensureData() {
     applyMigrations(); runDataMigrations();
     await window.STORE.sync(DB); window.STORE.primeLast(DB);
   } else {
-    DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, news: data.news || [], payAccounts: data.payAccounts || [], settings: data.settings || {} };
+    DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, news: data.news || [], payAccounts: data.payAccounts || [], payments: data.payments || [], settings: data.settings || {} };
     applyMigrations();
     DB.players.forEach(syncCategory);
     DB.tournaments.forEach(t => t.categorias.forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); })); // snapshot: la regla se fija al crear, no se re-deriva del catálogo

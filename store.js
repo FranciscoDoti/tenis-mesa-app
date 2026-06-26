@@ -41,15 +41,17 @@
     const paGet = auth.currentUser
       ? db.collection('payAccounts').where('ownerUid', '==', auth.currentUser.uid).get().catch(() => ({ docs: [] }))
       : Promise.resolve({ docs: [] });
-    const [pl, gy, to, ne, us, pa, st] = await Promise.all([
+    // payments: historial (lo escribe el Worker). Solo lo leen los admins; el jugador recibe [] sin romper.
+    const payGet = db.collection('payments').get().catch(() => ({ docs: [] }));
+    const [pl, gy, to, ne, us, pa, py, st] = await Promise.all([
       db.collection('players').get(), db.collection('gyms').get(), db.collection('tournaments').get(),
-      db.collection('news').get(), db.collection('users').get(), paGet, db.doc('app/settings').get(),
+      db.collection('news').get(), db.collection('users').get(), paGet, payGet, db.doc('app/settings').get(),
     ]);
     const parse = snap => snap.docs.map(d => JSON.parse(d.data().j));
     return {
       players: parse(pl), gyms: parse(gy), tournaments: parse(to), news: parse(ne),
       users: us.docs.map(d => ({ uid: d.id, ...d.data() })),
-      payAccounts: parse(pa),
+      payAccounts: parse(pa), payments: parse(py),
       settings: st.exists ? JSON.parse(st.data().j) : null,
       empty: pl.empty && gy.empty && to.empty,
     };

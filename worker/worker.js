@@ -1,0 +1,192 @@
+/*
+ * Cloudflare Worker — pasarela de pagos MercadoPago para la app de Tenis de Mesa.
+ *
+ * Qué hace (Opción 2, cobro online seguro y gratis, sin Blaze):
+ *  1) POST /create-preference  → crea una preferencia de pago de MercadoPago y devuelve el link.
+ *  2) POST /webhook            → MercadoPago avisa cuando un pago se aprueba; acá marcamos la
+ *                                inscripción como pagada en Firestore y guardamos el registro
+ *                                para el historial. ESTE es el paso que hace que se marque "solo".
+ *  3) GET  /                   → healthcheck.
+ *
+ * No usa firebase-admin (no corre en Workers): habla con Firestore por su API REST, autenticándose
+ * con una cuenta de servicio (JWT RS256 firmado con Web Crypto).
+ *
+ * Secrets que necesita (wrangler secret put NOMBRE):
+ *   FIREBASE_PROJECT_ID     - id del proyecto Firebase
+ *   FIREBASE_CLIENT_EMAIL   - client_email del JSON de la cuenta de servicio
+ *   FIREBASE_PRIVATE_KEY    - private_key del JSON (con los \n; pegalo tal cual)
+ * Var pública (wrangler.toml [vars]):
+ *   APP_URL                 - URL de la app (para volver tras pagar). Ej: https://tu-usuario.github.io/tenis-mesa-app/
+ *
+ * Los datos viven en Firestore como documentos { id, j: "<JSON>" } (igual que la app).
+ */
+
+const FS_BASE = pid => `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents`;
+const MP_API = 'https://api.mercadopago.com';
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
+
+export default {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+    if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    try {
+      if (req.method === 'GET' && url.pathname === '/') return json({ ok: true, service: 'tenis-mesa pagos' });
+      if (req.method === 'POST' && url.pathname === '/create-preference') return await createPreference(req, env, url);
+      if (req.method === 'POST' && url.pathname === '/webhook') return await handleWebhook(req, env, url);
+      return json({ error: 'not found' }, 404);
+    } catch (e) {
+      return json({ error: String(e && e.message || e) }, 500);
+    }
+  },
+};
+
+/* ---------- crear preferencia de pago ---------- */
+async function createPreference(req, env, url) {
+  const { tournamentId, categoryId, entrantId } = await req.json();
+  if (!tournamentId || !categoryId || !entrantId) return json({ error: 'faltan datos' }, 400);
+
+  const token = await getAccessToken(env);
+  const tournament = await readBlob(env, token, 'tournaments', tournamentId);
+  if (!tournament) return json({ error: 'torneo no encontrado' }, 404);
+  const cat = (tournament.categorias || []).find(c => c.id === categoryId);
+  if (!cat) return json({ error: 'categoría no encontrada' }, 404);
+  const amount = Number(cat.cost) || 0;
+  if (amount <= 0) return json({ error: 'la categoría no tiene costo' }, 400);
+  if (!tournament.payAccountId) return json({ error: 'el torneo no tiene cuenta de cobro' }, 400);
+
+  const acct = await readBlob(env, token, 'payAccounts', tournament.payAccountId);
+  if (!acct || !acct.token) return json({ error: 'cuenta de cobro sin token' }, 400);
+
+  const entrant = (cat.entrants || []).find(e => e.id === entrantId);
+  const title = `Inscripción ${cat.name} — ${tournament.name}`;
+  const self = `${url.protocol}//${url.host}`;
+  const appUrl = env.APP_URL || self;
+
+  // Llamada a MercadoPago con el token de ESA cuenta → la plata va a esa cuenta.
+  const pref = {
+    items: [{ title, quantity: 1, unit_price: amount, currency_id: 'ARS' }],
+    external_reference: `${tournamentId}|${categoryId}|${entrantId}`,
+    notification_url: `${self}/webhook?acct=${encodeURIComponent(tournament.payAccountId)}`,
+    back_urls: { success: appUrl, failure: appUrl, pending: appUrl },
+    auto_return: 'approved',
+    metadata: { tournamentId, categoryId, entrantId },
+  };
+  const r = await fetch(`${MP_API}/checkout/preferences`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${acct.token}` },
+    body: JSON.stringify(pref),
+  });
+  const data = await r.json();
+  if (!r.ok) return json({ error: 'mercadopago', detail: data }, 502);
+  return json({ init_point: data.init_point, id: data.id });
+}
+
+/* ---------- webhook: confirmar pago ---------- */
+async function handleWebhook(req, env, url) {
+  const acctId = url.searchParams.get('acct');
+  let body = {};
+  try { body = await req.json(); } catch (e) {}
+  // MP manda el id del pago de varias formas según la versión del webhook
+  const paymentId = (body.data && body.data.id) || url.searchParams.get('data.id') || body.id;
+  const type = body.type || url.searchParams.get('type');
+  if (type && type !== 'payment') return json({ ok: true, ignored: type });
+  if (!paymentId || !acctId) return json({ ok: true, note: 'sin paymentId/acct' });
+
+  const token = await getAccessToken(env);
+  const acct = await readBlob(env, token, 'payAccounts', acctId);
+  if (!acct || !acct.token) return json({ ok: true, note: 'cuenta no encontrada' });
+
+  // Verificamos el pago consultándolo a MP (no confiamos en el body crudo).
+  const pr = await fetch(`${MP_API}/v1/payments/${paymentId}`, { headers: { Authorization: `Bearer ${acct.token}` } });
+  const pay = await pr.json();
+  if (!pr.ok) return json({ ok: true, note: 'pago no consultable' });
+  if (pay.status !== 'approved') return json({ ok: true, status: pay.status });
+
+  const [tournamentId, categoryId, entrantId] = String(pay.external_reference || '').split('|');
+  if (!tournamentId || !categoryId || !entrantId) return json({ ok: true, note: 'sin external_reference' });
+
+  // Marca la inscripción como pagada (read-modify-write del blob del torneo).
+  const tournament = await readBlob(env, token, 'tournaments', tournamentId);
+  if (!tournament) return json({ ok: true, note: 'torneo no encontrado' });
+  const cat = (tournament.categorias || []).find(c => c.id === categoryId);
+  const entrant = cat && (cat.entrants || []).find(e => e.id === entrantId);
+  if (entrant) { entrant.paid = true; await writeBlob(env, token, 'tournaments', tournamentId, tournament); }
+
+  // Registro para el historial de pagos (idempotente: doc id = id del pago de MP).
+  const playerName = entrant ? (entrant._name || '') : '';
+  const record = {
+    id: 'mp_' + paymentId, mpPaymentId: String(paymentId), tournamentId, tournamentName: tournament.name || '',
+    categoryId, categoryName: (cat && cat.name) || '', entrantId, amount: Number(pay.transaction_amount) || 0,
+    status: 'approved', payerEmail: (pay.payer && pay.payer.email) || '', createdAt: pay.date_approved || new Date().toISOString(),
+    orgId: tournament.orgId || null, schoolId: tournament.schoolId || null,
+  };
+  await writeBlob(env, token, 'payments', record.id, record);
+  return json({ ok: true, marked: true });
+}
+
+/* ---------- Firestore REST (blobs { id, j }) ---------- */
+async function readBlob(env, token, coll, id) {
+  const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/${coll}/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return null;
+  const doc = await r.json();
+  const j = doc.fields && doc.fields.j && doc.fields.j.stringValue;
+  try { return j ? JSON.parse(j) : null; } catch (e) { return null; }
+}
+async function writeBlob(env, token, coll, id, obj) {
+  // Conserva los campos nativos que la app/reglas esperan, además del blob `j`.
+  const fields = { id: { stringValue: id }, j: { stringValue: JSON.stringify(obj) } };
+  if (coll === 'tournaments') {
+    fields.collaborators = { arrayValue: { values: (obj.collaborators || []).map(v => ({ stringValue: String(v) })) } };
+    fields.published = { booleanValue: !!obj.published };
+  }
+  if (coll === 'payments') {
+    if (obj.orgId) fields.orgId = { stringValue: obj.orgId };
+    if (obj.schoolId) fields.schoolId = { stringValue: obj.schoolId };
+  }
+  const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/${coll}/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fields }),
+  });
+  return r.ok;
+}
+
+/* ---------- auth: access token de la cuenta de servicio (JWT RS256) ---------- */
+let _cachedToken = null, _cachedExp = 0;
+async function getAccessToken(env) {
+  const now = Math.floor(Date.now() / 1000);
+  if (_cachedToken && now < _cachedExp - 60) return _cachedToken;
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claim = {
+    iss: env.FIREBASE_CLIENT_EMAIL,
+    scope: 'https://www.googleapis.com/auth/datastore',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now, exp: now + 3600,
+  };
+  const enc = o => b64url(new TextEncoder().encode(JSON.stringify(o)));
+  const unsigned = `${enc(header)}.${enc(claim)}`;
+  const key = await importKey(env.FIREBASE_PRIVATE_KEY);
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
+  const jwt = `${unsigned}.${b64url(new Uint8Array(sig))}`;
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+  const data = await r.json();
+  if (!data.access_token) throw new Error('no access_token: ' + JSON.stringify(data));
+  _cachedToken = data.access_token; _cachedExp = now + (data.expires_in || 3600);
+  return _cachedToken;
+}
+async function importKey(pem) {
+  const body = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s+/g, '');
+  const der = Uint8Array.from(atob(body), c => c.charCodeAt(0));
+  return crypto.subtle.importKey('pkcs8', der.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+}
+function b64url(bytes) {
+  let s = ''; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}

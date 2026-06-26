@@ -1,0 +1,12 @@
+name = "tenis-mesa-pagos"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# URL pública de la app (para volver después de pagar). Cambiala por la tuya.
+[vars]
+APP_URL = "https://FranciscoDoti.github.io/tenis-mesa-app/"
+
+# Los secrets NO van acá. Se cargan con:
+#   wrangler secret put FIREBASE_PROJECT_ID
+#   wrangler secret put FIREBASE_CLIENT_EMAIL
+#   wrangler secret put FIREBASE_PRIVATE_KEY

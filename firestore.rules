@@ -60,5 +60,12 @@ service cloud.firestore {
       allow create: if isAdmin() && request.resource.data.ownerUid == request.auth.uid;
       allow update, delete: if isAdmin() && resource.data.ownerUid == request.auth.uid;
     }
+
+    // Historial de pagos: lo escribe SOLO el backend (Worker, vía Admin SDK, que saltea reglas).
+    // Desde el cliente: lo leen los admins (la app filtra por escuela/organización); nadie lo escribe.
+    match /payments/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
   }
 }
