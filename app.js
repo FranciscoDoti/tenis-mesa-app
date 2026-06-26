@@ -374,11 +374,11 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
 // Ajustes con alcance por ESCUELA (los controla el admin de la escuela, afectan solo a sus miembros)
 // y por ORGANIZACIÓN (los controla el superadmin, afectan a todos los miembros de la organización).
 const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard'];
-const ORG_SETTING_KEYS = ['doublesRanking', 'schoolRanking'];
+const ORG_SETTING_KEYS = ['doublesRanking', 'schoolRanking', 'paymentsAllowed'];
 // Valor heredado (top-level de DB.settings) cuando una escuela/org no tiene override propio.
 function defaultSetting(key) { const s = DB.settings || {}; return key in s ? s[key] : DEFAULT_SETTINGS[key]; }
 // Bolsa de ajustes de una escuela/org. Viven DENTRO de DB.settings para que sincronicen con app/settings.
@@ -467,11 +467,12 @@ function applyTheme() {
   if (!draftPreview && loaded) cacheTheme(savedThemeOf());
 }
 
-let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
+let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], payAccounts: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
 // Migraciones aditivas (no destructivas) sobre el DB ya cargado en memoria.
 function applyMigrations() {
   if (!DB.gyms) DB.gyms = defaultGyms();
   if (!DB.news) DB.news = [];
+  if (!Array.isArray(DB.payAccounts)) DB.payAccounts = []; // cuentas de cobro (MercadoPago) por admin
   // Organizaciones / escuelas (sistema multi-org). Datos viejos → Bariloche&DinaHuapi / escuela por localidad.
   if (!Array.isArray(DB.orgs) || !DB.orgs.length) DB.orgs = defaultOrgs();
   // logo por escuela (emoji por defecto si falta) + acumulador de puntos en torneos abiertos
@@ -730,6 +731,7 @@ function renderChrome() {
   document.querySelectorAll('.doubles-only').forEach(el => el.hidden = !(u && setting('doublesRanking'))); // Ranking de dobles según la organización
   document.querySelectorAll('.schoolrank-only').forEach(el => el.hidden = !(u && setting('schoolRanking'))); // Ranking de escuelas: según la organización
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
+  document.querySelectorAll('.payments-only').forEach(el => el.hidden = !(u && isAdmin() && setting('paymentsAllowed'))); // Cuentas de cobro: admin y si la organización habilitó pagos
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
   const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
   if (altas) { const n = scopedPending().length; altas.innerHTML = `🙋 Altas${n ? ` <span class="navcount">${n}</span>` : ''}`; }
@@ -771,6 +773,7 @@ function render() {
   if (view === 'apariencia') return isAdmin() ? renderAppearance(app) : renderRanking(app);
   if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
   if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
+  if (view === 'cuentas') return (isAdmin() && setting('paymentsAllowed')) ? renderPayAccounts(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return setting('news') ? renderNoticias(app) : renderRanking(app);
   if (view === 'dobles') return renderDoublesRanking(app); // el menú ya se oculta si la feature está apagada
@@ -1917,9 +1920,12 @@ function renderSettings(app) {
       ${settingRow('🏓 Sugerencia de mesas ' + schoolScope + ' ' + infoTip(TABLE_SUGGEST_HELP),
         'Sugiere a admin y colaboradores qué zona o llave largar en cada mesa libre del torneo, por orden de prioridad. Tocá la ℹ️ para ver todas las reglas.',
         setting('tableSuggestion'), 'toggleTableSuggestion')}
-      ${settingRow('💳 Pagos para inscripciones ' + schoolScope,
-        'Permitir cobrar la inscripción a los torneos al anotarse. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
-        setting('paymentsEnabled'), 'togglePayments')}
+      ${isSuperadmin() ? settingRow('💳 Pagos online (habilitar para la organización) ' + orgScope,
+        'Permite que los admins de esta organización puedan cobrar inscripciones online con MercadoPago. Si lo apagás, los admins <b>ni ven</b> la opción de pagos ni la sección de cuentas de cobro.',
+        setting('paymentsAllowed'), 'togglePaymentsAllowed') : ''}
+      ${setting('paymentsAllowed') ? settingRow('💳 Pagos para inscripciones ' + schoolScope,
+        'Cobrar la inscripción <b>online al anotarse</b> (con MercadoPago). La cuenta donde recibís la plata se configura en <b>💳 Cuentas de cobro</b> y se elige al crear cada torneo.<br>⚠️ <b>MercadoPago cobra una comisión (~3,7%) por cada pago recibido</b> — la podés trasladar al jugador. No hay cuotas ni costos fijos.',
+        setting('paymentsEnabled'), 'togglePayments') : ''}
       ${settingRow('🕒 Horarios estimados de partidos ' + schoolScope,
         'Muestra una hora aproximada de comienzo de cada partido, estimada según la hora actual, el horario de cada categoría, la duración por cantidad de sets, las mesas disponibles y cómo vienen los partidos (con un margen de seguridad). Es una estimación.',
         setting('matchTimeEstimates'), 'toggleMatchTimes')}
@@ -1948,12 +1954,99 @@ function toggleSetting(key) {
 }
 function toggleTableSuggestion() { toggleScopedSetting('tableSuggestion'); }
 function togglePayments() { toggleScopedSetting('paymentsEnabled'); }
+function togglePaymentsAllowed() { if (!isSuperadmin()) return; toggleScopedSetting('paymentsAllowed'); }
 function toggleMatchTimes() { toggleScopedSetting('matchTimeEstimates'); }
 function toggleNews() { toggleScopedSetting('news'); }
 function toggleReglamento() { toggleScopedSetting('reglamento'); }
 function togglePlayerCard() { toggleScopedSetting('playerCard'); }
 function toggleDoublesRanking() { if (!isSuperadmin()) return; toggleScopedSetting('doublesRanking'); }
 function toggleSchoolRanking() { if (!isSuperadmin()) return; toggleScopedSetting('schoolRanking'); }
+
+/* ---------- cuentas de cobro (MercadoPago) ---------- */
+// ¿La feature de pagos está habilitada por el superadmin para la org del que mira?
+const paymentsOn = () => !!setting('paymentsAllowed');
+// ¿La cuenta es del usuario actual? El token es secreto: cada admin (incluido el superadmin) ve solo las
+// suyas. Empareja por uid (Firebase) o username (local).
+function ownsPayAccount(a) { const u = currentUser(); if (!u) return false; return !!((u.uid && a.ownerUid === u.uid) || (u.username && a.ownerUsername === u.username)); }
+// Cuentas de cobro visibles/usables por el usuario actual (las suyas; el superadmin, todas).
+const myPayAccounts = () => (DB.payAccounts || []).filter(ownsPayAccount);
+const payAccountById = id => (DB.payAccounts || []).find(a => a.id === id) || null;
+// <option>s de cuentas para el dropdown de torneo (con la opción "sin cobro online").
+function payAccountOptions(selId) {
+  const opts = myPayAccounts().map(a => `<option value="${a.id}" ${a.id === selId ? 'selected' : ''}>${esc(a.name)}${a.test ? ' (prueba)' : ''}</option>`).join('');
+  return `<option value="" ${!selId ? 'selected' : ''}>— Sin cobro online (se paga aparte) —</option>` + opts;
+}
+// Bloque de ayuda con los pasos para sacar el Access Token de MercadoPago.
+function mpHelpHtml() {
+  return `<details class="card" style="max-width:680px;margin-bottom:16px">
+    <summary style="cursor:pointer;font-weight:700">❓ ¿Cómo obtengo el “Access Token” de MercadoPago? (se hace una sola vez)</summary>
+    <div style="margin-top:10px;font-size:14px;line-height:1.7">
+      <p style="margin:0 0 8px">El <b>Access Token</b> es la “llave” que permite que la app cobre y que la plata vaya <b>directo a tu cuenta de MercadoPago</b>. Se carga una vez y queda. Es <b>secreto</b>: no lo compartas con nadie.</p>
+      <ol style="margin:0;padding-left:20px">
+        <li>Entrá a <b>mercadopago.com.ar</b> e iniciá sesión con la cuenta donde querés <b>recibir la plata</b>.</li>
+        <li>Abrí el <b>Panel de desarrolladores</b>: <code>mercadopago.com.ar/developers/panel</code> (o desde el menú: <i>Tu negocio → Configuración → Credenciales</i>).</li>
+        <li>Tocá <b>“Crear aplicación”</b>, ponele un nombre cualquiera (ej. “Tenis de Mesa”) y elegí el tipo <b>Pagos online / Checkout Pro</b>. Si ya tenés una creada, usala.</li>
+        <li>Entrá a esa aplicación → sección <b>“Credenciales de producción”</b>.</li>
+        <li>Copiá el valor de <b>“Access Token”</b> (empieza con <code>APP_USR-</code>).</li>
+        <li>Volvé acá, tocá <b>“Agregar cuenta”</b> y pegalo. ¡Listo!</li>
+      </ol>
+      <p style="margin:8px 0 0" class="muted">💡 Si querés <b>probar sin cobrar de verdad</b>, usá las “Credenciales de prueba” (el token empieza con <code>TEST-</code>).</p>
+      <p style="margin:8px 0 0" class="muted">⚠️ MercadoPago descuenta una <b>comisión (~3,7%)</b> de cada pago recibido. No hay cuotas ni costos fijos.</p>
+    </div>
+  </details>`;
+}
+function renderPayAccounts(app) {
+  const list = myPayAccounts();
+  const rows = list.length ? list.map(a => `<div class="player-row">
+    <div class="meta"><div class="name">💳 ${esc(a.name)}${a.test ? ' <span class="wo-tag">prueba</span>' : ''}</div>
+      <div class="sub">${a.holder ? '👤 ' + esc(a.holder) + ' · ' : ''}token ••••${esc(String(a.token || '').slice(-4))}${isSuperadmin() && a.ownerUsername ? ' · 👮 ' + esc(a.ownerUsername) : ''}</div></div>
+    <button class="btn btn-ghost btn-sm" onclick="payAccountForm('${a.id}')">✏️</button>
+    <button class="btn btn-ghost btn-sm" onclick="delPayAccount('${a.id}')">🗑️</button></div>`).join('') : '<div class="empty">Todavía no cargaste ninguna cuenta de cobro.</div>';
+  app.innerHTML = `<div class="section-head"><div class="page-title"><h1>💳 Cuentas de cobro</h1></div>
+    <button class="btn btn-primary" onclick="payAccountForm()">➕ Agregar cuenta</button></div>
+    <p class="page-sub">Cuentas de MercadoPago donde recibís la plata de las inscripciones. Al crear un torneo elegís cuál usar. <b>Solo vos ves las tuyas.</b></p>
+    ${mpHelpHtml()}
+    ${rows}`;
+}
+function payAccountForm(id) {
+  const a = id ? payAccountById(id) : { name: '', holder: '', token: '' };
+  if (id && !ownsPayAccount(a)) return;
+  openModal(`<h3>${id ? 'Editar' : 'Agregar'} cuenta de cobro</h3>
+    <label>Nombre <span class="muted">(para identificarla)</span></label><input id="pa_name" value="${esc(a.name || '')}" placeholder="Ej: Cuenta del club"/>
+    <label>Titular <span class="muted">(opcional)</span></label><input id="pa_holder" value="${esc(a.holder || '')}" placeholder="Nombre del titular de la cuenta"/>
+    <label>Access Token de MercadoPago</label>
+    <input id="pa_token" value="${esc(a.token || '')}" placeholder="APP_USR-..." autocomplete="off" spellcheck="false"/>
+    <p class="hint" style="margin-top:6px">¿No sabés de dónde sacarlo? Cerrá esto y mirá <b>“¿Cómo obtengo el Access Token?”</b> en la sección. Es secreto: solo lo ves vos.</p>
+    <div id="pa_err" class="banner" hidden></div>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePayAccount('${id || ''}')">Guardar</button></div>`);
+}
+function savePayAccount(id) {
+  const e = $('#pa_err'), fail = m => { e.hidden = false; e.textContent = m; };
+  const name = $('#pa_name').value.trim(), holder = $('#pa_holder').value.trim(), token = $('#pa_token').value.trim();
+  if (!name) return fail('Ponele un nombre a la cuenta.');
+  if (!token) return fail('Pegá el Access Token de MercadoPago.');
+  if (!/^(APP_USR-|TEST-)/.test(token)) return fail('El Access Token no parece válido (debe empezar con APP_USR- o TEST-).');
+  const test = /^TEST-/.test(token);
+  if (id) {
+    const a = payAccountById(id); if (!a || !ownsPayAccount(a)) return;
+    Object.assign(a, { name, holder: holder || null, token, test });
+  } else {
+    const u = currentUser() || {};
+    DB.payAccounts.push({ id: uid('pa_'), name, holder: holder || null, token, test, ownerUid: u.uid || null, ownerUsername: u.username || null, orgId: ctxOrgId(), schoolId: ctxSchoolId() });
+  }
+  save(DB); closeModal(); render();
+}
+function delPayAccount(id) {
+  const a = payAccountById(id); if (!a || !ownsPayAccount(a)) return;
+  const used = (DB.tournaments || []).filter(t => t.payAccountId === id).map(t => t.name);
+  const msg = used.length
+    ? `Esta cuenta la usan ${used.length} torneo(s): ${used.join(', ')}. Si la borrás, esos torneos quedan sin cobro online. ¿Borrar igual?`
+    : `¿Borrar la cuenta de cobro “${a.name}”?`;
+  if (!confirm(msg)) return;
+  DB.payAccounts = (DB.payAccounts || []).filter(x => x.id !== id);
+  save(DB); render();
+}
 
 /* ---------- noticias ---------- */
 const newsBodyHtml = body => esc(body || '').replace(/\n/g, '<br>');
@@ -2383,6 +2476,9 @@ function tournamentForm() {
     <label>Lugar (gimnasio)</label>
     <select id="t_gym">${(DB.gyms || []).length ? (DB.gyms || []).map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('') : '<option value="">— sin gimnasios cargados —</option>'}</select>
     <p class="hint" style="margin-top:4px">¿Falta un gimnasio? Agregalo en la sección <b>🏟️ Gimnasios</b>.</p>
+    ${(setting('paymentsAllowed') && setting('paymentsEnabled')) ? `<label>Cuenta de cobro <span class="muted">(MercadoPago)</span></label>
+    <select id="t_payacct">${payAccountOptions((myPayAccounts()[0] || {}).id)}</select>
+    <p class="hint" style="margin-top:4px">${myPayAccounts().length ? 'A esta cuenta entra la plata de las inscripciones de este torneo. La gestionás en <b>💳 Cuentas de cobro</b>.' : '⚠️ No tenés cuentas cargadas. Agregá una en <b>💳 Cuentas de cobro</b> para poder cobrar online.'}</p>` : ''}
     <label>Categorías del torneo</label>
     <p class="hint" style="margin-top:0">Marcá las que se jueguen. Heredan las reglas del catálogo global (formato, sets, grupos, puntos) — las gestiona el admin en <b>🗂️ Categorías</b> y podés ajustarlas por torneo después.</p>
     <div class="catgrid">${checks}</div>
@@ -2409,7 +2505,8 @@ function saveTournament() {
   let schoolId = ($('#t_school') && $('#t_school').value) || ctxSchoolId();
   if (!schoolById(orgId, schoolId)) schoolId = ((orgById(orgId) || {}).schools || [{}])[0].id; // coherencia org/escuela
   const open = (($('#t_open') && $('#t_open').value) || 'open') === 'open';
-  const data = { name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, orgId, schoolId, open, categorias };
+  const payAccountId = ($('#t_payacct') && $('#t_payacct').value) || null;
+  const data = { name, date, dateEnd, gymId: ($('#t_gym').value || null), tableCount, collaborators, orgId, schoolId, open, payAccountId, categorias };
   // Advertencia si ya hay un torneo de la misma org/escuela en esas fechas.
   const conflicts = tournamentDateConflicts(data);
   if (conflicts.length) {
@@ -3569,7 +3666,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
@@ -3592,7 +3689,7 @@ async function ensureData() {
     applyMigrations(); runDataMigrations();
     await window.STORE.sync(DB); window.STORE.primeLast(DB);
   } else {
-    DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, news: data.news || [], settings: data.settings || {} };
+    DB = { players: data.players, gyms: data.gyms, tournaments: data.tournaments, users: data.users, news: data.news || [], payAccounts: data.payAccounts || [], settings: data.settings || {} };
     applyMigrations();
     DB.players.forEach(syncCategory);
     DB.tournaments.forEach(t => t.categorias.forEach(c => { if (!c.rule) c.rule = catalogRule(c.name); })); // snapshot: la regla se fija al crear, no se re-deriva del catálogo

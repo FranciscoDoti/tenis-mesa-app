@@ -51,5 +51,14 @@ service cloud.firestore {
       allow write: if isAdmin() || (signedIn() && myPlayerId() in resource.data.collaborators);
       allow create: if isAdmin();
     }
+
+    // Cuentas de cobro (MercadoPago): el token es SECRETO. Solo el admin dueño puede leer/escribir
+    // las suyas (las consultas de la app van scopeadas por ownerUid). Los jugadores no acceden.
+    // El backend (Cloudflare Worker) usa el Admin SDK y saltea estas reglas para crear el pago.
+    match /payAccounts/{id} {
+      allow read:   if isAdmin() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isAdmin() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isAdmin() && resource.data.ownerUid == request.auth.uid;
+    }
   }
 }

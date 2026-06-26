@@ -23,24 +23,33 @@
      blob JSON (Firestore no admite arrays anidados como los sets/brackets).
      Los torneos llevan además `collaborators` y `published` como campos nativos
      para que las reglas de seguridad puedan leerlos. La colección users es nativa. */
-  const BLOBS = ['players', 'gyms', 'tournaments', 'news'];
+  const BLOBS = ['players', 'gyms', 'tournaments', 'news', 'payAccounts'];
   const strip = o => JSON.parse(JSON.stringify(o, (k, v) => (k.startsWith('_') ? undefined : v)));
   const docFor = (coll, o) => {
     const clean = strip(o);
     const d = { id: o.id, j: JSON.stringify(clean) };
     if (coll === 'tournaments') { d.collaborators = clean.collaborators || []; d.published = !!clean.published; }
+    // Cuentas de cobro: dueño/escuela como campos nativos para que las reglas restrinjan la lectura
+    // (el token de MercadoPago es secreto: solo el dueño/superadmin y el Worker deben poder leerlo).
+    if (coll === 'payAccounts') { d.ownerUid = clean.ownerUid || null; d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
     return d;
   };
 
   STORE.loadAll = async function () {
-    const [pl, gy, to, ne, us, st] = await Promise.all([
+    // payAccounts: el token es secreto → cada uno lee SOLO las suyas (consulta scopeada por dueño).
+    // Tolerante a fallo: un jugador no tiene permiso y debe recibir [] sin romper la carga.
+    const paGet = auth.currentUser
+      ? db.collection('payAccounts').where('ownerUid', '==', auth.currentUser.uid).get().catch(() => ({ docs: [] }))
+      : Promise.resolve({ docs: [] });
+    const [pl, gy, to, ne, us, pa, st] = await Promise.all([
       db.collection('players').get(), db.collection('gyms').get(), db.collection('tournaments').get(),
-      db.collection('news').get(), db.collection('users').get(), db.doc('app/settings').get(),
+      db.collection('news').get(), db.collection('users').get(), paGet, db.doc('app/settings').get(),
     ]);
     const parse = snap => snap.docs.map(d => JSON.parse(d.data().j));
     return {
       players: parse(pl), gyms: parse(gy), tournaments: parse(to), news: parse(ne),
       users: us.docs.map(d => ({ uid: d.id, ...d.data() })),
+      payAccounts: parse(pa),
       settings: st.exists ? JSON.parse(st.data().j) : null,
       empty: pl.empty && gy.empty && to.empty,
     };
