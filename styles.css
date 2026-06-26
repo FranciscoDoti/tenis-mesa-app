@@ -671,3 +671,8 @@ textarea:focus{outline:2px solid var(--table); outline-offset:0; border-color:va
 .cc-zafiro{background:linear-gradient(135deg,#2a6fdb,#143f86)}
 .cc-esmeralda{background:linear-gradient(135deg,#22a566,#0f6038)}
 .cc-onix{background:linear-gradient(135deg,#3a3d45,#0a0b0e); color:#ffd87a}
+
+/* ---------- ajustes: alcance escuela / organización ---------- */
+.scope-tag{display:inline-block; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; vertical-align:middle; letter-spacing:.2px}
+.scope-school{background:#e7f0ff; color:#2a6fdb}
+.scope-org{background:#fde9d2; color:#b5630e}

@@ -367,8 +367,37 @@ const FONTS = {
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
 const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
-// La carta tipo FUT del perfil está activa salvo que el admin la apague (default: encendida).
-const cardEnabled = () => !DB.settings || DB.settings.playerCard !== false;
+// Ajustes con alcance por ESCUELA (los controla el admin de la escuela, afectan solo a sus miembros)
+// y por ORGANIZACIÓN (los controla el superadmin, afectan a todos los miembros de la organización).
+const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard'];
+const ORG_SETTING_KEYS = ['doublesRanking', 'schoolRanking'];
+// Valor heredado (top-level de DB.settings) cuando una escuela/org no tiene override propio.
+function defaultSetting(key) { const s = DB.settings || {}; return key in s ? s[key] : DEFAULT_SETTINGS[key]; }
+// Bolsa de ajustes de una escuela/org. Viven DENTRO de DB.settings para que sincronicen con app/settings.
+function settingsBag(scope, id, create) {
+  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
+  const rootKey = scope === 'org' ? 'orgs' : 'schools';
+  const root = DB.settings[rootKey] || (create ? (DB.settings[rootKey] = {}) : null);
+  if (!root || !id) return null;
+  if (!root[id] && create) root[id] = {};
+  return root[id] || null;
+}
+// Lectura EFECTIVA de un ajuste para quien está mirando: su escuela/org (el superadmin usa el contexto elegido).
+function setting(key) {
+  if (ORG_SETTING_KEYS.includes(key)) { const b = settingsBag('org', ctxOrgId()); return b && key in b ? b[key] : defaultSetting(key); }
+  if (SCHOOL_SETTING_KEYS.includes(key)) { const b = settingsBag('school', ctxSchoolId()); return b && key in b ? b[key] : defaultSetting(key); }
+  return defaultSetting(key);
+}
+// Alterna un ajuste con alcance de escuela u organización (según la clave) y re-renderiza.
+function toggleScopedSetting(key) {
+  const org = ORG_SETTING_KEYS.includes(key);
+  const id = org ? ctxOrgId() : ctxSchoolId(); if (!id) return;
+  const bag = settingsBag(org ? 'org' : 'school', id, true);
+  const cur = key in bag ? bag[key] : defaultSetting(key);
+  bag[key] = !cur; save(DB); render();
+}
+// La carta tipo FUT del perfil está activa salvo que el admin de la escuela la apague (default: encendida).
+const cardEnabled = () => setting('playerCard') !== false;
 // Borrador de tema mientras el admin edita Apariencia (null = sin cambios pendientes).
 // La vista previa usa el borrador; el sitio recién cambia para todos al "Publicar".
 let themeDraft = null;
@@ -687,9 +716,9 @@ function renderChrome() {
   document.querySelectorAll('.admin-only').forEach(el => el.hidden = !isAdmin());
   document.querySelectorAll('.superadmin-only').forEach(el => el.hidden = !isSuperadmin());
   document.querySelectorAll('.profile-only').forEach(el => el.hidden = !(u && u.playerId)); // Perfil solo para cuentas de jugador
-  document.querySelectorAll('.news-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.news)); // Noticias solo si la feature está activa
-  document.querySelectorAll('.doubles-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.doublesRanking)); // Ranking de dobles según feature
-  document.querySelectorAll('.schoolrank-only').forEach(el => el.hidden = !(u && DB.settings && DB.settings.schoolRanking)); // Ranking de escuelas: lo ven TODOS si el superadmin lo habilitó
+  document.querySelectorAll('.news-only').forEach(el => el.hidden = !(u && setting('news'))); // Noticias solo si la escuela la activó
+  document.querySelectorAll('.doubles-only').forEach(el => el.hidden = !(u && setting('doublesRanking'))); // Ranking de dobles según la organización
+  document.querySelectorAll('.schoolrank-only').forEach(el => el.hidden = !(u && setting('schoolRanking'))); // Ranking de escuelas: según la organización
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
   const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
@@ -725,7 +754,7 @@ function render() {
   if (!currentUser()) return renderLogin(app);
   if (view === 'ranking') return renderRanking(app);
   if (view === 'orgrank') return renderOrgRanking(app);
-  if (view === 'schools') return DB.settings.schoolRanking ? renderSchoolRanking(app) : renderRanking(app);
+  if (view === 'schools') return setting('schoolRanking') ? renderSchoolRanking(app) : renderRanking(app);
   if (view === 'jugadores') return isAdmin() ? renderPlayers(app) : renderRanking(app);
   if (view === 'gimnasios') return isAdmin() ? renderGyms(app) : renderRanking(app);
   if (view === 'settings') return isAdmin() ? renderSettings(app) : renderRanking(app);
@@ -733,7 +762,7 @@ function render() {
   if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
   if (view === 'reportes') return isAdmin() ? renderReportes(app) : renderRanking(app);
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
-  if (view === 'noticias') return DB.settings.news ? renderNoticias(app) : renderRanking(app);
+  if (view === 'noticias') return setting('news') ? renderNoticias(app) : renderRanking(app);
   if (view === 'dobles') return renderDoublesRanking(app); // el menú ya se oculta si la feature está apagada
   if (view === 'reglamento') return canSeeReglamento() ? renderReglamento(app) : renderRanking(app);
   if (view === 'historial') return renderHistory(app);
@@ -1067,7 +1096,7 @@ function renderDoublesRanking(app) {
   const cats = [...names].sort();
   let html = `<div class="page-title"><h1>👥 Ranking de dobles</h1></div>
     <p class="page-sub">Un ranking por cada categoría de dobles. Las parejas entran desde el primer torneo que juegan; el puntaje usa el promedio del ranking individual de cada integrante.</p>`;
-  if (!DB.settings || !DB.settings.doublesRanking) html += `<div class="banner">ℹ️ El ranking de dobles está <b>desactivado</b>. Activalo en ⚙️ Ajustes para que los torneos de dobles sumen puntos.</div>`;
+  if (!setting('doublesRanking')) html += `<div class="banner">ℹ️ El ranking de dobles está <b>desactivado</b>. Activalo en ⚙️ Ajustes para que los torneos de dobles sumen puntos.</div>`;
   if (!cats.length) { app.innerHTML = html + `<div class="empty">Todavía no hay categorías de dobles. Creá una en 🗂️ Categorías marcándola como <b>Dobles</b> (y, si querés, su género).</div>`; return; }
   html += `<div class="rank-tiles">`;
   cats.forEach(cn => {
@@ -1866,34 +1895,37 @@ const TABLE_SUGGEST_HELP = `<b>Sugerencia de largado de mesas</b><br>
   <li>Nunca propone largar a un jugador que <b>ya está jugando en otra mesa</b> (un jugador puede estar en varias categorías a la vez).</li>
   <li>Muestra la mejor opción para cada mesa libre + hasta <b>2 alternativas</b>; tocás un botón para largar.</li></ul>`;
 function renderSettings(app) {
-  const s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
+  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
+  const sName = schoolName(ctxOrgId(), ctxSchoolId()), oName = orgName(ctxOrgId());
+  const schoolScope = `<span class="scope-tag scope-school">🏫 ${esc(sName)}</span>`;
+  const orgScope = `<span class="scope-tag scope-org">🏢 ${esc(oName)}</span>`;
   app.innerHTML = `<div class="page-title"><h1>⚙️ Ajustes</h1></div>
-    <p class="page-sub">Configuración general del club. Solo el administrador puede verla y cambiarla.</p>
+    <p class="page-sub">Las opciones de escuela 🏫 afectan solo a los miembros de <b>${esc(sName)}</b>${isSuperadmin() ? `; las de organización 🏢 afectan a toda <b>${esc(oName)}</b>. Cambiá de escuela/organización desde la barra de contexto de arriba.` : '.'}</p>
     <div class="card" style="max-width:620px">
-      ${settingRow('🏓 Sugerencia de mesas ' + infoTip(TABLE_SUGGEST_HELP),
+      ${settingRow('🏓 Sugerencia de mesas ' + schoolScope + ' ' + infoTip(TABLE_SUGGEST_HELP),
         'Sugiere a admin y colaboradores qué zona o llave largar en cada mesa libre del torneo, por orden de prioridad. Tocá la ℹ️ para ver todas las reglas.',
-        s.tableSuggestion, 'toggleTableSuggestion')}
-      ${settingRow('💳 Pagos para inscripciones',
+        setting('tableSuggestion'), 'toggleTableSuggestion')}
+      ${settingRow('💳 Pagos para inscripciones ' + schoolScope,
         'Permitir cobrar la inscripción a los torneos al anotarse. <b>Próximamente</b> — el interruptor todavía no tiene efecto.',
-        s.paymentsEnabled, 'togglePayments')}
-      ${settingRow('🕒 Horarios estimados de partidos',
+        setting('paymentsEnabled'), 'togglePayments')}
+      ${settingRow('🕒 Horarios estimados de partidos ' + schoolScope,
         'Muestra una hora aproximada de comienzo de cada partido, estimada según la hora actual, el horario de cada categoría, la duración por cantidad de sets, las mesas disponibles y cómo vienen los partidos (con un margen de seguridad). Es una estimación.',
-        s.matchTimeEstimates, 'toggleMatchTimes')}
-      ${settingRow('📰 Noticias',
-        'Habilitar la sección de Noticias del club. Si la apagás, desaparece del menú para todos.',
-        s.news, 'toggleNews')}
-      ${settingRow('📜 Reglamento',
-        'Habilitar el Reglamento del club para los jugadores. Si lo apagás, no lo ven (vos podés editarlo siempre). Además tiene que estar publicado.',
-        s.reglamento, 'toggleReglamento')}
-      ${settingRow('🃏 Carta de jugador',
-        'Mostrar la carta tipo FUT en los perfiles (overall y atributos calculados con las estadísticas reales). Cada jugador puede personalizar el estilo y el apodo de la suya. Si la apagás, los perfiles muestran solo los datos y estadísticas.',
-        s.playerCard !== false, 'togglePlayerCard')}
-      ${isSuperadmin() ? settingRow('👥 Ranking de dobles',
+        setting('matchTimeEstimates'), 'toggleMatchTimes')}
+      ${settingRow('📰 Noticias ' + schoolScope,
+        'Habilitar la sección de Noticias para los miembros de esta escuela. Si la apagás, desaparece del menú de esta escuela.',
+        setting('news'), 'toggleNews')}
+      ${settingRow('📜 Reglamento ' + schoolScope,
+        'Habilitar el Reglamento para los jugadores de esta escuela. Si lo apagás, no lo ven (vos podés editarlo siempre). Además tiene que estar publicado.',
+        setting('reglamento'), 'toggleReglamento')}
+      ${settingRow('🃏 Carta de jugador ' + schoolScope,
+        'Mostrar la carta tipo FUT en los perfiles (overall y atributos calculados con las estadísticas reales). Cada jugador puede personalizar el estilo y el apodo de la suya. Si la apagás, los perfiles de esta escuela muestran solo los datos y estadísticas.',
+        setting('playerCard') !== false, 'togglePlayerCard')}
+      ${isSuperadmin() ? settingRow('👥 Ranking de dobles ' + orgScope,
         'Habilitar el ranking de dobles (por pareja) y que los torneos de dobles sumen puntos. El puntaje de la pareja para el cálculo es el promedio del ranking individual de sus integrantes. Solo el superadmin lo controla (a nivel organización).',
-        s.doublesRanking, 'toggleDoublesRanking') : ''}
-      ${isSuperadmin() ? settingRow('🏫 Ranking de escuelas',
+        setting('doublesRanking'), 'toggleDoublesRanking') : ''}
+      ${isSuperadmin() ? settingRow('🏫 Ranking de escuelas ' + orgScope,
         'Habilitar el ranking de escuelas (suma de los puntos ganados en torneos abiertos por los jugadores de cada escuela). Solo el superadmin lo ve. Aparece en el menú de Rankings.',
-        s.schoolRanking, 'toggleSchoolRanking') : ''}
+        setting('schoolRanking'), 'toggleSchoolRanking') : ''}
     </div>`;
 }
 // Alterna un ajuste booleano de DB.settings y vuelve a renderizar.
@@ -1902,14 +1934,14 @@ function toggleSetting(key) {
   DB.settings[key] = !DB.settings[key];
   save(DB); render();
 }
-function toggleTableSuggestion() { toggleSetting('tableSuggestion'); }
-function togglePayments() { toggleSetting('paymentsEnabled'); }
-function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
-function toggleNews() { toggleSetting('news'); }
-function toggleReglamento() { toggleSetting('reglamento'); }
-function togglePlayerCard() { toggleSetting('playerCard'); }
-function toggleDoublesRanking() { if (!isSuperadmin()) return; toggleSetting('doublesRanking'); }
-function toggleSchoolRanking() { if (!isSuperadmin()) return; toggleSetting('schoolRanking'); }
+function toggleTableSuggestion() { toggleScopedSetting('tableSuggestion'); }
+function togglePayments() { toggleScopedSetting('paymentsEnabled'); }
+function toggleMatchTimes() { toggleScopedSetting('matchTimeEstimates'); }
+function toggleNews() { toggleScopedSetting('news'); }
+function toggleReglamento() { toggleScopedSetting('reglamento'); }
+function togglePlayerCard() { toggleScopedSetting('playerCard'); }
+function toggleDoublesRanking() { if (!isSuperadmin()) return; toggleScopedSetting('doublesRanking'); }
+function toggleSchoolRanking() { if (!isSuperadmin()) return; toggleScopedSetting('schoolRanking'); }
 
 /* ---------- noticias ---------- */
 const newsBodyHtml = body => esc(body || '').replace(/\n/g, '<br>');
@@ -1958,15 +1990,15 @@ function delNoticia(id) { const n = (DB.news || []).find(x => x.id === id); if (
 
 /* ---------- reglamento (documento único, editable y publicable) ---------- */
 // El admin siempre puede verlo/editarlo; los jugadores solo si la feature está activa Y está publicado.
-function canSeeReglamento() { const s = DB.settings || {}; return isAdmin() || (!!s.reglamento && !!s.reglamentoPublished); }
+function canSeeReglamento() { return isAdmin() || (!!setting('reglamento') && !!setting('reglamentoPublished')); }
 function renderReglamento(app) {
-  const admin = isAdmin(), s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
-  const text = (s.reglamentoText || '').trim(), pub = !!s.reglamentoPublished;
+  const admin = isAdmin();
+  const text = (setting('reglamentoText') || '').trim(), pub = !!setting('reglamentoPublished');
   const head = `<div class="section-head"><div class="page-title"><h1>📜 Reglamento</h1></div>
     ${admin ? `<button class="btn btn-primary" onclick="reglamentoForm()">✏️ Editar</button>` : ''}</div>`;
   let adminBar = '';
   if (admin) {
-    const visible = s.reglamento && pub;
+    const visible = setting('reglamento') && pub;
     adminBar = `<div class="card" style="margin-bottom:14px">
       <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
         <span class="t-badge ${pub ? 'live' : 'draft'}">${pub ? '🟢 Publicado' : '📝 Borrador'}</span>
@@ -1974,7 +2006,7 @@ function renderReglamento(app) {
       </div>
       <p class="page-sub" style="margin:10px 0 0">${visible
         ? '✅ Los jugadores pueden verlo.'
-        : `⚠️ Los jugadores <b>no</b> lo ven: ${!s.reglamento ? 'activá “Reglamento” en Ajustes' : 'está sin publicar'}.`}</p>
+        : `⚠️ Los jugadores <b>no</b> lo ven: ${!setting('reglamento') ? 'activá “Reglamento” en Ajustes' : 'está sin publicar'}.`}</p>
     </div>`;
   }
   const content = text
@@ -1983,23 +2015,22 @@ function renderReglamento(app) {
   app.innerHTML = head + adminBar + content;
 }
 function reglamentoForm() {
-  const s = DB.settings || (DB.settings = Object.assign({}, DEFAULT_SETTINGS));
   openModal(`<h3>Editar reglamento</h3>
     <label>Texto del reglamento</label>
-    <textarea id="rg_body" rows="14" placeholder="Escribí el reglamento del club…">${esc(s.reglamentoText || '')}</textarea>
-    <label class="chkline"><input type="checkbox" id="rg_pub" ${s.reglamentoPublished ? 'checked' : ''}/> Publicado (visible para los jugadores)</label>
+    <textarea id="rg_body" rows="14" placeholder="Escribí el reglamento del club…">${esc(setting('reglamentoText') || '')}</textarea>
+    <label class="chkline"><input type="checkbox" id="rg_pub" ${setting('reglamentoPublished') ? 'checked' : ''}/> Publicado (visible para los jugadores)</label>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveReglamento()">Guardar</button></div>`);
 }
 function saveReglamento() {
-  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
-  DB.settings.reglamentoText = $('#rg_body').value;
-  DB.settings.reglamentoPublished = $('#rg_pub').checked;
+  const bag = settingsBag('school', ctxSchoolId(), true); if (!bag) return;
+  bag.reglamentoText = $('#rg_body').value;
+  bag.reglamentoPublished = $('#rg_pub').checked;
   save(DB); closeModal(); render();
 }
 function toggleReglamentoPublish() {
-  if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
-  DB.settings.reglamentoPublished = !DB.settings.reglamentoPublished;
+  const bag = settingsBag('school', ctxSchoolId(), true); if (!bag) return;
+  bag.reglamentoPublished = !(('reglamentoPublished' in bag) ? bag.reglamentoPublished : defaultSetting('reglamentoPublished'));
   save(DB); render();
 }
 
@@ -2724,7 +2755,7 @@ function suggestLaunch(t) {
   return { free, plan, alts };
 }
 function suggestPanelHtml(t) {
-  if (!(DB.settings && DB.settings.tableSuggestion) || !canEditT(t) || t.finished || !tournStarted(t)) return ''; // recién con el torneo iniciado
+  if (!setting('tableSuggestion') || !canEditT(t) || t.finished || !tournStarted(t)) return ''; // recién con el torneo iniciado
   const { free, plan, alts } = suggestLaunch(t);
   if (!free.length) return '';
   if (!plan.length) return `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
@@ -2793,7 +2824,7 @@ function estimateSchedule(t) {
 }
 let _est = null; // Map de horarios estimados, calculado al renderizar la categoría/torneo
 function estStartLabel(m) {
-  if (!_est || !(DB.settings && DB.settings.matchTimeEstimates)) return '';
+  if (!_est || !setting('matchTimeEstimates')) return '';
   const ms = _est.get(m); if (ms == null) return '';
   const t = ms + EST_BUFFER_MIN * 60000;
   if (t <= Date.now() + 90000) return `<span class="est-time" title="Horario estimado (aprox.)">🕒 ~ahora</span>`;
@@ -3008,7 +3039,7 @@ function renderCategoria(app, tid, cid) {
   const t = tById(tid), cat = getCat(tid, cid);
   if (!cat) { app.innerHTML = '<div class="empty">No encontrada.</div>'; return; }
   cat._tid = tid; // para los onclick de grupos/llave
-  _est = (DB.settings && DB.settings.matchTimeEstimates && t) ? estimateSchedule(t) : null; // horarios estimados (todo el torneo)
+  _est = (setting('matchTimeEstimates') && t) ? estimateSchedule(t) : null; // horarios estimados (todo el torneo)
   let html = `<button class="btn btn-ghost btn-sm" onclick="go('torneo:${tid}')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(cat.name)}</h1></div>`;
   if (catTabFor !== cid) { catTabFor = cid; catTab = null; } // resetear la pestaña activa al cambiar de categoría
@@ -3405,7 +3436,7 @@ const SCORE_CAP_HI = 1100, SCORE_CAP_LO = 100;  // >1100 las sumas valen la mita
 const TOURNEY_MAX = 20;                          // tope de puntos que otorga un torneo (campeón)
 // Solo puntúan las categorías singles de nivel (Primera/Segunda/Tercera/Cuarta).
 // Puntúan: singles de nivel (siempre) y dobles (si la feature "Ranking de dobles" está activa).
-const catScores = cat => !cat ? false : (cat.format === 'double' ? !!(DB.settings && DB.settings.doublesRanking) : !!(cat.rule && cat.rule.type === 'level'));
+const catScores = cat => !cat ? false : (cat.format === 'double' ? !!setting('doublesRanking') : !!(cat.rule && cat.rule.type === 'level'));
 // ---- ranking de dobles (por pareja) ----
 const pairKey = ids => ids.slice().sort().join('|');
 // Busca (o crea) el registro de la pareja EN UNA CATEGORÍA de dobles (cada categoría tiene su ranking).
