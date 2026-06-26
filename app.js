@@ -3584,8 +3584,25 @@ function saveSelfEnroll(tid, cid) {
     if (!inTournamentScope(t, p)) { e.hidden = false; e.textContent = '⛔ Este torneo es cerrado: solo jugadores de la escuela pueden anotarse.'; return; }
   }
   if (cat.format === 'double') { const gk = pairGenderOk(cat, a, b); if (!gk.ok) { e.hidden = false; e.textContent = '⛔ ' + gk.reason; return; } }
+  // Las reglas de Firestore solo dejan que admin/colaborador escriban el torneo. Un jugador que se
+  // auto-anota NO puede → la inscripción la persiste el worker (si no, se ve un segundo y el live-sync la revierte).
+  if (FB() && !(isAdmin() || isCollaboratorOf(t))) { enrollViaWorker(tid, cid, ids, e); return; }
   cat.entrants.push({ id: uid('e_'), players: ids });
   save(DB); closeModal(); render();
+}
+// Persiste la auto-inscripción de un jugador vía worker (el cliente ya validó elegibilidad).
+async function enrollViaWorker(tid, cid, players, errEl) {
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  const fail = m => { if (errEl) { errEl.hidden = false; errEl.textContent = m; } else alert(m); };
+  if (!wurl) { fail('No se puede guardar la inscripción ahora (falta configurar el servicio). Avisale al organizador.'); return; }
+  const btn = $('#modalCard .btn-primary'); if (btn) { btn.disabled = true; btn.textContent = 'Anotando…'; }
+  try {
+    const idToken = await window.STORE.idToken();
+    const r = await fetch(wurl + '/enroll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, tournamentId: tid, categoryId: cid, players }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { if (btn) { btn.disabled = false; btn.textContent = 'Anotarme'; } fail(d.error ? '⛔ ' + d.error : 'No se pudo anotar, probá de nuevo.'); return; }
+    closeModal(); // el live-sync trae el torneo con la inscripción en ~1s
+  } catch (err) { if (btn) { btn.disabled = false; btn.textContent = 'Anotarme'; } fail('No se pudo anotar: ' + (err && err.message || err)); }
 }
 
 /* ----- grupos ----- */

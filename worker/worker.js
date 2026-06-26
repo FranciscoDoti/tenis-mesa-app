@@ -39,6 +39,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/create-preference') return await createPreference(req, env, url);
       if (req.method === 'POST' && url.pathname === '/create-account') return await createAccount(req, env);
       if (req.method === 'POST' && url.pathname === '/delete-account') return await deleteAccount(req, env);
+      if (req.method === 'POST' && url.pathname === '/enroll') return await enroll(req, env);
       if (req.method === 'POST' && url.pathname === '/webhook') return await handleWebhook(req, env, url);
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -166,10 +167,48 @@ async function deleteAccount(req, env) {
   return json({ ok: true, deleted: true });
 }
 async function readUserRole(env, token, uid) {
+  const d = await readUserDoc(env, token, uid);
+  return d && d.role;
+}
+async function readUserDoc(env, token, uid) {
   const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/users/${uid}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) return null;
-  const doc = await r.json();
-  return (doc.fields && doc.fields.role && doc.fields.role.stringValue) || null;
+  const doc = await r.json(); const f = doc.fields || {};
+  const g = k => f[k] && f[k].stringValue;
+  return { role: g('role'), playerId: g('playerId'), orgId: g('orgId'), schoolId: g('schoolId') };
+}
+
+/* ---------- auto-inscripción de un jugador a un torneo ----------
+   El jugador no puede escribir el doc del torneo (las reglas solo dejan a admin/colaborador),
+   así que la inscripción la hace el worker tras validar su sesión. Un jugador solo se anota a sí
+   mismo (+ su pareja en dobles); el admin puede anotar a cualquiera. La validación fina de
+   elegibilidad la hace el cliente; acá chequeamos lo esencial (torneo/categoría abiertos, no repetido). */
+async function enroll(req, env) {
+  const { idToken, tournamentId, categoryId, players } = await req.json();
+  if (!idToken || !tournamentId || !categoryId || !Array.isArray(players) || !players.length) return json({ error: 'faltan datos' }, 400);
+  const apiKey = env.FIREBASE_API_KEY;
+  if (!apiKey) return json({ error: 'worker sin FIREBASE_API_KEY' }, 500);
+  let who; try { who = await idtPost(apiKey, 'accounts:lookup', { idToken }); } catch (e) { return json({ error: 'sesión inválida' }, 401); }
+  const uid = who.users && who.users[0] && who.users[0].localId;
+  if (!uid) return json({ error: 'sesión inválida' }, 401);
+  const token = await getAccessToken(env);
+  const me = await readUserDoc(env, token, uid);
+  const isAdminCaller = me && (me.role === 'admin' || me.role === 'superadmin');
+  if (!me || (!me.playerId && !isAdminCaller)) return json({ error: 'no autorizado' }, 403);
+  if (!isAdminCaller && players[0] !== me.playerId) return json({ error: 'solo podés anotarte a vos mismo' }, 403);
+  const t = await readBlob(env, token, 'tournaments', tournamentId);
+  if (!t) return json({ error: 'torneo no encontrado' }, 404);
+  if (t.finished || t.enrollClosed) return json({ error: 'la inscripción está cerrada' }, 400);
+  const cat = (t.categorias || []).find(c => c.id === categoryId);
+  if (!cat) return json({ error: 'categoría no encontrada' }, 404);
+  if (cat.closed || cat.groups || cat.bracket) return json({ error: 'la inscripción de esta categoría está cerrada' }, 400);
+  const enrolled = new Set((cat.entrants || []).flatMap(e => e.players || []));
+  for (const pid of players) if (enrolled.has(pid)) return json({ error: 'ya estás anotado' }, 400);
+  cat.entrants = cat.entrants || [];
+  cat.entrants.push({ id: 'e_' + b64url(crypto.getRandomValues(new Uint8Array(6))), players });
+  const ok = await writeBlob(env, token, 'tournaments', tournamentId, t);
+  if (!ok) return json({ error: 'no se pudo guardar' }, 502);
+  return json({ ok: true });
 }
 async function writeDoc(env, token, path, fields) {
   const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/${path}`, {
