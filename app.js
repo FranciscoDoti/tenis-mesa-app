@@ -366,7 +366,9 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsEnabled: false, matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
+// La carta tipo FUT del perfil está activa salvo que el admin la apague (default: encendida).
+const cardEnabled = () => !DB.settings || DB.settings.playerCard !== false;
 // Borrador de tema mientras el admin edita Apariencia (null = sin cambios pendientes).
 // La vista previa usa el borrador; el sitio recién cambia para todos al "Publicar".
 let themeDraft = null;
@@ -1282,6 +1284,7 @@ function profileShell(asideHtml, mainHtml) {
 /* ---------- personalizador de carta (perfil propio) ---------- */
 let cardDraft = null;
 function cardCustomizer() {
+  if (!cardEnabled()) return;
   const u = currentUser(), p = u && playerById(u.playerId); if (!p) return;
   cardDraft = { theme: (p.card && p.card.theme) || 'auto', nickname: (p.card && p.card.nickname) || '' };
   renderCardCustomizer();
@@ -1320,9 +1323,10 @@ function renderPlayerProfileView(app, p) {
   const adminBtn = isAdmin() ? `<button class="btn btn-ghost pf-action" onclick="playerForm('${p.id}')">✏️ Editar</button>` : '';
   const actions = (histBtn || adminBtn) ? `<div class="pf-actions">${histBtn}${adminBtn}</div>` : '';
   const main = statsCardHtml(p, s, { extra: actions });
+  const body = cardEnabled() ? profileShell(futCardHtml(p, s, attrs), main) : main;
   app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('ranking')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>👤 Perfil</h1></div>
-    ${profileShell(futCardHtml(p, s, attrs), main)}`;
+    ${body}`;
 }
 function renderProfile(app, viewId) {
   const u = currentUser();
@@ -1369,10 +1373,11 @@ function renderProfile(app, viewId) {
            <div class="row" style="margin-top:14px"><button class="btn btn-primary" onclick="changePassword()">Cambiar contraseña</button></div>`}
     </div>`;
   const main = statsCardHtml(p, s) + editForms;
+  const on = cardEnabled();
   app.innerHTML = `<div class="page-title"><h1>👤 Mi perfil</h1></div>
-    <p class="page-sub">Esta es tu carta y tus estadísticas. Más abajo podés editar tus datos.</p>
+    <p class="page-sub">${on ? 'Esta es tu carta y tus estadísticas. Más abajo podés editar tus datos.' : 'Tus estadísticas y datos. Más abajo podés editarlos.'}</p>
     ${banners}
-    ${profileShell(aside, main)}`;
+    ${on ? profileShell(aside, main) : main}`;
   let photo = p.photo; wirePhoto('pf_photo', d => { photo = d; });
   window.__pfphoto = () => photo;
 }
@@ -1868,6 +1873,9 @@ function renderSettings(app) {
       ${settingRow('📜 Reglamento',
         'Habilitar el Reglamento del club para los jugadores. Si lo apagás, no lo ven (vos podés editarlo siempre). Además tiene que estar publicado.',
         s.reglamento, 'toggleReglamento')}
+      ${settingRow('🃏 Carta de jugador',
+        'Mostrar la carta tipo FUT en los perfiles (overall y atributos calculados con las estadísticas reales). Cada jugador puede personalizar el estilo y el apodo de la suya. Si la apagás, los perfiles muestran solo los datos y estadísticas.',
+        s.playerCard !== false, 'togglePlayerCard')}
       ${isSuperadmin() ? settingRow('👥 Ranking de dobles',
         'Habilitar el ranking de dobles (por pareja) y que los torneos de dobles sumen puntos. El puntaje de la pareja para el cálculo es el promedio del ranking individual de sus integrantes. Solo el superadmin lo controla (a nivel organización).',
         s.doublesRanking, 'toggleDoublesRanking') : ''}
@@ -1887,6 +1895,7 @@ function togglePayments() { toggleSetting('paymentsEnabled'); }
 function toggleMatchTimes() { toggleSetting('matchTimeEstimates'); }
 function toggleNews() { toggleSetting('news'); }
 function toggleReglamento() { toggleSetting('reglamento'); }
+function togglePlayerCard() { toggleSetting('playerCard'); }
 function toggleDoublesRanking() { if (!isSuperadmin()) return; toggleSetting('doublesRanking'); }
 function toggleSchoolRanking() { if (!isSuperadmin()) return; toggleSetting('schoolRanking'); }
 
@@ -3505,7 +3514,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
