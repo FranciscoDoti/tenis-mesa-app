@@ -467,7 +467,9 @@ function applyTheme() {
   if (!draftPreview && loaded) cacheTheme(savedThemeOf());
 }
 
-let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], payAccounts: [], payments: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
+// orgs se inicializa ya (no se persiste en Firestore; siempre son las por defecto). Es clave que exista
+// ANTES de loguear: la pantalla de registro usa DB.orgs en el login, cuando applyMigrations() aún no corrió.
+let DB = { players: [], gyms: [], tournaments: [], users: [], news: [], payAccounts: [], payments: [], orgs: defaultOrgs(), settings: Object.assign({}, DEFAULT_SETTINGS) };
 // Migraciones aditivas (no destructivas) sobre el DB ya cargado en memoria.
 function applyMigrations() {
   if (!DB.gyms) DB.gyms = defaultGyms();
@@ -970,8 +972,8 @@ function renderRegister(app) {
         <div><label>Localidad</label>${cityFieldHtml('r_city', '')}</div>
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
         <div><label>Género</label>${genderField('r_gender', 'M')}</div>
-        <div><label>Organización</label>${orgSelectHtml('r_org', (DB.orgs[0] || {}).id, "syncSchoolOptions('r_org','r_school')")}</div>
-        <div><label>Escuela</label><select id="r_school">${schoolOptionsHtml((DB.orgs[0] || {}).id, null)}</select></div>
+        <div><label>Organización</label>${orgSelectHtml('r_org', ((DB.orgs || [])[0] || {}).id, "syncSchoolOptions('r_org','r_school')")}</div>
+        <div><label>Escuela</label><select id="r_school">${schoolOptionsHtml(((DB.orgs || [])[0] || {}).id, null)}</select></div>
       </div>
       <label>Teléfono / WhatsApp</label>${phoneFieldHtml('r_phone', null)}
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
@@ -1005,7 +1007,7 @@ async function doRegister() {
   if (pw1 !== pw2) return fail('Las contraseñas no coinciden.');
   const city = readCityField('r_city');
   if (!city) return fail('Indicá tu localidad.');
-  const orgId = ($('#r_org') && $('#r_org').value) || (DB.orgs[0] || {}).id;
+  const orgId = ($('#r_org') && $('#r_org').value) || ((DB.orgs || [])[0] || {}).id;
   const schoolId = ($('#r_school') && $('#r_school').value) || ((orgById(orgId) || {}).schools || [{}])[0].id;
   if (!orgId || !schoolId) return fail('Elegí organización y escuela.');
   const phone = readPhoneField('r_phone');
