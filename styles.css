@@ -708,9 +708,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .g-wander.w2 .wp-back{animation-delay:-26.6s}.g-wander.w3 .wp-back{animation-delay:-53.3s}
 .g-wander .wp svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .6s ease-in-out infinite}
 @keyframes gwface{0%{opacity:1}24%{opacity:1}26%{opacity:0}74%{opacity:0}76%{opacity:1}100%{opacity:1}}
+/* La vista de gimnasio es un modal a pantalla completa: bloqueá el scroll del documento mientras está
+   abierta (en mobile rotado, la caja sin rotar es más ancha que la pantalla y dejaba una barra/zona en blanco). */
+html:has(.gym-overlay){overflow:hidden}
 /* En el celular en VERTICAL: la vista de gimnasio se muestra rotada (apaisada) para ocupar toda la pantalla. */
 @media (orientation:portrait) and (max-width:820px){
-  .gym-overlay{width:100vh; height:100vw; top:0; left:100vw; transform-origin:top left; transform:rotate(90deg); padding:6px}
+  .gym-overlay{width:100vh; height:100vw; top:0; left:0; transform-origin:top left; transform:rotate(90deg) translateY(-100vw); padding:6px}
   /* alto EXPLÍCITO: si dejamos width:auto + aspect-ratio en columna flex, el alto queda en 0 (pantalla negra). */
   .gym-overlay .gym-stage{height:min(84vw,60vh); width:auto; max-width:96vh; aspect-ratio:12/8; margin:auto; flex:0 0 auto}
 }
