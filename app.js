@@ -3352,6 +3352,18 @@ function gymStandsSVG() {
   return `<svg viewBox="0 0 36 24" preserveAspectRatio="none"><rect width="36" height="24" fill="#3a434e"/><rect width="36" height="3.2" fill="#2c343c"/>${s}</svg>`;
 }
 const GYM_SPRITE = { table: gymTableSVG, control: gymControlSVG, buffet: gymBuffetSVG, bathroom: gymBathroomSVG, stands: gymStandsSVG, barrier: gymBarrierSVG };
+// Personita pixel-art con detalle (cabeza/pelo/cara, remera deportiva con franja, brazos, short, zapatillas);
+// opts: shirt, hair, skin, short, drink (lleva un vaso), apron+cap (vendedor del buffet).
+function gymPersonSVG(o) { o = o || {}; const shirt = o.shirt || '#1f6fb2', hair = o.hair || '#3a2a1a', skin = o.skin || '#f1c9a5', short = o.short || '#26303a';
+  return `<svg viewBox="0 0 14 22" preserveAspectRatio="xMidYMid meet"><ellipse cx="7" cy="21" rx="4.3" ry="1.1" fill="#000" fill-opacity=".22"/><rect x="5" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="7.3" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="4.8" y="13.3" width="4.4" height="3" rx="0.6" fill="${short}"/><rect x="4.6" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="7.2" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="4.1" y="7.4" width="5.8" height="6.6" rx="1.4" fill="${shirt}"/><rect x="4.1" y="9.5" width="5.8" height="0.8" fill="#fff" fill-opacity=".5"/><rect x="2.9" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="2.9" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/><rect x="9.5" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="9.5" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/>${o.apron ? `<rect x="4.3" y="8.6" width="5.4" height="5.4" rx="0.6" fill="#fbfbfb"/><rect x="4.3" y="8.6" width="5.4" height="0.7" fill="#e3e3e3"/><rect x="6.4" y="8.6" width="1.2" height="5.4" fill="#ececec"/>` : ''}<rect x="4.5" y="2" width="5" height="5.2" rx="2.2" fill="${skin}"/><rect x="4.2" y="1.2" width="5.6" height="2.7" rx="1.7" fill="${hair}"/><rect x="4.2" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="9.1" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="5.6" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="7.7" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="6.3" y="5.2" width="1.4" height="0.5" rx="0.25" fill="#c98b7a"/>${o.cap ? `<rect x="4.2" y="1" width="5.6" height="1.4" rx="0.7" fill="${o.cap}"/><rect x="9.2" y="1.6" width="1.6" height="0.7" rx="0.3" fill="${o.cap}"/>` : ''}${o.drink ? `<rect x="1.4" y="9.8" width="2.1" height="3" rx="0.4" fill="#ffd24a"/><rect x="1.6" y="9.2" width="1.7" height="0.7" fill="#cf3a3a"/><rect x="2.2" y="8.4" width="0.4" height="1" fill="#cf3a3a"/>` : ''}</svg>`; }
+// Personal de la mesa de control: tantas personitas como (admin + colaboradores) del torneo, diferenciadas.
+function gymStaff(t) {
+  const colors = ['#c1121f', '#1f6fb2', '#16a34a', '#ff7a1a', '#7a3ea6', '#e8b04b'], hairs = ['#15110d', '#6b4423', '#3a2a1a', '#d9b382'];
+  if (!t) return [{ name: '', shirt: colors[1], hair: hairs[0] }];
+  const staff = [{ name: 'Admin', shirt: colors[0], hair: hairs[0] }];
+  (t.collaborators || []).forEach((pid, i) => { const p = playerById(pid); staff.push({ name: p ? p.firstName : 'Colab', shirt: colors[(i + 1) % colors.length], hair: hairs[(i + 1) % hairs.length] }); });
+  return staff.slice(0, 6);
+}
 function defaultGymLayout(n) {
   n = Math.max(1, Math.min(12, n || 4)); const tables = []; const per = Math.min(n, 4);
   for (let i = 0; i < n; i++) { const col = i % per, row = Math.floor(i / per); tables.push({ x: 3 + col * 2.3, y: 3 + row * 1.9, w: 2, h: 1, rot: 0 }); }
@@ -3393,17 +3405,28 @@ function gymHandles(kind, i, allowDel) { return `<button class="g-rot" onclick="
 function gymStageHtml(layout, t, editable) {
   const isTour = !!t, occ = gymOccupancy(t), cur = new Set(Object.keys(occ).map(Number));
   const freed = [..._gymPrevOcc].filter(n => !cur.has(n)); _gymPrevOcc = cur;
-  let floors = '', els = '';
+  let floors = '', els = '', ctl = null, buf = null;
+  const noCap = { barrier: 1, stands: 1 }; // objetos obvios: no mostramos su nombre
   (layout.props || []).forEach((p, i) => {
     if (p.type === 'court') { const it = gymItem(p, 'court'), mat = p.material || 'wood', col = p.color || '#b9854e';
       floors += `<div class="gym-el g-floor mat-${mat}" ${editable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)};--fc:${col}">${editable ? `<div class="g-floorctl"><select onchange="gymFloorMat(${i},this.value)">${Object.keys(GYM_MAT).map(m => `<option value="${m}" ${m === mat ? 'selected' : ''}>${GYM_MAT[m]}</option>`).join('')}</select><input type="color" value="${col}" oninput="gymFloorColor(${i},this.value)"></div>${gymHandles('prop', i, true)}` : ''}</div>`; return; }
     const it = gymItem(p, p.type), sprite = (GYM_SPRITE[p.type] || (() => ''))();
-    els += `<div class="gym-el g-prop g-${p.type}" ${editable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}"><div class="g-cap">${GYM_CAP[p.type] || ''}</div>${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${editable ? gymHandles('prop', i, true) : ''}</div>`;
+    if (p.type === 'control') ctl = it; if (p.type === 'buffet') buf = it;
+    els += `<div class="gym-el g-prop g-${p.type}" ${editable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${noCap[p.type] ? '' : `<div class="g-cap">${GYM_CAP[p.type] || ''}</div>`}${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${editable ? gymHandles('prop', i, true) : ''}</div>`;
   });
   const nTables = isTour ? tableCountOf(t) : (layout.tables || []).length;
   for (let i = 0; i < nTables; i++) { const it = gymTableSlot(layout, i, nTables), num = i + 1, o = occ[num];
     els += `<div class="gym-el g-table ${o ? 'busy' : 'free'}" ${editable ? `data-kind="table" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${gymTrotHtml(it, gymTableSVG())}<div class="tnum">${num}</div>${o ? `<div class="g-occ"><span class="g-live-dot"></span>${esc(o.title)}</div>` : (editable ? '' : `<div class="g-occ dim">libre</div>`)}${editable ? gymHandles('table', i, !isTour) : ''}${(!editable && freed.includes(num)) ? gymBurstHtml() : ''}</div>`; }
-  return `<div class="gym-stage ${editable ? 'editing' : ''} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}</div>`;
+  // Personitas (solo en modo vista, no editando): mesa de control (admin+colaboradores), vendedor del buffet y algunos paseando.
+  let ppl = '';
+  if (!editable) {
+    const staff = gymStaff(t), n = staff.length;
+    if (ctl) staff.forEach((s, i) => { const px = ctl.x + ctl.w * ((i + 0.5) / n), py = ctl.y + ctl.h + 0.15;
+      ppl += `<div class="g-person" style="left:${(px / GYM_COLS * 100).toFixed(2)}%;top:${(py / GYM_ROWS * 100).toFixed(2)}%">${s.name ? `<div class="ptag">${esc(s.name)}</div>` : ''}${gymPersonSVG(s)}</div>`; });
+    if (buf) ppl += `<div class="g-person" style="left:${((buf.x + buf.w * 0.62) / GYM_COLS * 100).toFixed(2)}%;top:${((buf.y + buf.h * 0.62) / GYM_ROWS * 100).toFixed(2)}%">${gymPersonSVG({ apron: 1, cap: '#c1121f', shirt: '#2b3440' })}</div>`;
+    ppl += `<div class="g-wander w1">${gymPersonSVG({ shirt: '#ff7a1a', drink: 1 })}</div><div class="g-wander w2">${gymPersonSVG({ shirt: '#7a3ea6', hair: '#15110d' })}</div><div class="g-wander w3">${gymPersonSVG({ shirt: '#3ac0c9', drink: 1, hair: '#6b4423' })}</div>`;
+  }
+  return `<div class="gym-stage ${editable ? 'editing' : ''} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}${ppl}</div>`;
 }
 function gymEditToolbarHtml(isTour) { const l = gymTargetLayout(false) || {}; const present = new Set((l.props || []).map(p => p.type)); const singles = ['control', 'buffet', 'bathroom', 'stands'].filter(tp => !present.has(tp)).map(tp => `<button class="btn btn-ghost btn-sm" onclick="gymAddProp('${tp}')">➕ ${GYM_CAP[tp]}</button>`).join(''); return `<div class="gym-toolbar">${!isTour ? `<button class="btn btn-accent btn-sm" onclick="gymAddTable()">➕ Mesa</button>` : ''}<button class="btn btn-ghost btn-sm" onclick="gymAddProp('court')">➕ Piso</button><button class="btn btn-ghost btn-sm" onclick="gymAddProp('barrier')">➕ Valla</button>${singles}</div>`; }
 function renderGymView(app, ref) {

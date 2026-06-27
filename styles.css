@@ -684,6 +684,22 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .cheer.c3{top:-12px; right:4%; background:#ffe1bd; animation:gcheer 13s ease-in-out 9s infinite}
 .cheer.c3::after{border-top-color:#ffe1bd}
 @keyframes gcheer{0%,88%,100%{opacity:0; transform:translateY(3px) scale(.92)}90%,97%{opacity:1; transform:translateY(0) scale(1)}}
+/* personitas: personal de mesa de control / vendedor del buffet (fijas, con balanceo) y paseantes (animadas) */
+.g-person{position:absolute; width:4.2%; z-index:4; transform:translate(-50%,-82%)}
+.g-person svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob 1.3s ease-in-out infinite}
+.g-person .ptag{position:absolute; bottom:100%; left:50%; transform:translateX(-50%); margin-bottom:1px; font-size:8px; font-weight:800; color:#fff; background:rgba(10,15,20,.85); padding:1px 5px; border-radius:6px; white-space:nowrap}
+.g-wander{position:absolute; width:3.6%; z-index:4; transform:translate(-50%,-82%)}
+.g-wander svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .55s ease-in-out infinite}
+@keyframes gpbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2px)}}
+.g-wander.w1{animation:gwander1 26s linear infinite}.g-wander.w2{animation:gwander2 33s linear infinite}.g-wander.w3{animation:gwander3 22s linear infinite}
+@keyframes gwander1{0%{left:9%;top:56%}24%{left:38%;top:24%}50%{left:74%;top:22%}74%{left:84%;top:66%}100%{left:9%;top:56%}}
+@keyframes gwander2{0%{left:80%;top:62%}30%{left:46%;top:50%}60%{left:14%;top:44%}100%{left:80%;top:62%}}
+@keyframes gwander3{0%{left:40%;top:72%}33%{left:70%;top:40%}66%{left:30%;top:30%}100%{left:40%;top:72%}}
+/* En el celular en VERTICAL: la vista de gimnasio se muestra rotada (apaisada) para ocupar toda la pantalla. */
+@media (orientation:portrait) and (max-width:820px){
+  .gym-overlay{width:100vh; height:100vw; top:0; left:100vw; transform-origin:top left; transform:rotate(90deg); padding:8px}
+  .gym-overlay .gym-stage{width:auto; max-width:96%; max-height:86%; margin:auto; flex:0 1 auto}
+}
 
 /* evita el zoom raro de fuentes en mobile al rotar */
 html{-webkit-text-size-adjust:100%}
@@ -764,6 +780,15 @@ textarea:focus{outline:2px solid var(--table); outline-offset:0; border-color:va
   .profile-grid{flex-direction:column-reverse; align-items:stretch}
   .profile-aside{position:static; flex:none; width:100%}
   .profile-main{max-width:none}
+}
+
+/* En computadora (pantalla ancha): el menú lateral queda FIJO a la izquierda (no hace falta el ☰). */
+@media (min-width:980px){
+  .menu-btn{display:none}
+  .drawer-overlay{display:none !important}
+  .drawer{transform:none; top:70px; height:calc(100vh - 70px); width:264px; max-width:264px; box-shadow:none; border-right:1px solid var(--line); padding-top:14px}
+  main{margin-left:264px}
+  .footer{margin-left:264px}
 }
 
 /* ---------- carta tipo FUT ---------- */
