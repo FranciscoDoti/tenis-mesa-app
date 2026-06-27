@@ -47,7 +47,7 @@ service cloud.firestore {
 
     // Gimnasios: cada admin gestiona solo los de SU escuela (org/escuela nativos, con grandfather
     // para los gimnasios viejos sin esos campos, igual que players/tournaments).
-    function gOwned(data) { return canManageSchool(data) || (isAdmin() && !('orgId' in data)); }
+    function gOwned(data) { return canManageSchool(data) || (isAdmin() && (!('orgId' in data) || data.orgId == null)); }
     match /gyms/{id} {
       allow read: if signedIn();
       allow create: if gOwned(request.resource.data);
