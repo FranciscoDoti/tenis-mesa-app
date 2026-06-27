@@ -3514,15 +3514,18 @@ function gymTrotHtml(it, svg) { const [bw, bh] = gymBoxWH(it); return `<div clas
 function gymHandles(kind, i, allowDel) { return `<button class="g-rot" onclick="gymRotate('${kind}',${i})" title="Rotar 90°">↻</button>${allowDel ? `<button class="g-del" onclick="gymDel('${kind}',${i})" title="Quitar">✕</button>` : ''}<span class="g-rs g-rs-x" data-rs="x" title="Cambiar ancho"></span><span class="g-rs g-rs-y" data-rs="y" title="Cambiar alto"></span><span class="g-rs g-rs-xy" data-rs="xy" title="Cambiar tamaño"></span>`; }
 function gymStageHtml(layout, t, editable) {
   const isTour = !!t, occ = gymOccupancy(t), cur = new Set(Object.keys(occ).map(Number));
+  // Dentro de un TORNEO la edición permite SOLO reacomodar las mesas; los demás objetos (piso, vallas, tribuna,
+  // buffet, etc.) no se editan ahí (se configuran en la vista base del gimnasio). En la vista base se edita todo.
+  const propEditable = editable && !isTour;
   const freed = [..._gymPrevOcc].filter(n => !cur.has(n)); _gymPrevOcc = cur;
   let floors = '', els = '', ctl = null, buf = null;
   const noCap = { barrier: 1, stands: 1 }; // objetos obvios: no mostramos su nombre
   (layout.props || []).forEach((p, i) => {
     if (p.type === 'court') { const it = gymItem(p, 'court'), mat = p.material || 'wood', col = p.color || '#b9854e';
-      floors += `<div class="gym-el g-floor mat-${mat}" ${editable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)};--fc:${col}">${editable ? `<div class="g-floorctl"><select onchange="gymFloorMat(${i},this.value)">${Object.keys(GYM_MAT).map(m => `<option value="${m}" ${m === mat ? 'selected' : ''}>${GYM_MAT[m]}</option>`).join('')}</select><input type="color" value="${col}" oninput="gymFloorColor(${i},this.value)"></div>${gymHandles('prop', i, true)}` : ''}</div>`; return; }
+      floors += `<div class="gym-el g-floor mat-${mat}" ${propEditable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)};--fc:${col}">${propEditable ? `<div class="g-floorctl"><select onchange="gymFloorMat(${i},this.value)">${Object.keys(GYM_MAT).map(m => `<option value="${m}" ${m === mat ? 'selected' : ''}>${GYM_MAT[m]}</option>`).join('')}</select><input type="color" value="${col}" oninput="gymFloorColor(${i},this.value)"></div>${gymHandles('prop', i, true)}` : ''}</div>`; return; }
     const it = gymItem(p, p.type), sprite = p.type === 'stands' ? gymStandsSVG(it.w, it.h) : (GYM_SPRITE[p.type] || (() => ''))();
     if (p.type === 'control') ctl = it; if (p.type === 'buffet') buf = it;
-    els += `<div class="gym-el g-prop g-${p.type}" ${editable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${noCap[p.type] ? '' : `<div class="g-cap">${GYM_CAP[p.type] || ''}</div>`}${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${editable ? gymHandles('prop', i, true) : ''}</div>`;
+    els += `<div class="gym-el g-prop g-${p.type}" ${propEditable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${noCap[p.type] ? '' : `<div class="g-cap">${GYM_CAP[p.type] || ''}</div>`}${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${propEditable ? gymHandles('prop', i, true) : ''}</div>`;
   });
   const nTables = isTour ? tableCountOf(t) : (layout.tables || []).length;
   for (let i = 0; i < nTables; i++) { const it = gymTableSlot(layout, i, nTables), num = i + 1, o = occ[num];
@@ -3576,7 +3579,9 @@ function renderGymView(app, ref) {
       <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button>
         <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
         ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
-      ${editing ? `<div class="gym-edithint">✏️ Arrastrá para mover · tiradores del borde = ancho/alto, esquina = ambos · ↻ rotar · ✕ quitar${isTour ? ' · la cantidad de mesas la fija el torneo' : ''}.</div>${gymEditToolbarHtml(isTour)}` : ''}
+      ${editing ? (isTour
+        ? `<div class="gym-edithint">✏️ Reacomodá las MESAS: arrastrá para mover · tiradores del borde = ancho/alto, esquina = ambos · ↻ rotar. La cantidad de mesas y el resto del gimnasio se configuran aparte.</div>`
+        : `<div class="gym-edithint">✏️ Arrastrá para mover · tiradores del borde = ancho/alto, esquina = ambos · ↻ rotar · ✕ quitar.</div>${gymEditToolbarHtml(false)}`) : ''}
       ${!editing ? `<style>${gymWanderCSS(layout)}</style>` : ''}
       ${gymStageHtml(layout, t, editing)}
       <div class="gym-foot muted">${isTour ? (editing ? 'Estás editando la vista de ESTE torneo (no cambia el resto).' : '🔴 Quién está jugando en cada mesa, en tiempo real.') : 'Vista base del gimnasio: la heredan los torneos que se jueguen acá.'}</div>
