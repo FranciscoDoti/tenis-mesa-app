@@ -667,7 +667,22 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 @keyframes gtpulse{0%,100%{filter:none}50%{filter:brightness(1.08) drop-shadow(0 0 6px rgba(255,122,26,.6))}}
 .g-occ{position:absolute; bottom:-5px; left:50%; transform:translateX(-50%); background:rgba(10,15,20,.88); color:#fff; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; max-width:170%; overflow:hidden; text-overflow:ellipsis; box-shadow:0 2px 6px rgba(0,0,0,.4); z-index:3}
 .g-occ.dim{background:rgba(10,15,20,.5); color:#cfd6dd; font-weight:600}
+.g-occ.tappable{cursor:pointer}
+.g-occ .g-occ-i{margin-left:4px; opacity:.7; font-size:9px}
 .g-occ-sub{position:absolute; bottom:-19px; left:50%; transform:translateX(-50%); font-size:9px; color:#cdd6df; white-space:nowrap; z-index:3}
+/* Tooltip de mesa: partidos de la zona con resultados, o quién juega en la llave. Se cierra solo a los 5s o al tocar afuera. */
+.gtip{position:absolute; z-index:40; background:#fff; color:#1d2433; border-radius:11px; padding:9px 11px; box-shadow:0 10px 30px rgba(0,0,0,.5); min-width:150px; max-width:250px; max-height:48vh; overflow:auto; touch-action:auto; animation:gtipIn .12s ease-out}
+@keyframes gtipIn{from{opacity:0}}
+.gtip-h{font-weight:800; font-size:11px; margin-bottom:6px; color:#16532d; border-bottom:1px solid #eee; padding-bottom:5px}
+.gtip-body{display:flex; flex-direction:column; gap:4px}
+.gtip-row{display:grid; grid-template-columns:1fr auto 1fr; gap:7px; align-items:center; font-size:10.5px; line-height:1.2}
+.gtip-row .gtip-pl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.gtip-row .gtip-pl:last-child{text-align:right}
+.gtip-row .gtip-pl.win{font-weight:800; color:#16532d}
+.gtip-row .gtip-sc{font-weight:800; font-variant-numeric:tabular-nums}
+.gtip-row .gtip-sc i{font-style:normal; font-weight:600; color:#8a94a0; margin-left:4px; font-size:9px}
+.gtip-row.done{opacity:.62}
+.gtip-empty{color:#8a94a0; font-size:10px}
 .g-live-dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:#ff4d4d; margin-right:4px; vertical-align:middle; animation:gblink 1.1s steps(2,end) infinite}
 @keyframes gblink{50%{opacity:.25}}
 .g-cap{position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:9px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:#fff; text-shadow:0 1px 2px #000; white-space:nowrap}

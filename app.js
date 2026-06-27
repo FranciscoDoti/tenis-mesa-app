@@ -3219,10 +3219,10 @@ function tournamentUnits(t) {
     if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
       const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
       if (!(a && b && a !== 'BYE' && b !== 'BYE')) return;
-      units.push({ kind: 'bracket', cat, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
+      units.push({ kind: 'bracket', cat, m: mm, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
     }));
-    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'bracket', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
-    (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), who: `${entName(cat, m.a)} vs ${entName(cat, m.b)}`, prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
+    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'bracket', cat, m: cat.thirdPlace, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
+    (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, m, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), who: `${entName(cat, m.a)} vs ${entName(cat, m.b)}`, prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
   });
   return units;
 }
@@ -3491,7 +3491,50 @@ function defaultGymLayout(n) {
 function tournamentSetting(t, key) { if (!t) return defaultSetting(key); if (ORG_SETTING_KEYS.includes(key)) { const b = settingsBag('org', t.orgId); return b && key in b ? b[key] : defaultSetting(key); } const b = settingsBag('school', t.schoolId); return b && key in b ? b[key] : defaultSetting(key); }
 function gymViewOn(t) { return !!t && !!tournamentSetting(t, 'gymViewAllowed') && !!tournamentSetting(t, 'gymViewEnabled'); }
 // Ocupación por número de mesa (qué se está jugando ahí ahora).
-function gymOccupancy(t) { const occ = {}; if (!t) return occ; tournamentUnits(t).forEach(u => { if (u.table == null || u.pending <= 0) return; occ[u.table] = { title: u.cat.name + ' · ' + (u.kind === 'zone' ? u.label : u.who) }; }); return occ; }
+function gymOccupancy(t) { const occ = {}; if (!t) return occ; tournamentUnits(t).forEach(u => { if (u.table == null || u.pending <= 0) return; occ[u.table] = { title: u.cat.name + ' · ' + (u.kind === 'zone' ? u.label : u.who), unit: u }; }); return occ; }
+// Detalle (tooltip) de lo que se juega en una mesa: zona → sus partidos con resultados; llave/partido → quién juega y el parcial.
+function gymUnitDetail(u) {
+  if (!u) return ''; const cat = u.cat;
+  const fmtMatch = (m) => {
+    const r = matchResult(m), done = matchDone(m, cat);
+    const played = (m.sets || []).filter(s => s && s[0] !== '' && s[1] !== '' && s[0] != null && s[1] != null);
+    const sc = (played.length || done) ? `${r.wa}-${r.wb}` : 'vs';
+    const setsTxt = played.map(s => s.join('-')).join(' ');
+    return `<div class="gtip-row${done ? ' done' : ''}"><span class="gtip-pl${r.winner === 'a' ? ' win' : ''}">${esc(entName(cat, m.a))}</span><span class="gtip-sc">${m.walkover ? 'W.O.' : sc}${setsTxt ? `<i>${esc(setsTxt)}</i>` : ''}</span><span class="gtip-pl${r.winner === 'b' ? ' win' : ''}">${esc(entName(cat, m.b))}</span></div>`;
+  };
+  if (u.kind === 'zone') {
+    const ms = (cat.matches || []).filter(m => m.g === u.gi && !m.postponed);
+    return `<div class="gtip-h">🎲 ${esc(cat.name)} · ${esc(u.label)}</div><div class="gtip-body">${ms.map(fmtMatch).join('') || '<div class="gtip-empty">Sin partidos.</div>'}</div>`;
+  }
+  const m = u.m, who = (u.who || '').split(' vs ');
+  const body = m ? fmtMatch(m) : `<div class="gtip-row"><span class="gtip-pl">${esc(who[0] || '')}</span><span class="gtip-sc">vs</span><span class="gtip-pl">${esc(who[1] || '')}</span></div>`;
+  return `<div class="gtip-h">🏆 ${esc(cat.name)} · ${esc(u.label)}</div><div class="gtip-body">${body}</div>`;
+}
+// Tooltip flotante sobre la mesa (sin salir de la vista). Se cierra solo a los 5s o al tocar afuera.
+let _gymTipData = {}, _gymTipTimer = null;
+function gymTip(num, ev) {
+  if (ev) ev.stopPropagation();
+  gymTipClose();
+  const html = _gymTipData[num]; if (!html) return;
+  const stage = document.getElementById('gymStage'); if (!stage) return;
+  const rot = stage.closest('.gym-rot') || stage.parentElement; if (!rot) return;
+  const tableEl = stage.querySelector('.g-table[data-num="' + num + '"]'); if (!tableEl) return;
+  const tip = document.createElement('div'); tip.className = 'gtip'; tip.id = 'gymTip'; tip.innerHTML = html;
+  tip.addEventListener('pointerdown', e => e.stopPropagation());
+  rot.appendChild(tip);
+  const place = () => {
+    const x = stage.offsetLeft + tableEl.offsetLeft + tableEl.offsetWidth / 2, above = stage.offsetTop + tableEl.offsetTop;
+    const tw = tip.offsetWidth, th = tip.offsetHeight, rw = rot.clientWidth;
+    tip.style.left = Math.max(tw / 2 + 6, Math.min(rw - tw / 2 - 6, x)) + 'px';
+    if (above - th - 8 >= 0) { tip.style.top = (above - 6) + 'px'; tip.style.transform = 'translate(-50%,-100%)'; }
+    else { tip.style.top = (stage.offsetTop + tableEl.offsetTop + tableEl.offsetHeight + 6) + 'px'; tip.style.transform = 'translate(-50%,0)'; }
+  };
+  place(); requestAnimationFrame(place);
+  _gymTipTimer = setTimeout(gymTipClose, 5000);
+  setTimeout(() => document.addEventListener('pointerdown', gymTipOutside, true), 0);
+}
+function gymTipOutside(e) { if (!e.target.closest('#gymTip')) gymTipClose(); }
+function gymTipClose() { if (_gymTipTimer) { clearTimeout(_gymTipTimer); _gymTipTimer = null; } document.removeEventListener('pointerdown', gymTipOutside, true); const el = document.getElementById('gymTip'); if (el) el.remove(); }
 let _gymPrevOcc = new Set(), _gymEditMode = false, _gymDrag = null, _gymEditRef = null;
 function gymBurstHtml() { const c = ['#ff7a1a', '#ffd24a', '#16a34a', '#1f6fb2', '#fff', '#c1121f']; let s = ''; for (let k = 0; k < 14; k++) { const a = k / 14 * 6.283; s += `<i style="--c:${c[k % c.length]};--dx:${Math.round(Math.cos(a) * 26)}px;--dy:${Math.round(Math.sin(a) * 26)}px"></i>`; } return `<div class="burst">${s}</div>`; }
 // Layout que se MUESTRA (torneo: override del torneo o base del gimnasio; Gimnasios: base del gimnasio).
@@ -3506,12 +3549,35 @@ function gymTargetLayout(ensure) {
 // Normaliza un item con sus defaults (x,y,w,h,rot) según el tipo.
 function gymItem(item, type) { const d = GYM_DEF[type] || [2, 1]; return { x: item.x || 0, y: item.y || 0, w: item.w || d[0], h: item.h || d[1], rot: item.rot || 0 }; }
 // Mesa i: usa la posición guardada o, si el torneo tiene más mesas que el layout, una posición por defecto.
-function gymTableSlot(layout, i, n) { const tb = (layout.tables || [])[i]; if (tb) return gymItem(tb, 'table'); const per = Math.min(n, 4), col = i % per, row = Math.floor(i / per); return { x: 3 + col * 2.3, y: 3 + row * 1.9, w: 2, h: 1, rot: 0 }; }
+// Grilla que MEJOR aprovecha el piso de cancha para n mesas: elige columnas/filas que maximizan el tamaño
+// de mesa (relación ~1.85:1) entrando dentro del piso. Así el tamaño se ajusta SOLO y no hace falta redimensionar.
+function gymCourtRect(layout) { const cp = (layout.props || []).find(p => p.type === 'court'); return cp ? gymItem(cp, 'court') : { x: 2.2, y: 2.2, w: 7.6, h: 5 }; }
+function gymGrid(c, n) {
+  n = Math.max(1, n); const AR = 1.85; let best = null;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols), cw = c.w / cols, ch = c.h / rows;
+    let tw = Math.min(cw * 0.84, 3.2), th = tw / AR;
+    if (th > ch * 0.84) { th = ch * 0.84; tw = th * AR; }
+    // Area de mesa, con un leve bonus si la grilla acompaña la orientación del piso (cancha ancha → más columnas).
+    const score = tw * th * (((cols >= rows) === (c.w >= c.h)) ? 1.04 : 1);
+    if (!best || score > best.score + 1e-6) best = { cols, rows, tw: +tw.toFixed(3), th: +th.toFixed(3), score };
+  }
+  return best;
+}
+function gymTableSlot(layout, i, n) {
+  const c = gymCourtRect(layout), g = gymGrid(c, n), cellW = c.w / g.cols, cellH = c.h / g.rows;
+  const col = i % g.cols, row = Math.floor(i / g.cols);
+  const defX = +(c.x + col * cellW + (cellW - g.tw) / 2).toFixed(2), defY = +(c.y + row * cellH + (cellH - g.th) / 2).toFixed(2);
+  const tb = (layout.tables || [])[i];
+  // El TAMAÑO siempre es automático (no se redimensiona); solo se respeta la posición/rotación que el admin haya guardado.
+  if (tb && tb.x != null) return { x: tb.x, y: tb.y, w: g.tw, h: g.th, rot: tb.rot || 0 };
+  return { x: defX, y: defY, w: g.tw, h: g.th, rot: 0 };
+}
 // Caja en el escenario: con rot 90/270 se intercambian ancho/alto (footprint), así rotar NO distorsiona ni achica.
 function gymBoxWH(it) { return it.rot % 180 === 90 ? [it.h, it.w] : [it.w, it.h]; }
 function gymPosStyle(it) { const [bw, bh] = gymBoxWH(it); return `left:${(it.x / GYM_COLS * 100).toFixed(2)}%;top:${(it.y / GYM_ROWS * 100).toFixed(2)}%;width:${(bw / GYM_COLS * 100).toFixed(2)}%;height:${(bh / GYM_ROWS * 100).toFixed(2)}%`; }
 function gymTrotHtml(it, svg) { const [bw, bh] = gymBoxWH(it); return `<div class="g-trot" style="width:${(it.w / bw * 100).toFixed(1)}%;height:${(it.h / bh * 100).toFixed(1)}%;transform:translate(-50%,-50%) rotate(${it.rot}deg)">${svg}</div>`; }
-function gymHandles(kind, i, allowDel) { return `<button class="g-rot" onclick="gymRotate('${kind}',${i})" title="Rotar 90°">↻</button>${allowDel ? `<button class="g-del" onclick="gymDel('${kind}',${i})" title="Quitar">✕</button>` : ''}<span class="g-rs g-rs-x" data-rs="x" title="Cambiar ancho"></span><span class="g-rs g-rs-y" data-rs="y" title="Cambiar alto"></span><span class="g-rs g-rs-xy" data-rs="xy" title="Cambiar tamaño"></span>`; }
+function gymHandles(kind, i, allowDel, allowResize) { allowResize = allowResize !== false; return `<button class="g-rot" onclick="gymRotate('${kind}',${i})" title="Rotar 90°">↻</button>${allowDel ? `<button class="g-del" onclick="gymDel('${kind}',${i})" title="Quitar">✕</button>` : ''}${allowResize ? `<span class="g-rs g-rs-x" data-rs="x" title="Cambiar ancho"></span><span class="g-rs g-rs-y" data-rs="y" title="Cambiar alto"></span><span class="g-rs g-rs-xy" data-rs="xy" title="Cambiar tamaño"></span>` : ''}`; }
 function gymStageHtml(layout, t, editable) {
   const isTour = !!t, occ = gymOccupancy(t), cur = new Set(Object.keys(occ).map(Number));
   // Dentro de un TORNEO la edición permite SOLO reacomodar las mesas; los demás objetos (piso, vallas, tribuna,
@@ -3527,9 +3593,14 @@ function gymStageHtml(layout, t, editable) {
     if (p.type === 'control') ctl = it; if (p.type === 'buffet') buf = it;
     els += `<div class="gym-el g-prop g-${p.type}" ${propEditable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${noCap[p.type] ? '' : `<div class="g-cap">${GYM_CAP[p.type] || ''}</div>`}${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${propEditable ? gymHandles('prop', i, true) : ''}</div>`;
   });
+  _gymTipData = {};
   const nTables = isTour ? tableCountOf(t) : (layout.tables || []).length;
   for (let i = 0; i < nTables; i++) { const it = gymTableSlot(layout, i, nTables), num = i + 1, o = occ[num];
-    els += `<div class="gym-el g-table ${o ? 'busy' : 'free'}" ${editable ? `data-kind="table" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${gymTrotHtml(it, gymTableSVG())}<div class="tnum">${num}</div>${o ? `<div class="g-occ"><span class="g-live-dot"></span>${esc(o.title)}</div>` : (editable ? '' : `<div class="g-occ dim">libre</div>`)}${editable ? gymHandles('table', i, !isTour) : ''}${(!editable && freed.includes(num)) ? gymBurstHtml() : ''}</div>`; }
+    if (o && !editable) _gymTipData[num] = gymUnitDetail(o.unit);
+    const occChip = o
+      ? `<div class="g-occ${!editable ? ' tappable' : ''}"${!editable ? ` onclick="gymTip(${num},event)"` : ''}><span class="g-live-dot"></span>${esc(o.title)}${!editable ? '<span class="g-occ-i">ⓘ</span>' : ''}</div>`
+      : (editable ? '' : `<div class="g-occ dim">libre</div>`);
+    els += `<div class="gym-el g-table ${o ? 'busy' : 'free'}" data-num="${num}" ${editable ? `data-kind="table" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${gymTrotHtml(it, gymTableSVG())}<div class="tnum">${num}</div>${occChip}${editable ? gymHandles('table', i, !isTour, false) : ''}${(!editable && freed.includes(num)) ? gymBurstHtml() : ''}</div>`; }
   // Personitas (solo en modo vista, no editando): mesa de control (admin+colaboradores), vendedor del buffet y algunos paseando.
   let ppl = '';
   if (!editable) {
@@ -4550,7 +4621,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
