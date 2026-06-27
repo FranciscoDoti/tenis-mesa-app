@@ -3492,7 +3492,7 @@ function tournamentSetting(t, key) { if (!t) return defaultSetting(key); if (ORG
 function gymViewOn(t) { return !!t && !!tournamentSetting(t, 'gymViewAllowed') && !!tournamentSetting(t, 'gymViewEnabled'); }
 // Ocupación por número de mesa (qué se está jugando ahí ahora).
 function gymOccupancy(t) { const occ = {}; if (!t) return occ; tournamentUnits(t).forEach(u => { if (u.table == null || u.pending <= 0) return; occ[u.table] = { title: u.cat.name + ' · ' + (u.kind === 'zone' ? u.label : u.who) }; }); return occ; }
-let _gymPrevOcc = new Set(), _gymEditMode = false, _gymDrag = null;
+let _gymPrevOcc = new Set(), _gymEditMode = false, _gymDrag = null, _gymEditRef = null;
 function gymBurstHtml() { const c = ['#ff7a1a', '#ffd24a', '#16a34a', '#1f6fb2', '#fff', '#c1121f']; let s = ''; for (let k = 0; k < 14; k++) { const a = k / 14 * 6.283; s += `<i style="--c:${c[k % c.length]};--dx:${Math.round(Math.cos(a) * 26)}px;--dy:${Math.round(Math.sin(a) * 26)}px"></i>`; } return `<div class="burst">${s}</div>`; }
 // Layout que se MUESTRA (torneo: override del torneo o base del gimnasio; Gimnasios: base del gimnasio).
 function gymRenderLayout(t, gym) { if (view.startsWith('gym:')) return (t && t.gymLayout) || (gym && gym.layout) || defaultGymLayout(t ? tableCountOf(t) : 4); return (gym && gym.layout) || defaultGymLayout(4); }
@@ -3556,7 +3556,7 @@ function gymEditToolbarHtml(isTour) {
   const singles = ['control', 'buffet', 'bathroom', 'stands'].filter(tp => !present.has(tp)).map(tp => `<button class="btn btn-ghost btn-sm" onclick="gymAddProp('${tp}')">➕ ${GYM_CAP[tp]}</button>`).join('');
   return `<div class="gym-toolbar">${!isTour ? `<button class="btn btn-accent btn-sm" onclick="gymAddTable()">➕ Mesa</button>` : ''}<button class="btn btn-ghost btn-sm" onclick="gymAddProp('court')">➕ Piso</button><button class="btn btn-ghost btn-sm" onclick="gymAddProp('barrier')">➕ Valla</button><button class="btn btn-ghost btn-sm" onclick="gymBarriersCourt()">🧱 Vallas al campo</button>${present.has('barrier') ? `<button class="btn btn-ghost btn-sm" onclick="gymRemoveBarriers()">🧹 Sacar vallas</button>` : ''}${singles}</div>`;
 }
-function gymRemoveBarriers() { const l = gymTargetLayout(true); if (!l || !l.props) return; l.props = l.props.filter(p => p.type !== 'barrier'); save(DB); render(); }
+function gymRemoveBarriers() { const l = gymTargetLayout(true); if (!l || !l.props) return; l.props = l.props.filter(p => p.type !== 'barrier'); render(); }
 // Saca las vallas actuales y coloca 4 alrededor del piso de cancha (arriba, abajo, izquierda y derecha).
 function gymBarriersCourt() {
   const l = gymTargetLayout(true); if (!l) return;
@@ -3566,9 +3566,11 @@ function gymBarriersCourt() {
   l.props.push({ type: 'barrier', x: +c.x.toFixed(2), y: +(c.y + c.h).toFixed(2), w: c.w, h: H, rot: 0 });
   l.props.push({ type: 'barrier', x: +Math.max(0, c.x - H).toFixed(2), y: +c.y.toFixed(2), w: c.h, h: H, rot: 90 });
   l.props.push({ type: 'barrier', x: +(c.x + c.w).toFixed(2), y: +c.y.toFixed(2), w: c.h, h: H, rot: 90 });
-  save(DB); render();
+  render();
 }
 function renderGymView(app, ref) {
+  // Si cambiamos de gimnasio/torneo, abandonamos cualquier edición pendiente (no arrastramos el modo edición/copia de otra vista).
+  if (_gymEditRef !== ref) { _gymEditMode = false; _gymEditSnap = null; _gymEditRef = ref; }
   const isTour = ref.startsWith('gym:'); let t = null, gym = null, back = 'torneos';
   if (isTour) { t = tById(ref.slice(4)); if (!t) { app.innerHTML = `<div class="empty" style="margin:16px">Torneo no encontrado.</div>`; return; } back = 'torneo:' + t.id; if (!gymViewOn(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">La vista del gimnasio no está habilitada para este torneo.</div>`; return; } gym = gymById(t.gymId); }
   else { if (!isAdmin()) { go('ranking'); return; } gym = gymById(ref.slice(8)); back = 'gimnasios'; }
@@ -3576,7 +3578,7 @@ function renderGymView(app, ref) {
   const canEdit = isTour ? canEditT(t) : canManageGym(gym), editing = canEdit && _gymEditMode;
   const layout = gymRenderLayout(t, gym);
   app.innerHTML = `<div class="gym-overlay"><div class="gym-rot">
-      <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button>
+      <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="${editing ? `gymEditBack('${back}')` : `go('${back}')`}">← Volver</button>
         <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
         ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
       ${editing ? (isTour
@@ -3588,21 +3590,40 @@ function renderGymView(app, ref) {
     </div></div>`;
   if (editing) wireGymEditor();
 }
-function gymEditToggle() { _gymEditMode = !_gymEditMode; render(); }
+// Los cambios de edición NO se guardan hasta tocar "Listo". Al entrar a editar guardamos una copia del layout;
+// si el usuario sale con "Volver" sin tocar "Listo", se descartan los cambios (se restaura la copia).
+let _gymEditSnap = null;
+function gymSnapJSON() {
+  if (view.startsWith('gymedit:')) { const g = gymById(view.slice(8)); return g && g.layout ? JSON.stringify(g.layout) : '__none__'; }
+  if (view.startsWith('gym:')) { const t = tById(view.slice(4)); return t && t.gymLayout ? JSON.stringify(t.gymLayout) : '__none__'; }
+  return null;
+}
+function gymRestoreSnap() {
+  if (_gymEditSnap == null) return; const snap = _gymEditSnap; _gymEditSnap = null;
+  if (view.startsWith('gymedit:')) { const g = gymById(view.slice(8)); if (g) { if (snap === '__none__') delete g.layout; else g.layout = JSON.parse(snap); } }
+  else if (view.startsWith('gym:')) { const t = tById(view.slice(4)); if (t) { if (snap === '__none__') delete t.gymLayout; else t.gymLayout = JSON.parse(snap); } }
+}
+function gymEditToggle() {
+  if (!_gymEditMode) { _gymEditSnap = gymSnapJSON(); _gymEditMode = true; }      // entrar a editar → tomar copia
+  else { save(DB); _gymEditSnap = null; _gymEditMode = false; }                    // "Listo" → recién acá se guarda
+  render();
+}
+// "Volver" mientras se edita: descarta los cambios no guardados y sale.
+function gymEditBack(back) { _gymEditMode = false; gymRestoreSnap(); go(back); }
 // Asegura que la mesa i exista en el layout (al editar una mesa autoposicionada de un torneo con más
 // mesas que el layout base, la materializamos para poder guardarle posición/tamaño/rotación).
 function gymEnsureTable(l, i, n) { l.tables = l.tables || []; while (l.tables.length <= i) { const s = gymTableSlot(l, l.tables.length, Math.max(n, l.tables.length + 1)); l.tables.push({ x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot }); } }
 function gymArr(l, kind) { return kind === 'table' ? (l.tables = l.tables || []) : (l.props = l.props || []); }
-function gymRotate(kind, i) { const l = gymTargetLayout(true); if (!l) return; if (kind === 'table') gymEnsureTable(l, i, i + 1); const it = gymArr(l, kind)[i]; if (it) { it.rot = ((it.rot || 0) + 90) % 360; save(DB); render(); } }
-function gymDel(kind, i) { const l = gymTargetLayout(true); if (!l) return; const arr = gymArr(l, kind); if (arr[i]) { arr.splice(i, 1); save(DB); render(); } }
-function gymAddTable() { const l = gymTargetLayout(true); if (!l) return; (l.tables = l.tables || []).push({ x: 5, y: 3.5, w: 2, h: 1, rot: 0 }); save(DB); render(); }
+function gymRotate(kind, i) { const l = gymTargetLayout(true); if (!l) return; if (kind === 'table') gymEnsureTable(l, i, i + 1); const it = gymArr(l, kind)[i]; if (it) { it.rot = ((it.rot || 0) + 90) % 360; render(); } }
+function gymDel(kind, i) { const l = gymTargetLayout(true); if (!l) return; const arr = gymArr(l, kind); if (arr[i]) { arr.splice(i, 1); render(); } }
+function gymAddTable() { const l = gymTargetLayout(true); if (!l) return; (l.tables = l.tables || []).push({ x: 5, y: 3.5, w: 2, h: 1, rot: 0 }); render(); }
 function gymAddProp(tp) {
   const l = gymTargetLayout(true); if (!l) return; const d = GYM_DEF[tp] || [2, 1]; let item;
   if (tp === 'court') item = { type: tp, x: 2, y: 2, w: 6, h: 3.4, rot: 0, material: 'wood', color: '#b9854e' };
   else if (tp === 'barrier') { const court = (l.props || []).find(p => p.type === 'court'); // la valla nace pegada al borde superior del piso (fácil de ubicar)
     if (court) { const c = gymItem(court, 'court'); item = { type: tp, x: +c.x.toFixed(2), y: +Math.max(0, c.y - 0.5).toFixed(2), w: c.w, h: 0.5, rot: 0 }; } else item = { type: tp, x: 3, y: 0.8, w: d[0], h: d[1], rot: 0 }; }
   else item = { type: tp, x: 4.5, y: 0.6, w: d[0], h: d[1], rot: 0 };
-  (l.props = l.props || []).push(item); save(DB); render();
+  (l.props = l.props || []).push(item); render();
 }
 // Imán: al soltar una valla cerca de un borde del piso de cancha, la alinea a ese borde (fácil de colocar).
 function gymSnapBarrier(l, it) {
@@ -3611,19 +3632,27 @@ function gymSnapBarrier(l, it) {
   else if (Math.abs(it.y - (c.y + c.h)) < TH) it.y = +(c.y + c.h).toFixed(2);
   if (it.x + it.w > c.x && it.x < c.x + c.w && Math.abs(it.x - c.x) < TH) it.x = +c.x.toFixed(2);
 }
-function gymFloorMat(i, m) { const l = gymTargetLayout(true); if (!l || !l.props || !l.props[i]) return; l.props[i].material = m; save(DB); render(); }
-function gymFloorColor(i, c) { const l = gymTargetLayout(true); if (!l || !l.props || !l.props[i]) return; l.props[i].color = c; save(DB); render(); }
+function gymFloorMat(i, m) { const l = gymTargetLayout(true); if (!l || !l.props || !l.props[i]) return; l.props[i].material = m; render(); }
+function gymFloorColor(i, c) { const l = gymTargetLayout(true); if (!l || !l.props || !l.props[i]) return; l.props[i].color = c; render(); }
 function openGymView(tid) { _gymEditMode = false; _gymPrevOcc = new Set(); go('gym:' + tid); }
 function openGymEdit(gid) { const g = gymById(gid); if (!g || !canManageGym(g)) return; if (!g.layout) { g.layout = defaultGymLayout(4); save(DB); } _gymEditMode = true; _gymPrevOcc = new Set(); go('gymedit:' + gid); }
 function wireGymEditor() {
   const stage = document.getElementById('gymStage'); if (!stage) return;
+  // En el celular en VERTICAL la vista se rota 90° (CSS) para verse apaisada. El rectángulo del escenario que
+  // devuelve el navegador queda alineado a la pantalla, así que para mover/redimensionar hay que mapear el dedo
+  // a las coordenadas LOCALES del escenario (si no, todo se movía al revés / cruzado). rotate(90°) horario:
+  // x_local crece hacia ABAJO en pantalla; y_local crece hacia la IZQUIERDA.
+  const rotated = !!(window.matchMedia && window.matchMedia('(orientation:portrait) and (max-width:820px)').matches);
+  const toGrid = (clientX, clientY, rect) => rotated
+    ? { cx: (clientY - rect.top) / rect.height * GYM_COLS, cy: (1 - (clientX - rect.left) / rect.width) * GYM_ROWS }
+    : { cx: (clientX - rect.left) / rect.width * GYM_COLS, cy: (clientY - rect.top) / rect.height * GYM_ROWS };
   stage.querySelectorAll('.gym-el[data-kind]').forEach(el => {
     el.addEventListener('pointerdown', e => {
       if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input')) return;
       e.preventDefault();
       const rect = stage.getBoundingClientRect();
       const elx = parseFloat(el.style.left) / 100 * GYM_COLS, ely = parseFloat(el.style.top) / 100 * GYM_ROWS;
-      const cx = (e.clientX - rect.left) / rect.width * GYM_COLS, cy = (e.clientY - rect.top) / rect.height * GYM_ROWS;
+      const gp = toGrid(e.clientX, e.clientY, rect), cx = gp.cx, cy = gp.cy;
       const rsEl = e.target.closest('[data-rs]');
       _gymDrag = { el, kind: el.dataset.kind, idx: +el.dataset.idx, resize: !!rsEl, axis: rsEl ? rsEl.getAttribute('data-rs') : 'xy', moved: false, downX: e.clientX, downY: e.clientY, rect, offX: cx - elx, offY: cy - ely };
       try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('dragging');
@@ -3631,7 +3660,7 @@ function wireGymEditor() {
     el.addEventListener('pointermove', e => {
       const d = _gymDrag; if (!d || d.el !== el) return;
       if (Math.abs(e.clientX - d.downX) + Math.abs(e.clientY - d.downY) > 5) d.moved = true;
-      const cx = (e.clientX - d.rect.left) / d.rect.width * GYM_COLS, cy = (e.clientY - d.rect.top) / d.rect.height * GYM_ROWS;
+      const gp = toGrid(e.clientX, e.clientY, d.rect), cx = gp.cx, cy = gp.cy;
       if (d.resize) { const elx = parseFloat(el.style.left) / 100 * GYM_COLS, ely = parseFloat(el.style.top) / 100 * GYM_ROWS;
         if (d.axis.includes('x')) { d.bw = Math.max(0.5, Math.min(GYM_COLS, cx - elx)); el.style.width = (d.bw / GYM_COLS * 100) + '%'; }
         if (d.axis.includes('y')) { d.bh = Math.max(0.5, Math.min(GYM_ROWS, cy - ely)); el.style.height = (d.bh / GYM_ROWS * 100) + '%'; } }
@@ -3645,8 +3674,8 @@ function wireGymEditor() {
       if (d.resize && d.moved) { const sw = (it.rot || 0) % 180 === 90; // redimensión de 1 sola dimensión o ambas
         if (d.axis.includes('x')) { const bw = Math.round(d.bw * 4) / 4; if (sw) it.h = bw; else it.w = bw; }
         if (d.axis.includes('y')) { const bh = Math.round(d.bh * 4) / 4; if (sw) it.w = bh; else it.h = bh; }
-        save(DB); render(); }
-      else if (d.moved) { it.x = Math.round(d.x * 4) / 4; it.y = Math.round(d.y * 4) / 4; if (it.type === 'barrier') gymSnapBarrier(l, it); save(DB); render(); }
+        render(); }
+      else if (d.moved) { it.x = Math.round(d.x * 4) / 4; it.y = Math.round(d.y * 4) / 4; if (it.type === 'barrier') gymSnapBarrier(l, it); render(); }
     };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   });
@@ -4521,7 +4550,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
