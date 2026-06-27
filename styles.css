@@ -636,14 +636,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .gym-stage{position:relative; width:min(96vw,1000px); aspect-ratio:12/8; margin:6px auto; border-radius:14px; overflow:hidden; background:repeating-conic-gradient(#caa472 0% 25%, #bd9866 0% 50%); background-size:13.3% 16.66%; box-shadow:inset 0 0 0 6px #8a6d44, inset 0 0 60px rgba(0,0,0,.35), 0 20px 50px rgba(0,0,0,.5); image-rendering:pixelated; touch-action:none}
 .gym-stage.editing{outline:2px dashed rgba(255,255,255,.28); outline-offset:-8px}
 .gym-el{position:absolute; display:flex; align-items:center; justify-content:center}
-.gym-el svg{width:100%; height:100%; display:block; shape-rendering:crispEdges; filter:drop-shadow(0 3px 4px rgba(0,0,0,.35))}
+.gym-el svg{width:100%; height:100%; display:block; shape-rendering:crispEdges; filter:drop-shadow(0 4px 5px rgba(0,0,0,.42))}
 .gym-stage.editing .gym-el[data-kind]{cursor:grab}
 .gym-stage.editing .gym-el.dragging{cursor:grabbing; z-index:20; filter:brightness(1.06)}
 .gym-el{z-index:1}
 .g-trot{position:absolute; left:50%; top:50%}
 .g-trot svg{width:100%; height:100%; display:block; shape-rendering:crispEdges}
 /* piso de cancha (configurable: material + color) — detrás de todo */
-.g-floor{z-index:0; border-radius:4px; box-shadow:inset 0 0 0 2px rgba(255,255,255,.06)}
+.g-floor{z-index:0; border-radius:5px; box-shadow:inset 0 0 0 2px rgba(255,255,255,.08), inset 0 -7px 12px rgba(0,0,0,.16), inset 0 5px 9px rgba(255,255,255,.05)}
 .mat-wood{background:repeating-linear-gradient(90deg,transparent,transparent 13px,rgba(0,0,0,.13) 13px,rgba(0,0,0,.13) 15px),var(--fc)}
 .mat-rubber{background:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px) 0 0/7px 7px,var(--fc)}
 .mat-cement{background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.05)),var(--fc)}
@@ -699,10 +699,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .g-wander{position:absolute; width:2.7%; z-index:4; transform:translate(-50%,-82%); animation:gwpath 80s linear infinite}
 .g-wander.w2{animation-delay:-26.6s}.g-wander.w3{animation-delay:-53.3s}
 /* piernas que caminan (solo en los que pasean): se mueven alternadas */
-.g-wander .leg{transform-box:fill-box; transform-origin:50% 0}
-.g-wander .leg-l{animation:gstep .46s ease-in-out infinite}
-.g-wander .leg-r{animation:gstep .46s ease-in-out infinite reverse}
-@keyframes gstep{0%,100%{transform:rotate(12deg)}50%{transform:rotate(-12deg)}}
+.g-wander .leg{transform-box:fill-box}
+.g-wander .leg-l{animation:gstep .42s ease-in-out infinite}
+.g-wander .leg-r{animation:gstep .42s ease-in-out -.21s infinite}
+@keyframes gstep{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
 .g-wander .wp-front{position:relative}
 .g-wander .wp-back{position:absolute; inset:0; opacity:0; animation:gwface 80s linear infinite}
 .g-wander.w2 .wp-back{animation-delay:-26.6s}.g-wander.w3 .wp-back{animation-delay:-53.3s}
