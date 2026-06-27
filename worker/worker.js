@@ -378,8 +378,11 @@ async function writeBlob(env, token, coll, id, obj) {
   if (coll === 'tournaments') {
     fields.collaborators = { arrayValue: { values: (obj.collaborators || []).map(v => ({ stringValue: String(v) })) } };
     fields.published = { booleanValue: !!obj.published };
+    // org/escuela nativos: las reglas restringen la edición a la escuela dueña del torneo.
+    if (obj.orgId) fields.orgId = { stringValue: obj.orgId };
+    if (obj.schoolId) fields.schoolId = { stringValue: obj.schoolId };
   }
-  if (coll === 'payments') {
+  if (coll === 'payments' || coll === 'players') {
     if (obj.orgId) fields.orgId = { stringValue: obj.orgId };
     if (obj.schoolId) fields.schoolId = { stringValue: obj.schoolId };
   }

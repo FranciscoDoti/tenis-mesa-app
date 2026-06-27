@@ -28,7 +28,11 @@
   const docFor = (coll, o) => {
     const clean = strip(o);
     const d = { id: o.id, j: JSON.stringify(clean) };
-    if (coll === 'tournaments') { d.collaborators = clean.collaborators || []; d.published = !!clean.published; }
+    // Torneos: collaborators/published + org/escuela como campos NATIVOS para que las reglas
+    // puedan restringir la edición a la escuela dueña del torneo (el blob `j` no es legible por reglas).
+    if (coll === 'tournaments') { d.collaborators = clean.collaborators || []; d.published = !!clean.published; d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
+    // Jugadores: org/escuela nativos para que las reglas restrinjan la edición a la escuela del jugador.
+    if (coll === 'players') { d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
     // Cuentas de cobro: dueño/escuela como campos nativos para que las reglas restrinjan la lectura
     // (el token de MercadoPago es secreto: solo el dueño/superadmin y el Worker deben poder leerlo).
     if (coll === 'payAccounts') { d.ownerUid = clean.ownerUid || null; d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }

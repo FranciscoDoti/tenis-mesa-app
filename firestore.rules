@@ -34,11 +34,14 @@ service cloud.firestore {
 
     // Jugadores: lectura para usuarios logueados; escritura del propio jugador (su perfil) o de un
     // admin de SU misma escuela (el superadmin, cualquiera). Un admin de otra escuela no puede tocarlo.
+    // org/escuela son campos NATIVOS del doc; los jugadores viejos sin esos campos se "grandfatherean"
+    // (cualquier admin puede editarlos hasta que se vuelvan a guardar y queden scopeados).
+    function pOwned(data) { return canManageSchool(data) || (isAdmin() && !('orgId' in data)); }
     match /players/{id} {
       allow read: if signedIn();
-      allow create: if canManageSchool(request.resource.data) || myPlayerId() == id;  // alta por admin de la escuela o autoregistro (su propio doc)
-      allow update: if canManageSchool(resource.data) || myPlayerId() == id;
-      allow delete: if canManageSchool(resource.data);
+      allow create: if pOwned(request.resource.data) || myPlayerId() == id;  // alta por admin de la escuela o autoregistro (su propio doc)
+      allow update: if pOwned(resource.data) || myPlayerId() == id;
+      allow delete: if pOwned(resource.data);
     }
 
     // Gimnasios: solo admin escribe.
@@ -51,12 +54,16 @@ service cloud.firestore {
 
     // Torneos: solo el admin de la MISMA escuela del torneo (o superadmin), o un colaborador
     // (su playerId está en collaborators), pueden editarlo. Un admin de otra escuela no.
-    // El otorgar puntos cross-escuela y la auto-inscripción pasan por el Worker (saltea reglas).
+    // org/escuela son campos NATIVOS del doc (los escribe la app/Worker). Los torneos viejos que
+    // todavía no los tienen se "grandfatherean": cualquier admin puede editarlos hasta que se vuelvan
+    // a guardar (ahí ganan los campos y quedan scopeados). El otorgar puntos cross-escuela y la
+    // auto-inscripción pasan por el Worker (que saltea reglas).
+    function tOwned(data) { return canManageSchool(data) || (isAdmin() && !('orgId' in data)); }
     match /tournaments/{id} {
       allow read: if signedIn();
-      allow create: if canManageSchool(request.resource.data);
-      allow update: if canManageSchool(resource.data) || (signedIn() && myPlayerId() in resource.data.collaborators);
-      allow delete: if canManageSchool(resource.data);
+      allow create: if tOwned(request.resource.data);
+      allow update: if tOwned(resource.data) || (signedIn() && myPlayerId() in resource.data.collaborators);
+      allow delete: if tOwned(resource.data);
     }
 
     // Cuentas de cobro (MercadoPago): el token es SECRETO. Solo el admin dueño puede leer/escribir
