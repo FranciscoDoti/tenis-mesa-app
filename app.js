@@ -3388,9 +3388,9 @@ function gymPersonSVG(o) { o = o || {}; const shirt = o.shirt || '#1f6fb2', hair
   // Brazo izquierdo: cuelga y se balancea al caminar (clase .arm-l). El derecho cambia según qué cargue.
   const armL = `<g class="arm arm-l"><rect x="2.9" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="2.9" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/></g>`;
   let armR, item = '';
-  if (o.carry === 'paddle') { // brazo derecho LEVANTADO sosteniendo la paleta al costado de la cabeza
-    armR = `<g class="arm-hold"><rect x="9.6" y="6.4" width="1.6" height="3.2" rx="0.8" fill="${shirt}"/><rect x="9.7" y="5.6" width="1.8" height="1.6" rx="0.7" fill="${skin}"/></g>`;
-    item = `<g class="paddle"><rect x="10.35" y="3.2" width="1.05" height="3.1" rx="0.35" fill="#6e431f"/><rect x="10.35" y="3.2" width="0.42" height="3.1" fill="#5a3617"/><ellipse cx="10.9" cy="2.6" rx="2.15" ry="2.35" fill="#161616"/><ellipse cx="10.9" cy="2.6" rx="1.6" ry="1.8" fill="#cf2030"/><ellipse cx="10.25" cy="1.95" rx="0.55" ry="0.8" fill="#fff" fill-opacity=".28"/></g>`;
+  if (o.carry === 'paddle') { // brazo derecho colgando con la paleta ABAJO, en la mano; todo el conjunto se balancea al caminar
+    const pc = o.paddleColor || '#cf2030';
+    armR = `<g class="arm arm-pad"><rect x="9.5" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="9.5" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/><rect x="9.75" y="12.7" width="1.05" height="2.0" rx="0.3" fill="#6e431f"/><rect x="9.75" y="12.7" width="0.42" height="2.0" fill="#5a3617"/><ellipse cx="10.25" cy="16.2" rx="2.0" ry="2.2" fill="#caa46a"/><ellipse cx="10.25" cy="16.2" rx="1.5" ry="1.7" fill="${pc}"/><ellipse cx="9.7" cy="15.5" rx="0.5" ry="0.7" fill="#fff" fill-opacity=".22"/></g>`;
   } else if (o.carry === 'drink' && !o.back) { // brazo derecho DOBLADO sosteniendo un vaso al pecho
     armR = `<g class="arm-hold"><rect x="9.5" y="7.9" width="1.6" height="2.5" rx="0.8" fill="${shirt}"/><rect x="7.5" y="9.2" width="3.1" height="1.5" rx="0.75" fill="${shirt}" transform="rotate(20 9.0 9.9)"/><rect x="6.9" y="8.9" width="1.7" height="1.6" rx="0.7" fill="${skin}"/></g>`;
     item = `<g class="drink"><rect x="5.6" y="7.9" width="3.1" height="0.8" rx="0.4" fill="#ededed"/><rect x="5.9" y="8.5" width="2.5" height="3.1" rx="0.5" fill="#ef4444"/><rect x="5.9" y="9.5" width="2.5" height="0.9" fill="#fff" fill-opacity=".85"/><rect x="7.45" y="6.0" width="0.5" height="2.1" rx="0.2" fill="#d62b2b" transform="rotate(12 7.7 7)"/></g>`;
@@ -3400,13 +3400,72 @@ function gymPersonSVG(o) { o = o || {}; const shirt = o.shirt || '#1f6fb2', hair
   const apron = o.apron ? `<rect x="4.3" y="8.6" width="5.4" height="5.4" rx="0.6" fill="#fbfbfb"/><rect x="4.3" y="8.6" width="5.4" height="0.7" fill="#e3e3e3"/><rect x="6.4" y="8.6" width="1.2" height="5.4" fill="#ececec"/>` : '';
   const cap = o.cap ? `<rect x="4.2" y="1" width="5.6" height="1.4" rx="0.7" fill="${o.cap}"/>${o.back ? '' : `<rect x="9.2" y="1.6" width="1.6" height="0.7" rx="0.3" fill="${o.cap}"/>`}` : '';
   return `<svg viewBox="0 0 14 22" preserveAspectRatio="xMidYMid meet"><ellipse cx="7" cy="21" rx="4.3" ry="1.1" fill="#000" fill-opacity=".22"/><rect class="leg leg-l" x="5" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect class="leg leg-r" x="7.3" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="4.8" y="13.3" width="4.4" height="3" rx="0.6" fill="${short}"/><rect x="4.6" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="7.2" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="4.1" y="7.4" width="5.8" height="6.6" rx="1.4" fill="${shirt}"/><rect x="4.1" y="9.5" width="5.8" height="0.8" fill="#fff" fill-opacity=".5"/>${armL}${armR}${apron}${head}${cap}${item}</svg>`; }
-// Keyframes de los paseantes: recorren el PERÍMETRO POR FUERA del piso de cancha (no cruzan el campo).
-function gymWanderCSS(layout) {
-  const cp = (layout.props || []).find(p => p.type === 'court'); const c = cp ? gymItem(cp, 'court') : { x: 2.5, y: 2.5, w: 7, h: 3.5 };
-  const m = 1, X = v => (Math.max(1.5, Math.min(GYM_COLS - 1.5, v)) / GYM_COLS * 100).toFixed(1), Y = v => (Math.max(1.5, Math.min(GYM_ROWS - 1.2, v)) / GYM_ROWS * 100).toFixed(1);
-  const tlx = X(c.x - m), tly = Y(c.y - m), trx = X(c.x + c.w + m), bry = Y(c.y + c.h + m), blx = tlx;
-  return `@keyframes gwpath{0%{left:${tlx}%;top:${tly}%}25%{left:${trx}%;top:${tly}%}50%{left:${trx}%;top:${bry}%}75%{left:${blx}%;top:${bry}%}100%{left:${tlx}%;top:${tly}%}}`;
+// Color de la goma de la paleta: rojo y negro con MUCHA más probabilidad; verde/rosa/azul, pocas veces.
+function gymPaddleColor() { const r = Math.random(); return r < 0.45 ? '#cf2030' : r < 0.8 ? '#1a1a1a' : r < 0.87 ? '#16a34a' : r < 0.94 ? '#e84393' : '#1f6fb2'; }
+// Paseantes "de torneo real": recorridos ALEATORIOS que rodean la cancha (siempre por FUERA de la zona de mesas)
+// y pasan por la tribuna, el buffet, el baño y la mesa de control, deteniéndose un rato en cada lugar. Aparecen y
+// desaparecen (entran/salen de los lugares) y la cantidad visible varía. Todo lento y armonioso.
+let _gymWander = null;
+function gymWanderSet(layout) {
+  const cp = (layout.props || []).find(p => p.type === 'court'); const c = cp ? gymItem(cp, 'court') : { x: 2.2, y: 2.2, w: 7.6, h: 5 };
+  // Firma: si cambia la geometría de la cancha o el set de lugares, se regenera; si no, se reusa (motion estable).
+  const stTypes = (layout.props || []).filter(p => ['stands', 'buffet', 'bathroom', 'control'].includes(p.type));
+  const sig = `${c.x.toFixed(1)},${c.y.toFixed(1)},${c.w.toFixed(1)},${c.h.toFixed(1)}|${stTypes.map(p => p.type + p.x.toFixed(1) + p.y.toFixed(1)).join('|')}`;
+  if (_gymWander && _gymWander.sig === sig) return _gymWander;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const m = 0.95;
+  const L = clamp(c.x - m, 1.1, GYM_COLS - 1.1), R = clamp(c.x + c.w + m, 1.1, GYM_COLS - 1.1);
+  const T = clamp(c.y - m, 0.9, GYM_ROWS - 0.9), B = clamp(c.y + c.h + m, 0.9, GYM_ROWS - 0.9);
+  const ccx = (L + R) / 2, ccy = (T + B) / 2;
+  // Puntos del anillo (rectángulo alrededor de la cancha) → garantizan que los tramos no crucen el campo.
+  const pts = [[L, T], [(L + R) / 2, T], [R, T], [R, (T + B) / 2], [R, B], [(L + R) / 2, B], [L, B], [L, (T + B) / 2]]
+    .map(([x, y]) => ({ x, y, station: false }));
+  // Lugares (tribuna/buffet/baño/control): se "pegan" al borde del anillo más cercano → quedan sobre el recorrido.
+  stTypes.forEach(p => {
+    let x = clamp(p.x + p.w / 2, L, R), y = clamp(p.y + p.h / 2, T, B);
+    const dL = Math.abs(x - L), dR = Math.abs(x - R), dT = Math.abs(y - T), dB = Math.abs(y - B), mn = Math.min(dL, dR, dT, dB);
+    if (mn === dL) x = L; else if (mn === dR) x = R; else if (mn === dT) y = T; else y = B;
+    pts.push({ x, y, station: true });
+  });
+  // Ordenar por ángulo alrededor del centro → recorrer en ese orden NUNCA cruza la cancha.
+  pts.forEach(p => p.th = Math.atan2(p.y - ccy, p.x - ccx));
+  pts.sort((a, b) => a.th - b.th);
+  const X = v => (v / GYM_COLS * 100).toFixed(2), Y = v => (v / GYM_ROWS * 100).toFixed(2);
+  const N = 5 + Math.floor(Math.random() * 4); // 5..8 paseantes en el pool
+  const shirts = ['#ff7a1a', '#3ac0c9', '#7a3ea6', '#1f6fb2', '#e8b04b', '#16a34a', '#c1121f', '#e84393', '#0ea5a4', '#2b3440'];
+  const hairs = ['#15110d', '#6b4423', '#3a2a1a', '#d9b382'], shorts = ['#26303a', '#2b2b2b', '#1f3550', '#3a2630'];
+  const stationIdx = pts.map((p, i) => p.station ? i : -1).filter(i => i >= 0);
+  let css = `@property --face{syntax:'<number>';inherits:true;initial-value:0}`;
+  const list = [];
+  for (let i = 0; i < N; i++) {
+    // Empezar (aparecer) y terminar (desaparecer) en un LUGAR distinto cada vez → "entra/sale" del buffet/baño/etc.
+    const startAt = stationIdx.length ? stationIdx[Math.floor(Math.random() * stationIdx.length)] : Math.floor(Math.random() * pts.length);
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const route = [];
+    for (let k = 0; k <= pts.length; k++) { const idx = ((startAt + dir * k) % pts.length + pts.length) % pts.length; route.push(pts[idx]); }
+    // Pesos: tiempo de viaje ~ distancia; "estadía" extra en cada lugar (se queda mirando/comprando).
+    const dwell = route.map((p, k) => (p.station && k < route.length - 1) ? (1.6 + Math.random() * 2.2) : 0);
+    const segW = []; let total = 0;
+    for (let k = 1; k < route.length; k++) { const d = Math.max(0.5, Math.hypot(route[k].x - route[k - 1].x, route[k].y - route[k - 1].y)); segW.push(d); total += d; }
+    const grand = total + dwell.reduce((a, b) => a + b, 0);
+    const op = p => Math.max(0, Math.min(1, p / 4, (100 - p) / 6)).toFixed(2);
+    const faceAt = k => (route[k].y - route[Math.max(0, k - 1)].y) < -0.25 ? 1 : 0; // sube = de espaldas
+    let acc = 0; const frames = [];
+    for (let k = 0; k < route.length; k++) {
+      const p = acc / grand * 100, f = faceAt(k);
+      frames.push(`${p.toFixed(2)}%{left:${X(route[k].x)}%;top:${Y(route[k].y)}%;--face:${f};opacity:${op(p)}}`);
+      if (dwell[k] > 0) { acc += dwell[k]; const p2 = acc / grand * 100; frames.push(`${p2.toFixed(2)}%{left:${X(route[k].x)}%;top:${Y(route[k].y)}%;--face:${f};opacity:${op(p2)}}`); }
+      if (k < segW.length) acc += segW[k];
+    }
+    css += `@keyframes gwpath${i}{${frames.join('')}}`;
+    const carry = Math.random() < 0.4 ? 'paddle' : Math.random() < 0.5 ? 'drink' : null;
+    const dur = 42 + Math.round(Math.random() * 54); // 42..96s → lento
+    list.push({ i, dur, phase: Math.random() * dur, shirt: shirts[Math.floor(Math.random() * shirts.length)], hair: hairs[Math.floor(Math.random() * hairs.length)], short: shorts[Math.floor(Math.random() * shorts.length)], carry, paddleColor: carry === 'paddle' ? gymPaddleColor() : null, cap: (carry === 'paddle' && Math.random() < 0.3) ? shirts[Math.floor(Math.random() * shirts.length)] : null });
+  }
+  _gymWander = { sig, start: (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(), list, css };
+  return _gymWander;
 }
+function gymWanderCSS(layout) { return gymWanderSet(layout).css; }
 // Personal de la mesa de control: tantas personitas como (admin + colaboradores) del torneo, diferenciadas.
 function gymStaff(t) {
   const colors = ['#c1121f', '#1f6fb2', '#16a34a', '#ff7a1a', '#7a3ea6', '#e8b04b'], hairs = ['#15110d', '#6b4423', '#3a2a1a', '#d9b382'];
@@ -3477,17 +3536,15 @@ function gymStageHtml(layout, t, editable) {
     if (ctl) staff.forEach((s, i) => { const px = ctl.x + ctl.w * ((i + 0.5) / n), py = ctl.y + ctl.h * 0.82;
       ppl += `<div class="g-person g-staff" style="left:${(px / GYM_COLS * 100).toFixed(2)}%;top:${(py / GYM_ROWS * 100).toFixed(2)}%">${s.name ? `<div class="ptag">${esc(s.name)}</div>` : ''}${gymPersonSVG(s)}</div>`; });
     if (buf) ppl += `<div class="g-person g-staff" style="left:${((buf.x + buf.w * 0.5) / GYM_COLS * 100).toFixed(2)}%;top:${((buf.y + buf.h * 0.82) / GYM_ROWS * 100).toFixed(2)}%">${gymPersonSVG({ apron: 1, cap: '#c1121f', shirt: '#2b3440' })}</div>`;
-    // Paseantes variados: algunos llevan su paleta camino a jugar, otros pasan tomando algo, otros con las manos libres.
-    const wndr = (o, d) => `<div class="g-wander" style="animation-delay:${d}s"><div class="wp wp-front">${gymPersonSVG(o)}</div><div class="wp wp-back" style="animation-delay:${d}s">${gymPersonSVG(Object.assign({}, o, { back: 1 }))}</div></div>`;
-    const wanderers = [
-      { shirt: '#ff7a1a', carry: 'paddle', hair: '#3a2a1a' },
-      { shirt: '#3ac0c9', carry: 'drink', hair: '#6b4423' },
-      { shirt: '#7a3ea6', hair: '#15110d' },
-      { shirt: '#1f6fb2', carry: 'paddle', cap: '#16a34a', hair: '#15110d' },
-      { shirt: '#e8b04b', carry: 'drink', short: '#2b2b2b', hair: '#3a2a1a' },
-    ];
-    const span = 80 / wanderers.length; // repartidos parejo a lo largo del recorrido de 80s
-    ppl += wanderers.map((o, i) => wndr(o, (-span * i).toFixed(1))).join('');
+    // Paseantes: recorridos aleatorios (set estable entre renders); el delay negativo re-sincroniza la fase
+    // tras cada re-render de la vista en vivo, así no "saltan" cuando llega una actualización del torneo.
+    const set = gymWanderSet(layout);
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const elapsed = (now - set.start) / 1000;
+    ppl += set.list.map(o => {
+      const delay = (-(elapsed + o.phase)).toFixed(2); // delay SIEMPRE negativo → animación ya avanzada (resume tras re-render) y repartida
+      return `<div class="g-wander" style="animation:gwpath${o.i} ${o.dur}s linear ${delay}s infinite"><div class="wp wp-front">${gymPersonSVG(o)}</div><div class="wp wp-back">${gymPersonSVG(Object.assign({}, o, { back: 1 }))}</div></div>`;
+    }).join('');
   }
   return `<div class="gym-stage ${editable ? 'editing' : ''} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}${ppl}</div>`;
 }

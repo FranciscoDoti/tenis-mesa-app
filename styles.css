@@ -699,7 +699,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 /* paseantes: recorren lento el perímetro POR FUERA del piso (keyframes gwpath inyectadas según el piso),
    y muestran cara (de frente) o nuca (de espaldas) según el tramo → sensación de dirección. */
 .g-staff{z-index:0} /* personal: detrás de la mesa de control (la mesa, z-index 1, les tapa las piernas) */
-.g-wander{position:absolute; width:2.7%; z-index:4; transform:translate(-50%,-82%); animation:gwpath 80s linear infinite}
+/* Paseante: la animación (gwpathN, con left/top/opacity/--face) la setea cada elemento inline. */
+.g-wander{position:absolute; width:2.7%; z-index:4; transform:translate(-50%,-82%)}
+@property --face{syntax:'<number>'; inherits:true; initial-value:0}
 /* piernas que caminan (solo en los que pasean): zancada alternada */
 .g-wander .leg{transform-box:fill-box}
 .g-wander .leg-l{animation:gstep .42s ease-in-out infinite}
@@ -709,17 +711,18 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .g-wander .arm{transform-box:fill-box; transform-origin:50% 7%}
 .g-wander .arm-l{animation:garmA .42s ease-in-out infinite}
 .g-wander .arm-r{animation:garmB .42s ease-in-out infinite}
+/* brazo que lleva la paleta abajo: se balancea con el paso (la paleta cuelga y acompaña el vaivén) */
+.g-wander .arm-pad{animation:garmPad .42s ease-in-out infinite}
 @keyframes garmA{0%,100%{transform:rotate(8deg)}50%{transform:rotate(-8deg)}}
 @keyframes garmB{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
-/* paleta: leve vaivén desde la mano; vaso: apenas se inclina (lo lleva con cuidado) */
-.g-wander .paddle{transform-box:fill-box; transform-origin:52% 90%; animation:gpad 1.8s ease-in-out infinite}
-@keyframes gpad{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(7deg)}}
+@keyframes garmPad{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(5deg)}}
+/* vaso: apenas se inclina (lo lleva con cuidado) */
 .g-wander .drink{transform-box:fill-box; transform-origin:50% 100%; animation:gdrink 2.6s ease-in-out infinite}
 @keyframes gdrink{0%,100%{transform:rotate(-2.5deg)}50%{transform:rotate(2.5deg)}}
-.g-wander .wp-front{position:relative}
-.g-wander .wp-back{position:absolute; inset:0; opacity:0; animation:gwface 80s linear infinite}
+/* dirección: muestra cara (de frente) o nuca (de espaldas) según --face (animada en la ruta) → crossfade suave */
+.g-wander .wp-front{position:relative; opacity:calc(1 - var(--face,0))}
+.g-wander .wp-back{position:absolute; inset:0; opacity:var(--face,0)}
 .g-wander .wp svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .6s ease-in-out infinite}
-@keyframes gwface{0%{opacity:1}24%{opacity:1}26%{opacity:0}74%{opacity:0}76%{opacity:1}100%{opacity:1}}
 /* La vista de gimnasio es un modal a pantalla completa: bloqueá el scroll del documento mientras está abierta. */
 html:has(.gym-overlay){overflow:hidden}
 /* En el celular en VERTICAL: rotamos SOLO el contenido (.gym-rot), centrado, para ocupar toda la pantalla
