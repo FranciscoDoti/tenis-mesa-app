@@ -241,16 +241,39 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .bmatch-actions{display:flex; align-items:center; gap:8px; flex:0 0 auto}
 .bmatch-actions .start-btn{width:auto}
 .bmatch-actions .btn-sm{flex:0 0 auto}
-.bracket{display:flex; gap:26px; overflow-x:auto; padding:10px 2px 16px}
+/* Barra de zoom de la llave (útil sobre todo en el celu) */
+.bracket-tools{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 8px}
+.brz{display:inline-flex; align-items:center; gap:2px; background:#fff; border:1px solid var(--line); border-radius:999px; padding:3px; box-shadow:var(--shadow)}
+.brz-btn{width:30px; height:30px; border:0; background:transparent; border-radius:999px; font-size:17px; font-weight:800; line-height:1; color:var(--table); cursor:pointer; display:flex; align-items:center; justify-content:center}
+.brz-btn:hover{background:#eef4f0}
+.brz-btn:active{transform:scale(.92)}
+.brz-reset{font-size:15px}
+.brz-lvl{min-width:42px; text-align:center; font-weight:800; font-size:12px; color:var(--muted)}
+.brz-hint{font-size:11.5px; color:var(--muted); font-weight:600}
+.bracket-scroll{overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg,#fbfdfc,#f4f7f5); padding:4px}
+.bracket{display:flex; gap:26px; padding:10px 6px 16px; align-items:center; width:max-content; min-width:100%}
 .br-col{display:flex; flex-direction:column; justify-content:space-around; gap:14px; min-width:200px}
-.br-rtitle{font-weight:800; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px}
-.br-match{border:1px solid var(--line); border-radius:10px; background:#fff; box-shadow:var(--shadow); overflow:hidden}
-.br-slot{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 11px; font-size:13px}
+.br-rtitle{align-self:flex-start; font-weight:800; color:var(--table); font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; margin-bottom:2px; background:#e7f1ea; border:1px solid #cfe6d8; padding:3px 9px; border-radius:999px}
+.br-col-3rd .br-rtitle{background:#fff3e0; border-color:#ffd8a8; color:#8a5400}
+.br-match{position:relative; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:var(--shadow); overflow:hidden; transition:box-shadow .15s,transform .15s}
+.br-match.done{border-color:#d4e7db}
+.br-match.mine-match{border-color:var(--ball); box-shadow:0 0 0 2px rgba(255,122,26,.25),var(--shadow)}
+.br-slot{position:relative; display:flex; align-items:center; gap:8px; padding:9px 11px; font-size:13px}
+.br-slot .plink{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .br-slot+.br-slot{border-top:1px solid var(--line)}
-.br-s{flex:0 0 auto; color:var(--paddle); font-weight:800}
+.br-slot.win{font-weight:800; color:var(--table-dark); background:linear-gradient(90deg,rgba(22,163,74,.10),transparent)}
+.br-slot.win::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--ok)}
+.br-slot.mine{background:linear-gradient(90deg,rgba(255,122,26,.12),transparent)}
+.br-slot.win.mine{background:linear-gradient(90deg,rgba(255,122,26,.16),transparent)}
+.br-trophy{flex:0 0 auto; font-size:12px; filter:saturate(1.2)}
+.br-you{flex:0 0 auto; font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:#fff; background:var(--ball); padding:2px 6px; border-radius:999px}
+.br-s{flex:0 0 auto; color:var(--paddle); font-weight:800; min-width:14px; text-align:right}
 .br-edit{display:block; width:100%; border:0; border-top:1px solid var(--line); border-radius:0; background:#f3f6f9; color:var(--ink); font-weight:700; padding:7px; font-size:12px; cursor:pointer}
 .br-edit:hover{background:#e9eef3}
-.champ{margin-top:16px; font-size:17px; background:#fff3e0; border:1px solid #ffd8a8; color:#8a5400; padding:12px 16px; border-radius:12px; font-weight:600}
+.champ{display:flex; align-items:center; gap:8px; margin-top:16px; font-size:16px; background:linear-gradient(120deg,#fff6e6,#ffe9c7); border:1px solid #ffd8a8; color:#8a5400; padding:13px 16px; border-radius:14px; font-weight:600; box-shadow:var(--shadow)}
+.champ span{text-transform:uppercase; font-size:11px; letter-spacing:.8px; font-weight:800; opacity:.8}
+.champ b{font-size:17px}
+.champ.champ-mine{background:linear-gradient(120deg,#fff1df,#ffe1bd); border-color:var(--ball); box-shadow:0 0 0 2px rgba(255,122,26,.3),var(--shadow)}
 .setrow{display:flex; align-items:center; gap:10px; margin:6px 0}
 .setrow>span{width:52px; color:var(--muted); font-size:13px; font-weight:600}
 .setrow input{width:72px; text-align:center}
@@ -612,7 +635,10 @@ html{-webkit-text-size-adjust:100%}
   .hist-score{text-align:left}
 
   /* bracket un poco más angosto para que entre el scroll horizontal */
-  .br-col{min-width:168px}
+  .br-col{min-width:156px; gap:10px}
+  .bracket{gap:18px}
+  .bracket-tools{position:sticky; left:0} /* la barra de zoom queda a la vista aunque se scrollee */
+  .brz-hint{flex:1 1 100%; order:3}
 
   /* mapas un poco más bajos */
   .gym-map{height:160px}

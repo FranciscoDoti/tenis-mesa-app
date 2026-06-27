@@ -3759,6 +3759,12 @@ function groupStandings(cat, gi) {
 const groupStageComplete = cat => cat.matches && cat.matches.length > 0 && cat.matches.every(m => matchDone(m, cat));
 const _grpCollapsed = new Set(); // grupos colapsados (clave "catId:gi")
 function toggleGroup(cid, gi) { const k = cid + ':' + gi; if (_grpCollapsed.has(k)) _grpCollapsed.delete(k); else _grpCollapsed.add(k); render(); }
+// Zoom de la llave (sobre todo para el celu): se aplica con CSS `zoom` al contenedor de la llave,
+// así el scroll del contenedor sigue funcionando. Se guarda el nivel para sobrevivir a un re-render.
+let _brZoom = 1;
+function applyBrZoom() { const el = document.getElementById('brkt'); if (el) el.style.zoom = _brZoom; const l = document.getElementById('brzLvl'); if (l) l.textContent = Math.round(_brZoom * 100) + '%'; }
+function brZoom(dir) { _brZoom = Math.min(1.8, Math.max(0.5, +(_brZoom + dir * 0.2).toFixed(2))); applyBrZoom(); }
+function brZoomReset() { _brZoom = 1; applyBrZoom(); }
 function groupCardHtml(cat, gi) {
   const st = groupStandings(cat, gi);
   const head = `<li class="grp-head"><span>Jugador</span><span class="grp-stat">Ganados · Sets</span></li>`;
@@ -3833,13 +3839,17 @@ function generateBracket(tid, cid) {
 function bracketHtml(cat) {
   const T = cat.bracket.length;
   const rname = r => { const fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); };
-  const slot = (id, w, sc) => `<div class="br-slot ${w ? 'win' : ''}">${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? entLink(cat, id) : '<i class="muted">—</i>'}<span class="br-s">${sc}</span></div>`;
+  const myId = (currentUser() || {}).playerId;
+  const isMine = id => !!(myId && id && id !== 'BYE' && ((entById(cat, id) || {}).players || []).includes(myId));
+  let meInBracket = false;
+  const slot = (id, w, sc) => { const mine = isMine(id); if (mine) meInBracket = true; return `<div class="br-slot ${w ? 'win' : ''} ${mine ? 'mine' : ''}">${w ? '<span class="br-trophy">🏆</span>' : ''}${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? entLink(cat, id) : '<i class="muted">—</i>'}${mine ? '<span class="br-you">vos</span>' : ''}<span class="br-s">${sc}</span></div>`; };
+  const matchCls = (a, b, done) => `br-match${(isMine(a) || isMine(b)) ? ' mine-match' : ''}${done ? ' done' : ''}`;
   const cols = cat.bracket.map((round, r) => `<div class="br-col"><div class="br-rtitle">${rname(r)}</div>` +
     round.map((mm, m) => { const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b'), res = matchResult(mm), w = brWinner(cat, r, m), done = matchDone(mm, cat);
       const playable = a && b && a !== 'BYE' && b !== 'BYE';
       const can = canEditCat(cat) && playable;
       const mesa = (playable && !done) ? startControl(cat, 'bracket', null, r, m, mm) : '';
-      return `<div class="br-match">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
+      return `<div class="${matchCls(a, b, done)}">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
         ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : (playable && !done && estStartLabel(mm) ? `<div class="br-est">${estStartLabel(mm)}</div>` : '')}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
         ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}
@@ -3849,13 +3859,13 @@ function bracketHtml(cat) {
   if (cat.thirdPlace && !thirdPlayable(cat)) {
     // Una semifinal fue "real vs BYE": no hay partido por el 3º; el semifinalista real queda 3º.
     const a = semiLoser(cat, 0), b = semiLoser(cat, 1), real = (a && a !== 'BYE') ? a : (b && b !== 'BYE') ? b : null;
-    if (real) extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">${slot(real, true, '')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
+    if (real) extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(real, null, true)}">${slot(real, true, '')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
   } else if (cat.thirdPlace) {
     const a = semiLoser(cat, 0), b = semiLoser(cat, 1), res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
     const playable = a && b && a !== 'BYE' && b !== 'BYE';
     const can = canEditCat(cat) && playable;
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
-    extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">
+    extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(a, b, done)}">
       ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
       ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : (playable && !done && estStartLabel(cat.thirdPlace) ? `<div class="br-est">${estStartLabel(cat.thirdPlace)}</div>` : '')}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
@@ -3863,8 +3873,17 @@ function bracketHtml(cat) {
       ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','third',null,null,null)" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div></div>`;
   }
   const champ = brWinner(cat, T - 1, 0);
-  const champHtml = champ && champ !== 'BYE' ? `<div class="champ">🏆 Campeón: <b>${entLink(cat, champ)}</b></div>` : '';
-  return `<div class="bracket">${cols}${extra}</div>${champHtml}${awardedHtml(cat)}`;
+  const champHtml = champ && champ !== 'BYE' ? `<div class="champ ${isMine(champ) ? 'champ-mine' : ''}">🏆 <span>Campeón</span> <b>${entLink(cat, champ)}</b>${isMine(champ) ? ' <span class="br-you">vos</span>' : ''}</div>` : '';
+  const tools = `<div class="bracket-tools">
+      <div class="brz">
+        <button class="brz-btn" type="button" onclick="brZoom(-1)" aria-label="Alejar">−</button>
+        <span class="brz-lvl" id="brzLvl">${Math.round(_brZoom * 100)}%</span>
+        <button class="brz-btn" type="button" onclick="brZoom(1)" aria-label="Acercar">+</button>
+        <button class="brz-btn brz-reset" type="button" onclick="brZoomReset()" aria-label="Restablecer zoom" title="Restablecer">⟳</button>
+      </div>
+      <span class="brz-hint">${meInBracket ? '⭐ Tus partidos están resaltados · ' : ''}↔ deslizá para ver toda la llave</span>
+    </div>`;
+  return `${tools}<div class="bracket-scroll"><div class="bracket" id="brkt" style="zoom:${_brZoom}">${cols}${extra}</div></div>${champHtml}${awardedHtml(cat)}`;
 }
 function awardedHtml(cat) {
   if (!cat.awarded || !Object.keys(cat.awarded).length) return '';
@@ -4081,7 +4100,7 @@ function toggleLiveZone(el) {
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
