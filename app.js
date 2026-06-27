@@ -3078,14 +3078,42 @@ function openZonePopover(ev, tid, cid, gi) {
     <div class="pop-sub">Todos los partidos de la zona se juegan en esta mesa hasta terminar.</div>
     <div class="table-grid">${cells}</div>${liberar}`);
 }
-function assignZoneTable(tid, cid, gi, tableNum) {
+// Jugadores de esta zona que YA están jugando activamente en otra zona/partido (con mesa asignada y
+// partido pendiente). Devuelve, por jugador, dónde está jugando y en qué mesa.
+function zoneLaunchConflicts(t, cat, gi) {
+  const zonePlys = zonePlayers(cat, gi);
+  const out = [];
+  tournamentUnits(t).forEach(u => {
+    if (u.table == null || u.pending <= 0) return;
+    if (u.kind === 'zone' && u.cat.id === cat.id && u.gi === gi) return; // la misma zona no cuenta
+    const occ = u.kind === 'zone' ? zonePendingPlayers(u.cat, u.gi) : u.players; // en una zona, solo los que aún juegan
+    occ.forEach(pid => { if (zonePlys.has(pid)) out.push({ pid, label: `${u.cat.name} · ${u.label}`, table: u.table }); });
+  });
+  return out;
+}
+function showZoneConflictModal(tid, cid, gi, num, conflicts) {
+  const seen = new Set();
+  const rows = conflicts.filter(c => !seen.has(c.pid) && seen.add(c.pid)).map(c => {
+    const p = playerById(c.pid);
+    return `<li>👤 <b>${esc(p ? fullName(p) : '?')}</b> — está jugando en <b>${esc(c.label)}</b> · 🏓 Mesa ${c.table}</li>`;
+  }).join('');
+  openModal(`<h3>⚠️ Jugadores ocupados</h3>
+    <p class="muted" style="margin-top:0">Estos jugadores de la <b>Zona ${String.fromCharCode(65 + gi)}</b> están jugando ahora en otra mesa. Si la largás igual, sus partidos de esta zona van a tener que esperar a que se liberen.</p>
+    <ul class="conflict-list">${rows}</ul>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="closeModal();assignZoneTable('${tid}','${cid}',${gi},${num},true)">Largar igual</button></div>`);
+}
+function assignZoneTable(tid, cid, gi, tableNum, force) {
   closePopover();
   const cat = getCat(tid, cid); cat._tid = tid;
   if (!cat.zoneTable) cat.zoneTable = {};
   const num = tableNum > 0 ? tableNum : null;
   if (num == null) { delete cat.zoneTable[gi]; save(DB); render(); return; }
-  const occ = occupiedTablesOf(tById(tid)); if (cat.zoneTable[gi] != null) occ.delete(cat.zoneTable[gi]);
+  const t = tById(tid);
+  const occ = occupiedTablesOf(t); if (cat.zoneTable[gi] != null) occ.delete(cat.zoneTable[gi]);
   if (occ.has(num)) { alert(`La mesa ${num} ya está ocupada. Esperá a que se libere.`); render(); return; }
+  // Aviso: ¿hay jugadores de esta zona jugando activamente en otra mesa? Damos la opción de largar igual.
+  if (!force) { const conflicts = zoneLaunchConflicts(t, cat, gi); if (conflicts.length) { showZoneConflictModal(tid, cid, gi, num, conflicts); return; } }
   cat.zoneTable[gi] = num; save(DB); render();
 }
 // Aplazar un partido de grupo: lo saca de la mesa de la zona (libera la mesa para ese partido) y pasa a largado individual.

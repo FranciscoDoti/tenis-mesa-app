@@ -623,6 +623,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .pos.medal{font-size:18px}
 
 .players-subhead{font-size:15px; margin:24px 0 2px; display:flex; align-items:center; gap:6px; border-top:1px dashed var(--line); padding-top:16px}
+.conflict-list{margin:10px 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px}
+.conflict-list li{background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn-ink); border-radius:10px; padding:9px 12px; font-size:13.5px}
 
 /* evita el zoom raro de fuentes en mobile al rotar */
 html{-webkit-text-size-adjust:100%}
