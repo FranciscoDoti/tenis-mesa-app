@@ -3492,7 +3492,7 @@ function renderGymView(app, ref) {
   if (!gym) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">${isTour ? 'Este torneo no tiene un gimnasio asignado (asignale uno desde ✏️ Datos).' : 'Gimnasio no encontrado.'}</div>`; return; }
   const canEdit = isTour ? canEditT(t) : canManageGym(gym), editing = canEdit && _gymEditMode;
   const layout = gymRenderLayout(t, gym);
-  app.innerHTML = `<div class="gym-overlay">
+  app.innerHTML = `<div class="gym-overlay"><div class="gym-rot">
       <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button>
         <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
         ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
@@ -3500,7 +3500,7 @@ function renderGymView(app, ref) {
       ${!editing ? `<style>${gymWanderCSS(layout)}</style>` : ''}
       ${gymStageHtml(layout, t, editing)}
       <div class="gym-foot muted">${isTour ? (editing ? 'Estás editando la vista de ESTE torneo (no cambia el resto).' : '🔴 Quién está jugando en cada mesa, en tiempo real.') : 'Vista base del gimnasio: la heredan los torneos que se jueguen acá.'}</div>
-    </div>`;
+    </div></div>`;
   if (editing) wireGymEditor();
 }
 function gymEditToggle() { _gymEditMode = !_gymEditMode; render(); }

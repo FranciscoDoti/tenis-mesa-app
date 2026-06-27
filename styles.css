@@ -627,7 +627,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .conflict-list li{background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn-ink); border-radius:10px; padding:9px 12px; font-size:13.5px}
 
 /* ============ Vista de gimnasio (pixel art) ============ */
-.gym-overlay{position:fixed; inset:0; z-index:70; background:#0f141a; color:#fff; display:flex; flex-direction:column; gap:10px; padding:12px; overflow:auto}
+/* La shell cubre SIEMPRE toda la pantalla y recorta (nunca puede asomar el fondo blanco de la app detrás).
+   El contenido vive en .gym-rot, que es lo único que se rota en el celular. */
+.gym-overlay{position:fixed; inset:0; z-index:70; background:#0f141a; overflow:hidden}
+.gym-rot{position:absolute; inset:0; color:#fff; display:flex; flex-direction:column; gap:10px; padding:12px; overflow:auto}
 .gym-bar{display:flex; align-items:center; justify-content:space-between; gap:10px}
 .gym-title{font-weight:800; font-size:16px; text-align:center; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .gym-edithint{font-size:12.5px; color:#bcd; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px 12px}
@@ -708,14 +711,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .g-wander.w2 .wp-back{animation-delay:-26.6s}.g-wander.w3 .wp-back{animation-delay:-53.3s}
 .g-wander .wp svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .6s ease-in-out infinite}
 @keyframes gwface{0%{opacity:1}24%{opacity:1}26%{opacity:0}74%{opacity:0}76%{opacity:1}100%{opacity:1}}
-/* La vista de gimnasio es un modal a pantalla completa: bloqueá el scroll del documento mientras está
-   abierta (en mobile rotado, la caja sin rotar es más ancha que la pantalla y dejaba una barra/zona en blanco). */
+/* La vista de gimnasio es un modal a pantalla completa: bloqueá el scroll del documento mientras está abierta. */
 html:has(.gym-overlay){overflow:hidden}
-/* En el celular en VERTICAL: la vista de gimnasio se muestra rotada (apaisada) para ocupar toda la pantalla. */
+/* En el celular en VERTICAL: rotamos SOLO el contenido (.gym-rot), centrado, para ocupar toda la pantalla
+   en apaisado. La shell (.gym-overlay) queda fija a pantalla completa y recorta lo que sobre, así que aunque
+   las unidades vw/vh del celular no coincidan exacto con el área visible, NUNCA asoma el fondo blanco. */
 @media (orientation:portrait) and (max-width:820px){
-  .gym-overlay{width:100vh; height:100vw; top:0; left:0; transform-origin:top left; transform:rotate(90deg) translateY(-100vw); padding:6px}
+  .gym-rot{inset:auto; top:50%; left:50%; width:100vh; width:100dvh; height:100vw; height:100dvw;
+    transform-origin:center; transform:translate(-50%,-50%) rotate(90deg); padding:6px}
   /* alto EXPLÍCITO: si dejamos width:auto + aspect-ratio en columna flex, el alto queda en 0 (pantalla negra). */
-  .gym-overlay .gym-stage{height:min(84vw,60vh); width:auto; max-width:96vh; aspect-ratio:12/8; margin:auto; flex:0 0 auto}
+  .gym-rot .gym-stage{height:min(84vw,60vh); width:auto; max-width:96vh; aspect-ratio:12/8; margin:auto; flex:0 0 auto}
 }
 
 /* evita el zoom raro de fuentes en mobile al rotar */
