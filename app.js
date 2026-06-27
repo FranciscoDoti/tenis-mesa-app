@@ -3154,6 +3154,15 @@ function catClassPriority(cat) {
 const startAtMs = cat => (cat.startAt ? (new Date(cat.startAt).getTime() || 9e15) : 9e15);
 function freeTables(t) { const occ = occupiedTablesOf(t), out = []; for (let i = 1; i <= tableCountOf(t); i++) if (!occ.has(i)) out.push(i); return out; }
 function zonePlayers(cat, gi) { const s = new Set(); (cat.groups[gi] || []).forEach(eid => { const e = entById(cat, eid); if (e) e.players.forEach(p => s.add(p)); }); return s; }
+// Jugadores que TODAVÍA tienen partidos por jugar en esta zona (no terminados, no aplazados). Un jugador
+// que ya terminó todos sus partidos de la zona queda libre para jugar otra categoría, aunque la zona siga.
+function zonePendingPlayers(cat, gi) {
+  const s = new Set();
+  (cat.matches || []).filter(m => m.g === gi && !m.postponed && !matchDone(m, cat)).forEach(m => {
+    [m.a, m.b].forEach(eid => { const e = entById(cat, eid); if (e) e.players.forEach(p => s.add(p)); });
+  });
+  return s;
+}
 const matchPlayers = (cat, a, b) => { const s = new Set(); [a, b].forEach(id => { const e = entById(cat, id); if (e) e.players.forEach(p => s.add(p)); }); return s; };
 function brRoundName(cat, r) { const T = cat.bracket.length, fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); }
 // Todas las "unidades" largables/en curso del torneo (zonas de grupo y partidos individuales de llave).
@@ -3167,7 +3176,7 @@ function tournamentUnits(t) {
       if (!ms.length) return;
       const pending = ms.filter(m => !matchDone(m, cat)).length;
       const tbl = cat.zoneTable && cat.zoneTable[gi] != null ? cat.zoneTable[gi] : null;
-      units.push({ kind: 'zone', cat, table: tbl, pending, players: zonePlayers(cat, gi), who: g.map(eid => entName(cat, eid)).join(', '), prio, startMs, label: 'Zona ' + String.fromCharCode(65 + gi), action: `assignZoneTable('${t.id}','${cat.id}',${gi},__T__)` });
+      units.push({ kind: 'zone', cat, gi, table: tbl, pending, players: zonePlayers(cat, gi), who: g.map(eid => entName(cat, eid)).join(', '), prio, startMs, label: 'Zona ' + String.fromCharCode(65 + gi), action: `assignZoneTable('${t.id}','${cat.id}',${gi},__T__)` });
     });
     if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
       const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
@@ -3185,7 +3194,9 @@ function suggestLaunch(t) {
   if (!free.length) return { free, plan: [], alts: [] };
   const units = tournamentUnits(t);
   const busy = new Set(); // jugadores ocupados en unidades en curso (con mesa y partidos pendientes)
-  units.forEach(u => { if (u.table != null && u.pending > 0) u.players.forEach(p => busy.add(p)); });
+  // Para una zona en curso, solo ocupa a quienes AÚN tienen partidos pendientes en ella (el que ya
+  // terminó sus partidos queda libre para que se le sugiera otra categoría). Llaves/partidos: ambos.
+  units.forEach(u => { if (u.table != null && u.pending > 0) (u.kind === 'zone' ? zonePendingPlayers(u.cat, u.gi) : u.players).forEach(p => busy.add(p)); });
   const now = Date.now();
   let cands = units.filter(u => u.table == null && u.pending > 0 && ![...u.players].some(p => busy.has(p)));
   cands.forEach(u => { u.notReady = (u.cat.startAt && new Date(u.cat.startAt).getTime() > now) ? 1 : 0; });
