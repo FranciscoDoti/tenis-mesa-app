@@ -105,7 +105,7 @@ function eligible(cat, p) {
   const r = cat.rule; if (!r || r.type === 'open') return { ok: true };
   if (r.type === 'level') {
     const lvl = CATS.indexOf(p.category) + 1; if (lvl <= 0) return { ok: true };
-    return lvl <= r.level ? { ok: true } : { ok: false, reason: `${cat.name} no admite categorías inferiores: ${fullName(p)} es de ${p.category}.` };
+    return lvl >= r.level ? { ok: true } : { ok: false, reason: `${cat.name} no admite categorías inferiores: ${fullName(p)} es de ${p.category}.` };
   }
   const age = ageFromDob(p.dob);
   if (age == null) return { ok: false, reason: `Falta fecha de nacimiento de ${fullName(p)}.` };
@@ -3568,11 +3568,12 @@ function enrollModal(tid, cid) {
   if (cat.format === 'double') return enrollDoubles(tid, cid);
   const opts = tournamentPool(t).sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => {
     const checked = cat.entrants.some(e => e.players[0] === p.id);
+    const isPaid = cat.entrants.some(e => e.players[0] === p.id && e.paid); // ya pagó → no se puede desinscribir
     const el = eligible(cat, p), age = ageFromDob(p.dob);
     return `<label class="enrow ${el.ok ? '' : 'no'}" data-name="${esc(fullName(p) + ' ' + p.city).toLowerCase()}" style="display:flex;align-items:center;gap:10px;font-weight:500;margin:6px 0">
-      <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''} ${el.ok ? '' : 'disabled'} style="width:auto"/>
+      <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''} ${(el.ok && !isPaid) ? '' : 'disabled'} style="width:auto"/>
       <span>${esc(fullName(p))} <span class="muted" style="font-size:12px">· ${p.category}${age != null ? ` · ${age}a` : ''} · ${esc(p.city)}</span>
-      ${el.ok ? '' : `<br><small style="color:#b42318">⛔ ${esc(el.reason)}</small>`}</span></label>`;
+      ${isPaid ? `<br><small style="color:#16a34a">🔒 ya pagó — no se puede desinscribir</small>` : (el.ok ? '' : `<br><small style="color:#b42318">⛔ ${esc(el.reason)}</small>`)}</span></label>`;
   }).join('');
   openModal(`<h3>Anotar jugadores — ${esc(cat.name)}</h3>
     <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b></p>
@@ -3591,6 +3592,8 @@ function saveEnrollSingles(tid, cid) {
   const t = tById(tid);
   const ids = [...$('#modalCard').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value)
     .filter(pid => { const p = playerById(pid); return p && eligible(cat, p).ok && inTournamentScope(t, p); }); // defensivo: elegibilidad + escuela/org
+  // Nunca desinscribir a quien ya pagó (aunque la UI lo bloquea, lo reforzamos acá).
+  (cat.entrants || []).forEach(e => { if (e.paid && !ids.includes(e.players[0])) ids.push(e.players[0]); });
   cat.entrants = ids.map(pid => cat.entrants.find(e => e.players[0] === pid) || { id: uid('e_'), players: [pid] });
   resetCat(cat); save(DB); closeModal(); render();
 }
@@ -3604,7 +3607,7 @@ function renderDoublesModal(tid, cid) {
   const optList = tournamentPool(tById(tid)).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const sel = id => `<select id="${id}"><option value="">— jugador —</option>${optList.map(p => `<option value="${p.id}">${esc(fullName(p))}</option>`).join('')}</select>`;
   const list = teams.map((e, i) => `<div class="bmatch"><span>${esc(playerById(e.players[0]) ? fullName(playerById(e.players[0])) : '?')} / ${esc(playerById(e.players[1]) ? fullName(playerById(e.players[1])) : '?')}</span>
-    <button class="btn btn-ghost btn-sm" onclick="rmTeam(${i},'${tid}','${cid}')">🗑️</button></div>`).join('');
+    ${e.paid ? '<span class="muted" style="color:#16a34a;font-size:12px">🔒 pagó</span>' : `<button class="btn btn-ghost btn-sm" onclick="rmTeam(${i},'${tid}','${cid}')">🗑️</button>`}</div>`).join('');
   const cat = getCat(tid, cid);
   openModal(`<h3>Anotar parejas — ${esc(cat.name)}</h3>
     <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b> (aplica a ambos)</p>
@@ -3626,7 +3629,12 @@ function addTeam(tid, cid) {
   renderDoublesModal(tid, cid);
 }
 function rmTeam(i, tid, cid) { window.__teams.splice(i, 1); renderDoublesModal(tid, cid); }
-function saveEnrollDoubles(tid, cid) { const cat = getCat(tid, cid); cat.entrants = window.__teams || []; resetCat(cat); save(DB); closeModal(); render(); }
+function saveEnrollDoubles(tid, cid) {
+  const cat = getCat(tid, cid); const teams = window.__teams || [];
+  // Nunca desinscribir parejas que ya pagaron (aunque la UI oculta el botón, lo reforzamos acá).
+  (cat.entrants || []).forEach(e => { if (e.paid && !teams.some(x => x.id === e.id)) teams.push(e); });
+  cat.entrants = teams; resetCat(cat); save(DB); closeModal(); render();
+}
 function resetCat(cat) { cat.groups = null; cat.matches = null; cat.bracket = null; cat.thirdPlace = null; cat.closed = false; cat.awarded = null; }
 
 /* ----- autoinscripción (jugadores) ----- */
