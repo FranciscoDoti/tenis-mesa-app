@@ -115,8 +115,16 @@ async function createAccount(req, env) {
   const adminUid = who.users && who.users[0] && who.users[0].localId;
   if (!adminUid) return json({ error: 'sesión inválida' }, 401);
   const token = await getAccessToken(env);
-  const role = await readUserRole(env, token, adminUid);
+  const me = await readUserDoc(env, token, adminUid);
+  const role = me && me.role;
   if (role !== 'admin' && role !== 'superadmin') return json({ error: 'no autorizado' }, 403);
+  // Scope por escuela: un admin (no superadmin) solo puede crear cuentas de SU escuela.
+  // La autoridad es la ficha del jugador en Firestore, no los ids que manda el cliente.
+  if (role === 'admin') {
+    const target = await readBlob(env, token, 'players', playerId);
+    const tOrg = (target && target.orgId) || orgId || null, tSchool = (target && target.schoolId) || schoolId || null;
+    if (me.orgId !== tOrg || me.schoolId !== tSchool) return json({ error: 'no autorizado para esa escuela' }, 403);
+  }
   // 2) crear la cuenta con contraseña aleatoria (no la conoce nadie; el jugador la fija por email).
   //    Si el email YA existía (p. ej. un intento previo que creó la cuenta pero no mandó el mail),
   //    no es error: seguimos y le reenviamos el "poné tu contraseña" (idempotente).
@@ -157,7 +165,9 @@ async function deleteAccount(req, env) {
   let who; try { who = await idtPost(apiKey, 'accounts:lookup', { idToken }); } catch (e) { return json({ error: 'sesión inválida' }, 401); }
   const adminUid = who.users && who.users[0] && who.users[0].localId;
   if (!adminUid) return json({ error: 'sesión inválida' }, 401);
-  const role = await readUserRole(env, await getAccessToken(env), adminUid);
+  const token = await getAccessToken(env);
+  const me = await readUserDoc(env, token, adminUid);
+  const role = me && me.role;
   if (role !== 'admin' && role !== 'superadmin') return json({ error: 'no autorizado' }, 403);
   const adminToken = await getAdminToken(env);
   const PROJ = `https://identitytoolkit.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}`;
@@ -168,6 +178,11 @@ async function deleteAccount(req, env) {
     targetUid = ld.users && ld.users[0] && ld.users[0].localId;
   }
   if (!targetUid) return json({ ok: true, deleted: false, note: 'no había cuenta de Auth' });
+  // Scope por escuela: un admin (no superadmin) solo puede borrar cuentas de SU escuela.
+  if (role === 'admin') {
+    const target = await readUserDoc(env, token, targetUid);
+    if (!target || me.orgId !== target.orgId || me.schoolId !== target.schoolId) return json({ error: 'no autorizado para esa escuela' }, 403);
+  }
   const r = await fetch(`${PROJ}/accounts:delete`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ localId: targetUid }) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { console.log('delete-account', JSON.stringify({ targetUid, error: (d.error && d.error.message) })); return json({ error: (d.error && d.error.message) || ('HTTP ' + r.status) }, 502); }

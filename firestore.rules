@@ -49,11 +49,14 @@ service cloud.firestore {
     // la pantalla de inicio sin estar logueado. No hay datos sensibles (colores + toggles).
     match /app/{doc}   { allow read: if true; allow write: if isAdmin(); }
 
-    // Torneos: escribe el admin o un colaborador (su playerId está en collaborators).
+    // Torneos: solo el admin de la MISMA escuela del torneo (o superadmin), o un colaborador
+    // (su playerId está en collaborators), pueden editarlo. Un admin de otra escuela no.
+    // El otorgar puntos cross-escuela y la auto-inscripción pasan por el Worker (saltea reglas).
     match /tournaments/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin() || (signedIn() && myPlayerId() in resource.data.collaborators);
-      allow create: if isAdmin();
+      allow create: if canManageSchool(request.resource.data);
+      allow update: if canManageSchool(resource.data) || (signedIn() && myPlayerId() in resource.data.collaborators);
+      allow delete: if canManageSchool(resource.data);
     }
 
     // Cuentas de cobro (MercadoPago): el token es SECRETO. Solo el admin dueño puede leer/escribir

@@ -105,7 +105,7 @@ function eligible(cat, p) {
   const r = cat.rule; if (!r || r.type === 'open') return { ok: true };
   if (r.type === 'level') {
     const lvl = CATS.indexOf(p.category) + 1; if (lvl <= 0) return { ok: true };
-    return lvl >= r.level ? { ok: true } : { ok: false, reason: `${cat.name} no admite categorías inferiores: ${fullName(p)} es de ${p.category}.` };
+    return lvl <= r.level ? { ok: true } : { ok: false, reason: `${cat.name} no admite categorías inferiores: ${fullName(p)} es de ${p.category}.` };
   }
   const age = ageFromDob(p.dob);
   if (age == null) return { ok: false, reason: `Falta fecha de nacimiento de ${fullName(p)}.` };
@@ -516,6 +516,9 @@ function applyMigrations() {
   // completa ajustes faltantes sin pisar los ya configurados
   Object.keys(DEFAULT_SETTINGS).forEach(k => { if (DB.settings[k] === undefined) DB.settings[k] = DEFAULT_SETTINGS[k]; });
   DB.settings.theme = Object.assign({}, DEFAULT_THEME, DB.settings.theme || {});
+  // Nombre/logo de escuela editados en Apariencia: DB.orgs NO se sincroniza, así que el override
+  // editable se guarda en settings (sí sincronizado) y se reaplica sobre las escuelas al cargar.
+  if (DB.settings.schoolMeta) DB.orgs.forEach(o => (o.schools || []).forEach(s => { const ov = DB.settings.schoolMeta[s.id]; if (ov) { if (ov.name) s.name = ov.name; if (ov.logo) s.logo = ov.logo; } }));
   if (!Array.isArray(DB.settings.pairs)) DB.settings.pairs = []; // ranking de dobles (por pareja)
   DB.settings.pairs.forEach(pr => { if (!pr.catName) pr.catName = 'Dobles'; }); // parejas viejas → bucket genérico
   (DB.players || []).forEach(p => { if (!p.gender) p.gender = guessGender(p.firstName); }); // género (mujer/varón) por nombre
@@ -564,7 +567,9 @@ function reconcileLocalSession() {
 async function reconcileFbSession() {
   if (!FB() || !_session || !_session.uid) return;
   let { role, orgId, schoolId, playerId } = _session, changed = false;
-  if (role === 'admin' && !orgId && !schoolId) { role = 'superadmin'; changed = true; } // admin global → superadmin
+  // admin global viejo (sin org/escuela) → superadmin. Endurecido: solo si AÚN no existe ningún
+  // superadmin (evita que un doc admin malformado escale una vez que ya hay un superadmin establecido).
+  if (role === 'admin' && !orgId && !schoolId && !(DB.users || []).some(u => u.role === 'superadmin')) { role = 'superadmin'; changed = true; }
   if (role === 'player' && playerId) { // jugador sin escuela → tomar la de su ficha (ya migrada)
     const p = (DB.players || []).find(x => x.id === playerId);
     if (p) { if (!orgId && p.orgId) { orgId = p.orgId; changed = true; } if (!schoolId && p.schoolId) { schoolId = p.schoolId; changed = true; } }
@@ -2007,39 +2012,51 @@ function currentUserWhatsapp() {
   return digits || null;
 }
 // Arma el reporte como texto y abre WhatsApp al teléfono del admin logueado, respetando los filtros actuales.
+// Filtros compartidos por los exportadores (WhatsApp/PDF): respetan los MISMOS filtros que la pantalla
+// (persona + estado), además del de categoría que ya se aplica al armar `cats`.
+function reportMatchE(e) {
+  if (reportPerson && !e.players.includes(reportPerson)) return false;
+  if (reportStatus === 'paid' && !e.paid) return false;
+  if (reportStatus === 'pending' && e.paid) return false;
+  return true;
+}
+const REPORT_TITLE = () => reportStatus === 'paid' ? 'Pagos de inscripción registrados' : reportStatus === 'all' ? 'Estado de pagos de inscripción' : 'Pagos de inscripción pendientes';
+const REPORT_TOTAL_LABEL = () => reportStatus === 'paid' ? 'Total pagado' : reportStatus === 'all' ? 'Total' : 'Pendiente total';
+const reportTag = e => reportStatus === 'all' ? (e.paid ? ' ✅' : ' ⏳') : ''; // marca pagado/pendiente solo cuando se listan ambos
 function reportWhatsApp() {
   const t = reportTid ? tById(reportTid) : null;
   if (!t) { alert('Elegí un torneo primero.'); return; }
   const cats = t.categorias.filter(c => catCost(c) > 0 && (!reportCat || c.id === reportCat));
   if (!cats.length) { alert('No hay categorías con costo de inscripción para reportar.'); return; }
-  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
-  const L = ['📋 *Pagos de inscripción pendientes*', '🏆 ' + t.name + (t.date ? ' · ' + t.date : '')];
+  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(reportMatchE).length * catCost(c); });
+  const L = ['📋 *' + REPORT_TITLE() + '*', '🏆 ' + t.name + (t.date ? ' · ' + t.date : '')];
   if (reportCat) L.push('🗂️ Categoría: ' + cats[0].name);
+  if (reportPerson) { const p = playerById(reportPerson); L.push('👤 ' + (p ? fullName(p) : 'Jugador')); }
   L.push('');
   if (reportMode === 'cat') {
     cats.forEach(c => {
-      const unpaid = c.entrants.filter(e => !e.paid).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
-      L.push(`*${c.name}* — ${money(catCost(c))} c/u · pendiente ${money(unpaid.length * catCost(c))}`);
-      if (unpaid.length) unpaid.forEach(e => L.push('• ' + entName(c, e.id))); else L.push('• Todos pagaron ✅');
+      const rows = c.entrants.filter(reportMatchE).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
+      L.push(`*${c.name}* — ${money(catCost(c))} c/u · ${money(rows.length * catCost(c))}`);
+      if (rows.length) rows.forEach(e => L.push('• ' + entName(c, e.id) + reportTag(e))); else L.push('• Sin resultados');
       L.push('');
     });
   } else {
     const map = {};
-    cats.forEach(c => c.entrants.filter(e => !e.paid).forEach(e => e.players.forEach(pid => {
+    cats.forEach(c => c.entrants.filter(reportMatchE).forEach(e => e.players.forEach(pid => {
       const p = playerById(pid); if (!p) return;
       (map[pid] = map[pid] || { name: fullName(p), items: [], total: 0 });
-      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c) });
+      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : '') + reportTag(e), cost: catCost(c) });
       map[pid].total += catCost(c);
     })));
     const people = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
-    if (!people.length) L.push('Nadie tiene pagos pendientes 🎉');
+    if (!people.length) L.push('Sin resultados para el filtro elegido.');
     people.forEach(pe => {
       L.push(`*${pe.name}* — ${money(pe.total)}`);
       pe.items.forEach(it => L.push('• ' + it.cat + ': ' + money(it.cost)));
       L.push('');
     });
   }
-  L.push('💰 *Pendiente total: ' + money(grand) + '*');
+  L.push('💰 *' + REPORT_TOTAL_LABEL() + ': ' + money(grand) + '*');
   const to = currentUserWhatsapp() || ADMIN_WHATSAPP; // teléfono del admin logueado; si no cargó uno, cae al número por defecto
   window.open(waLink(to, L.join('\n')), '_blank');
 }
@@ -2049,34 +2066,35 @@ function reportPDF() {
   if (!t) { alert('Elegí un torneo primero.'); return; }
   const cats = t.categorias.filter(c => catCost(c) > 0 && (!reportCat || c.id === reportCat));
   if (!cats.length) { alert('No hay categorías con costo de inscripción para reportar.'); return; }
-  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(e => !e.paid).length * catCost(c); });
+  let grand = 0; cats.forEach(c => { grand += c.entrants.filter(reportMatchE).length * catCost(c); });
   let body = '';
   if (reportMode === 'cat') {
     cats.forEach(c => {
-      const unpaid = c.entrants.filter(e => !e.paid).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
-      body += `<h2>${esc(c.name)} <span class="sub">— ${esc(money(catCost(c)))} c/u · pendiente ${esc(money(unpaid.length * catCost(c)))}</span></h2>`;
-      body += unpaid.length
-        ? `<table><tbody>${unpaid.map(e => `<tr><td>${esc(entName(c, e.id))}</td><td class="r">${esc(money(catCost(c)))}</td></tr>`).join('')}</tbody></table>`
-        : `<p class="ok">Todos pagaron ✅</p>`;
+      const rows = c.entrants.filter(reportMatchE).slice().sort((a, b) => entName(c, a.id).localeCompare(entName(c, b.id)));
+      body += `<h2>${esc(c.name)} <span class="sub">— ${esc(money(catCost(c)))} c/u · ${esc(money(rows.length * catCost(c)))}</span></h2>`;
+      body += rows.length
+        ? `<table><tbody>${rows.map(e => `<tr><td>${esc(entName(c, e.id))}${reportTag(e)}</td><td class="r">${esc(money(catCost(c)))}</td></tr>`).join('')}</tbody></table>`
+        : `<p class="ok">Sin resultados</p>`;
     });
   } else {
     const map = {};
-    cats.forEach(c => c.entrants.filter(e => !e.paid).forEach(e => e.players.forEach(pid => {
+    cats.forEach(c => c.entrants.filter(reportMatchE).forEach(e => e.players.forEach(pid => {
       const p = playerById(pid); if (!p) return;
       (map[pid] = map[pid] || { name: fullName(p), items: [], total: 0 });
-      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : ''), cost: catCost(c) });
+      map[pid].items.push({ cat: c.name + (c.format === 'double' ? ' (dobles)' : '') + reportTag(e), cost: catCost(c) });
       map[pid].total += catCost(c);
     })));
     const people = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
-    if (!people.length) body += `<p class="ok">Nadie tiene pagos pendientes 🎉</p>`;
+    if (!people.length) body += `<p class="ok">Sin resultados para el filtro elegido.</p>`;
     people.forEach(pe => {
       body += `<h2>${esc(pe.name)} <span class="sub">— ${esc(money(pe.total))}</span></h2>`;
       body += `<table><tbody>${pe.items.map(it => `<tr><td>${esc(it.cat)}</td><td class="r">${esc(money(it.cost))}</td></tr>`).join('')}</tbody></table>`;
     });
   }
-  const head = `<h1>Pagos de inscripción pendientes</h1>
-    <p class="meta">🏆 ${esc(t.name)}${t.date ? ' · ' + esc(t.date) : ''}${reportCat ? ' · Categoría: ' + esc(cats[0].name) : ''}</p>
-    <p class="total">Pendiente total: <b>${esc(money(grand))}</b></p>`;
+  const who = reportPerson ? (pp => pp ? ' · 👤 ' + esc(fullName(pp)) : '')(playerById(reportPerson)) : '';
+  const head = `<h1>${esc(REPORT_TITLE())}</h1>
+    <p class="meta">🏆 ${esc(t.name)}${t.date ? ' · ' + esc(t.date) : ''}${reportCat ? ' · Categoría: ' + esc(cats[0].name) : ''}${who}</p>
+    <p class="total">${esc(REPORT_TOTAL_LABEL())}: <b>${esc(money(grand))}</b></p>`;
   const css = `body{font-family:Arial,Helvetica,sans-serif;color:#1d2433;margin:32px;font-size:13px}
     h1{font-size:20px;margin:0 0 4px} .meta{color:#555;margin:0 0 2px}
     .total{margin:6px 0 18px;font-size:15px}
@@ -2551,7 +2569,7 @@ function discardTheme() { themeDraft = null; schoolDraft = null; render(); }    
 function publishTheme() {
   if (!themeDirty() && !schoolsDirty()) return;
   if (themeDraft) { const bag = settingsBag('school', ctxSchoolId(), true); if (bag) bag.theme = Object.assign({}, themeOf()); else { ensureTheme(); DB.settings.theme = Object.assign({}, themeOf()); } }
-  if (schoolDraft) Object.entries(schoolDraft).forEach(([sid, d]) => { const s = schoolById(d.orgId, sid); if (s) { s.name = (d.name || '').trim() || s.name; s.logo = d.logo || DEFAULT_SCHOOL_LOGO; } });
+  if (schoolDraft) { DB.settings.schoolMeta = DB.settings.schoolMeta || {}; Object.entries(schoolDraft).forEach(([sid, d]) => { const s = schoolById(d.orgId, sid); if (s) { s.name = (d.name || '').trim() || s.name; s.logo = d.logo || DEFAULT_SCHOOL_LOGO; DB.settings.schoolMeta[sid] = { name: s.name, logo: s.logo }; } }); }
   themeDraft = null; schoolDraft = null; save(DB);
   themeMsg = '✅ Cambios publicados. Ya los ven los miembros de la escuela.';
   render();
@@ -3481,7 +3499,7 @@ function renderCategoria(app, tid, cid) {
 
   if (canEditCat(cat)) {
     const finalDone = cat.bracket && brWinner(cat, cat.bracket.length - 1, 0);
-    const thirdReady = !cat.thirdPlace || matchDone(cat.thirdPlace, cat);
+    const thirdReady = !thirdPlayable(cat) || matchDone(cat.thirdPlace, cat);
     const started = catStarted(cat);            // ya se largó/jugó algún partido
     const canToggle = !cat.groups && !cat.closed;
     const preStart = !started && !cat.closed;   // anotar / armar grupos: solo antes de empezar
@@ -3701,6 +3719,10 @@ function buildGroups(ids, min, max) {
 function genMatches(groups, bestOf) { const m = []; groups.forEach((g, gi) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) m.push({ g: gi, a: g[i], b: g[j], sets: [], bestOf }); }); return m; }
 function makeGroups(tid, cid) {
   const cat = getCat(tid, cid);
+  // Si ya hay resultados cargados (partidos jugados, llave generada o categoría cerrada),
+  // rearmar grupos los borra. Pedimos confirmación explícita para evitar perder datos.
+  const hasResults = (cat.matches || []).some(m => matchDone(m, cat)) || cat.bracket || cat.closed;
+  if (hasResults && !confirm('⚠️ Esta categoría ya tiene resultados cargados. Si volvés a armar los grupos se borrarán todos los partidos, la llave y el cierre. ¿Continuar?')) return;
   const ids = cat.entrants.map(e => e.id);
   const res = buildGroups(ids, cat.rules.groupMin, cat.rules.groupMax);
   if (!res.ok) { alert('⚠️ ' + res.msg); return; }
@@ -3761,6 +3783,10 @@ function brWinner(cat, r, m) {
   const w = matchWinnerSide(cat.bracket[r][m], cat); return w === 'a' ? a : w === 'b' ? b : null;
 }
 function semiLoser(cat, idx) { const T = cat.bracket.length, semR = T - 2; if (semR < 0) return null; const w = brWinner(cat, semR, idx); if (!w) return null; const a = brContender(cat, semR, idx, 'a'), b = brContender(cat, semR, idx, 'b'); return w === a ? b : a; }
+// El partido por el 3er puesto solo se juega si AMBOS perdedores de semifinal son reales (no BYE).
+// Con un nº de clasificados que no es potencia de 2, una semi puede ser "real vs BYE": en ese caso
+// no hay partido por el 3º y el semifinalista real queda automáticamente 3º (no se puede bloquear el cierre).
+function thirdPlayable(cat) { if (!cat.thirdPlace) return false; const a = semiLoser(cat, 0), b = semiLoser(cat, 1); return !!(a && b && a !== 'BYE' && b !== 'BYE'); }
 function generateBracket(tid, cid) {
   const cat = getCat(tid, cid);
   if (!cat.groups) { alert('Primero armá los grupos.'); return; }
@@ -3795,7 +3821,11 @@ function bracketHtml(cat) {
         ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','bracket',null,${r},${m})" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div>`;
     }).join('') + `</div>`).join('');
   let extra = '';
-  if (cat.thirdPlace) {
+  if (cat.thirdPlace && !thirdPlayable(cat)) {
+    // Una semifinal fue "real vs BYE": no hay partido por el 3º; el semifinalista real queda 3º.
+    const a = semiLoser(cat, 0), b = semiLoser(cat, 1), real = (a && a !== 'BYE') ? a : (b && b !== 'BYE') ? b : null;
+    if (real) extra = `<div class="br-col"><div class="br-rtitle">3er puesto</div><div class="br-match">${slot(real, true, '')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
+  } else if (cat.thirdPlace) {
     const a = semiLoser(cat, 0), b = semiLoser(cat, 1), res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
     const playable = a && b && a !== 'BYE' && b !== 'BYE';
     const can = canEditCat(cat) && playable;
@@ -3937,7 +3967,12 @@ function placements(cat) {
   const T = cat.bracket.length, S = cat.bracket[0].length * 2;
   const champ = brWinner(cat, T - 1, 0), fa = brContender(cat, T - 1, 0, 'a'), fb = brContender(cat, T - 1, 0, 'b');
   if (champ) { map[champ] = 1; const lo = champ === fa ? fb : fa; if (lo && lo !== 'BYE') map[lo] = 2; }
-  if (cat.thirdPlace) { const w = matchWinnerSide(cat.thirdPlace, cat), a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (w === 'a') { if (a) map[a] = 3; if (b) map[b] = 4; } else if (w === 'b') { if (b) map[b] = 3; if (a) map[a] = 4; } }
+  if (cat.thirdPlace) {
+    const a = semiLoser(cat, 0), b = semiLoser(cat, 1), aR = a && a !== 'BYE', bR = b && b !== 'BYE';
+    if (aR && bR) { const w = matchWinnerSide(cat.thirdPlace, cat); if (w === 'a') { map[a] = 3; map[b] = 4; } else if (w === 'b') { map[b] = 3; map[a] = 4; } }
+    else if (aR) map[a] = 3; // el rival entró por BYE → el semifinalista real es 3º automáticamente
+    else if (bR) map[b] = 3;
+  }
   for (let r = 0; r < T - 2; r++) { const K = S / Math.pow(2, r); for (let mm = 0; mm < cat.bracket[r].length; mm++) { const w = brWinner(cat, r, mm); if (!w) continue; const a = brContender(cat, r, mm, 'a'), b = brContender(cat, r, mm, 'b'), lo = w === a ? b : a; if (lo && lo !== 'BYE' && !(lo in map)) map[lo] = K; } }
   return map;
 }
@@ -3947,7 +3982,7 @@ function awardPoints(tid, cid) {
   if (!canAwardPoints(t)) return; // solo admin de la escuela del torneo / superadmin
   if (cat.closed) return;
   if (!cat.bracket || !brWinner(cat, cat.bracket.length - 1, 0)) { alert('La final todavía no tiene ganador.'); return; }
-  if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { alert('Falta el resultado del partido por 3er puesto.'); return; }
+  if (thirdPlayable(cat) && !matchDone(cat.thirdPlace, cat)) { alert('Falta el resultado del partido por 3er puesto.'); return; }
   if (!confirm('¿Cerrar la categoría y otorgar los puntos al ranking? (no se puede deshacer)')) return;
   cat.awarded = {};
   if (catScores(cat)) {
