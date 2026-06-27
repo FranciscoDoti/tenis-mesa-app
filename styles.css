@@ -649,7 +649,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .mat-cement{background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.05)),var(--fc)}
 /* manijas de edición: rotar, redimensionar */
 .g-rot{position:absolute; top:-9px; right:16px; width:20px; height:20px; border-radius:50%; border:2px solid #fff; background:#16532d; color:#fff; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:6; padding:0; line-height:1}
-.g-rs{position:absolute; right:-7px; bottom:-7px; width:15px; height:15px; border-radius:4px; background:#1f6fb2; border:2px solid #fff; cursor:nwse-resize; z-index:6; touch-action:none}
+.g-rs{position:absolute; background:#1f6fb2; border:2px solid #fff; z-index:6; touch-action:none}
+.g-rs-xy{right:-7px; bottom:-7px; width:15px; height:15px; border-radius:4px; cursor:nwse-resize}
+.g-rs-x{right:-7px; top:50%; transform:translateY(-50%); width:12px; height:16px; border-radius:4px; cursor:ew-resize}
+.g-rs-y{bottom:-7px; left:50%; transform:translateX(-50%); width:16px; height:12px; border-radius:4px; cursor:ns-resize}
 .g-floorctl{position:absolute; top:4px; left:4px; display:flex; gap:4px; align-items:center; z-index:6; background:rgba(10,15,20,.72); padding:3px 4px; border-radius:7px}
 .g-floorctl select{font-size:11px; padding:1px 2px; border-radius:4px}
 .g-floorctl input[type=color]{width:24px; height:22px; padding:0; border:0; background:none; cursor:pointer}
@@ -685,16 +688,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .cheer.c3::after{border-top-color:#ffe1bd}
 @keyframes gcheer{0%,88%,100%{opacity:0; transform:translateY(3px) scale(.92)}90%,97%{opacity:1; transform:translateY(0) scale(1)}}
 /* personitas: personal de mesa de control / vendedor del buffet (fijas, con balanceo) y paseantes (animadas) */
-.g-person{position:absolute; width:4.2%; z-index:4; transform:translate(-50%,-82%)}
-.g-person svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob 1.3s ease-in-out infinite}
+.g-person{position:absolute; width:3.2%; z-index:4; transform:translate(-50%,-82%)}
+.g-person svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob 1.4s ease-in-out infinite}
 .g-person .ptag{position:absolute; bottom:100%; left:50%; transform:translateX(-50%); margin-bottom:1px; font-size:8px; font-weight:800; color:#fff; background:rgba(10,15,20,.85); padding:1px 5px; border-radius:6px; white-space:nowrap}
-.g-wander{position:absolute; width:3.6%; z-index:4; transform:translate(-50%,-82%)}
-.g-wander svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .55s ease-in-out infinite}
 @keyframes gpbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2px)}}
-.g-wander.w1{animation:gwander1 26s linear infinite}.g-wander.w2{animation:gwander2 33s linear infinite}.g-wander.w3{animation:gwander3 22s linear infinite}
-@keyframes gwander1{0%{left:9%;top:56%}24%{left:38%;top:24%}50%{left:74%;top:22%}74%{left:84%;top:66%}100%{left:9%;top:56%}}
-@keyframes gwander2{0%{left:80%;top:62%}30%{left:46%;top:50%}60%{left:14%;top:44%}100%{left:80%;top:62%}}
-@keyframes gwander3{0%{left:40%;top:72%}33%{left:70%;top:40%}66%{left:30%;top:30%}100%{left:40%;top:72%}}
+/* paseantes: recorren lento el perímetro POR FUERA del piso (keyframes gwpath inyectadas según el piso),
+   y muestran cara (de frente) o nuca (de espaldas) según el tramo → sensación de dirección. */
+.g-wander{position:absolute; width:2.7%; z-index:4; transform:translate(-50%,-82%); animation:gwpath 48s linear infinite}
+.g-wander.w2{animation-delay:-16s}.g-wander.w3{animation-delay:-32s}
+.g-wander .wp-front{position:relative}
+.g-wander .wp-back{position:absolute; inset:0; opacity:0; animation:gwface 48s linear infinite}
+.g-wander.w2 .wp-back{animation-delay:-16s}.g-wander.w3 .wp-back{animation-delay:-32s}
+.g-wander .wp svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .6s ease-in-out infinite}
+@keyframes gwface{0%{opacity:1}24%{opacity:1}26%{opacity:0}74%{opacity:0}76%{opacity:1}100%{opacity:1}}
 /* En el celular en VERTICAL: la vista de gimnasio se muestra rotada (apaisada) para ocupar toda la pantalla. */
 @media (orientation:portrait) and (max-width:820px){
   .gym-overlay{width:100vh; height:100vw; top:0; left:100vw; transform-origin:top left; transform:rotate(90deg); padding:8px}

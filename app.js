@@ -3347,15 +3347,28 @@ function gymStandsSVG() {
   const shirts = ['#ff7a1a', '#c1121f', '#1f6fb2', '#16a34a', '#e8b04b', '#7a3ea6', '#e84393', '#3ac0c9'], hairs = ['#3a2a1a', '#15110d', '#6b4423', '#d9b382', '#7a7a7a'], skin = ['#f1c9a5', '#e0a878', '#c98b56'];
   let s = '', idx = 0; const cols = 6, rows = 3;
   for (let r = 0; r < rows; r++) s += `<rect x="0" y="${3.5 + r * 6.6}" width="36" height="5.4" fill="#566069"/><rect x="0" y="${3.5 + r * 6.6}" width="36" height="1" fill="#454e57"/>`;
-  for (let r = rows - 1; r >= 0; r--) for (let c = 0; c < cols; c++) { const x = 2.2 + c * 5.5, y = 1.6 + r * 6.6, sh = shirts[(idx * 5 + r) % shirts.length], ha = hairs[idx % hairs.length], sk = skin[(idx + r) % skin.length], d = ((idx * 0.41) % 2.4).toFixed(2);
-    s += `<g class="gspec" style="animation-delay:${d}s"><rect x="${x - 0.3}" y="${y + 5.2}" width="4" height="1" fill="#000" fill-opacity=".15"/><rect x="${x}" y="${y + 2.9}" width="3.4" height="3.4" rx="0.7" fill="${sh}"/><rect x="${x - 0.2}" y="${y + 3.1}" width="0.9" height="2.4" rx="0.4" fill="${sh}"/><rect x="${x + 2.7}" y="${y + 3.1}" width="0.9" height="2.4" rx="0.4" fill="${sh}"/><rect x="${x + 0.6}" y="${y + 0.7}" width="2.2" height="2.4" rx="0.5" fill="${sk}"/><rect x="${x + 0.6}" y="${y + 0.5}" width="2.2" height="1" rx="0.4" fill="${ha}"/></g>`; idx++; }
+  for (let r = rows - 1; r >= 0; r--) for (let c = 0; c < cols; c++) { idx++;
+    if (((c * 3 + r * 7 + idx) % 8) < 3) continue; // butaca vacía: la tribuna NO está 100% llena (ocupación variada)
+    const x = 2.2 + c * 5.5, y = 1.6 + r * 6.6, sh = shirts[(idx * 5 + r) % shirts.length], ha = hairs[idx % hairs.length], sk = skin[(idx + r) % skin.length], d = ((idx * 0.41) % 2.4).toFixed(2);
+    s += `<g class="gspec" style="animation-delay:${d}s"><rect x="${x - 0.3}" y="${y + 5.2}" width="4" height="1" fill="#000" fill-opacity=".15"/><rect x="${x}" y="${y + 2.9}" width="3.4" height="3.4" rx="0.7" fill="${sh}"/><rect x="${x - 0.2}" y="${y + 3.1}" width="0.9" height="2.4" rx="0.4" fill="${sh}"/><rect x="${x + 2.7}" y="${y + 3.1}" width="0.9" height="2.4" rx="0.4" fill="${sh}"/><rect x="${x + 0.6}" y="${y + 0.7}" width="2.2" height="2.4" rx="0.5" fill="${sk}"/><rect x="${x + 0.6}" y="${y + 0.5}" width="2.2" height="1" rx="0.4" fill="${ha}"/></g>`; }
   return `<svg viewBox="0 0 36 24" preserveAspectRatio="none"><rect width="36" height="24" fill="#3a434e"/><rect width="36" height="3.2" fill="#2c343c"/>${s}</svg>`;
 }
 const GYM_SPRITE = { table: gymTableSVG, control: gymControlSVG, buffet: gymBuffetSVG, bathroom: gymBathroomSVG, stands: gymStandsSVG, barrier: gymBarrierSVG };
 // Personita pixel-art con detalle (cabeza/pelo/cara, remera deportiva con franja, brazos, short, zapatillas);
 // opts: shirt, hair, skin, short, drink (lleva un vaso), apron+cap (vendedor del buffet).
 function gymPersonSVG(o) { o = o || {}; const shirt = o.shirt || '#1f6fb2', hair = o.hair || '#3a2a1a', skin = o.skin || '#f1c9a5', short = o.short || '#26303a';
-  return `<svg viewBox="0 0 14 22" preserveAspectRatio="xMidYMid meet"><ellipse cx="7" cy="21" rx="4.3" ry="1.1" fill="#000" fill-opacity=".22"/><rect x="5" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="7.3" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="4.8" y="13.3" width="4.4" height="3" rx="0.6" fill="${short}"/><rect x="4.6" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="7.2" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="4.1" y="7.4" width="5.8" height="6.6" rx="1.4" fill="${shirt}"/><rect x="4.1" y="9.5" width="5.8" height="0.8" fill="#fff" fill-opacity=".5"/><rect x="2.9" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="2.9" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/><rect x="9.5" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="9.5" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/>${o.apron ? `<rect x="4.3" y="8.6" width="5.4" height="5.4" rx="0.6" fill="#fbfbfb"/><rect x="4.3" y="8.6" width="5.4" height="0.7" fill="#e3e3e3"/><rect x="6.4" y="8.6" width="1.2" height="5.4" fill="#ececec"/>` : ''}<rect x="4.5" y="2" width="5" height="5.2" rx="2.2" fill="${skin}"/><rect x="4.2" y="1.2" width="5.6" height="2.7" rx="1.7" fill="${hair}"/><rect x="4.2" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="9.1" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="5.6" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="7.7" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="6.3" y="5.2" width="1.4" height="0.5" rx="0.25" fill="#c98b7a"/>${o.cap ? `<rect x="4.2" y="1" width="5.6" height="1.4" rx="0.7" fill="${o.cap}"/><rect x="9.2" y="1.6" width="1.6" height="0.7" rx="0.3" fill="${o.cap}"/>` : ''}${o.drink ? `<rect x="1.4" y="9.8" width="2.1" height="3" rx="0.4" fill="#ffd24a"/><rect x="1.6" y="9.2" width="1.7" height="0.7" fill="#cf3a3a"/><rect x="2.2" y="8.4" width="0.4" height="1" fill="#cf3a3a"/>` : ''}</svg>`; }
+  // Cabeza: de frente (cara) o de espaldas (nuca, sin cara) según o.back → da sensación de dirección.
+  const head = o.back
+    ? `<rect x="4.5" y="2" width="5" height="5.2" rx="2.2" fill="${hair}"/><rect x="5.7" y="6.5" width="2.6" height="1.1" rx="0.4" fill="${skin}"/>`
+    : `<rect x="4.5" y="2" width="5" height="5.2" rx="2.2" fill="${skin}"/><rect x="4.2" y="1.2" width="5.6" height="2.7" rx="1.7" fill="${hair}"/><rect x="4.2" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="9.1" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="5.6" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="7.7" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="6.3" y="5.2" width="1.4" height="0.5" rx="0.25" fill="#c98b7a"/>`;
+  return `<svg viewBox="0 0 14 22" preserveAspectRatio="xMidYMid meet"><ellipse cx="7" cy="21" rx="4.3" ry="1.1" fill="#000" fill-opacity=".22"/><rect x="5" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="7.3" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="4.8" y="13.3" width="4.4" height="3" rx="0.6" fill="${short}"/><rect x="4.6" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="7.2" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="4.1" y="7.4" width="5.8" height="6.6" rx="1.4" fill="${shirt}"/><rect x="4.1" y="9.5" width="5.8" height="0.8" fill="#fff" fill-opacity=".5"/><rect x="2.9" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="2.9" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/><rect x="9.5" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="9.5" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/>${o.apron ? `<rect x="4.3" y="8.6" width="5.4" height="5.4" rx="0.6" fill="#fbfbfb"/><rect x="4.3" y="8.6" width="5.4" height="0.7" fill="#e3e3e3"/><rect x="6.4" y="8.6" width="1.2" height="5.4" fill="#ececec"/>` : ''}${head}${o.cap ? `<rect x="4.2" y="1" width="5.6" height="1.4" rx="0.7" fill="${o.cap}"/>${o.back ? '' : `<rect x="9.2" y="1.6" width="1.6" height="0.7" rx="0.3" fill="${o.cap}"/>`}` : ''}${(o.drink && !o.back) ? `<rect x="1.4" y="9.8" width="2.1" height="3" rx="0.4" fill="#ffd24a"/><rect x="1.6" y="9.2" width="1.7" height="0.7" fill="#cf3a3a"/><rect x="2.2" y="8.4" width="0.4" height="1" fill="#cf3a3a"/>` : ''}</svg>`; }
+// Keyframes de los paseantes: recorren el PERÍMETRO POR FUERA del piso de cancha (no cruzan el campo).
+function gymWanderCSS(layout) {
+  const cp = (layout.props || []).find(p => p.type === 'court'); const c = cp ? gymItem(cp, 'court') : { x: 2.5, y: 2.5, w: 7, h: 3.5 };
+  const m = 1, X = v => (Math.max(1.5, Math.min(GYM_COLS - 1.5, v)) / GYM_COLS * 100).toFixed(1), Y = v => (Math.max(1.5, Math.min(GYM_ROWS - 1.2, v)) / GYM_ROWS * 100).toFixed(1);
+  const tlx = X(c.x - m), tly = Y(c.y - m), trx = X(c.x + c.w + m), bry = Y(c.y + c.h + m), blx = tlx;
+  return `@keyframes gwpath{0%{left:${tlx}%;top:${tly}%}25%{left:${trx}%;top:${tly}%}50%{left:${trx}%;top:${bry}%}75%{left:${blx}%;top:${bry}%}100%{left:${tlx}%;top:${tly}%}}`;
+}
 // Personal de la mesa de control: tantas personitas como (admin + colaboradores) del torneo, diferenciadas.
 function gymStaff(t) {
   const colors = ['#c1121f', '#1f6fb2', '#16a34a', '#ff7a1a', '#7a3ea6', '#e8b04b'], hairs = ['#15110d', '#6b4423', '#3a2a1a', '#d9b382'];
@@ -3401,7 +3414,7 @@ function gymTableSlot(layout, i, n) { const tb = (layout.tables || [])[i]; if (t
 function gymBoxWH(it) { return it.rot % 180 === 90 ? [it.h, it.w] : [it.w, it.h]; }
 function gymPosStyle(it) { const [bw, bh] = gymBoxWH(it); return `left:${(it.x / GYM_COLS * 100).toFixed(2)}%;top:${(it.y / GYM_ROWS * 100).toFixed(2)}%;width:${(bw / GYM_COLS * 100).toFixed(2)}%;height:${(bh / GYM_ROWS * 100).toFixed(2)}%`; }
 function gymTrotHtml(it, svg) { const [bw, bh] = gymBoxWH(it); return `<div class="g-trot" style="width:${(it.w / bw * 100).toFixed(1)}%;height:${(it.h / bh * 100).toFixed(1)}%;transform:translate(-50%,-50%) rotate(${it.rot}deg)">${svg}</div>`; }
-function gymHandles(kind, i, allowDel) { return `<button class="g-rot" onclick="gymRotate('${kind}',${i})" title="Rotar 90°">↻</button>${allowDel ? `<button class="g-del" onclick="gymDel('${kind}',${i})" title="Quitar">✕</button>` : ''}<span class="g-rs" data-rs title="Redimensionar"></span>`; }
+function gymHandles(kind, i, allowDel) { return `<button class="g-rot" onclick="gymRotate('${kind}',${i})" title="Rotar 90°">↻</button>${allowDel ? `<button class="g-del" onclick="gymDel('${kind}',${i})" title="Quitar">✕</button>` : ''}<span class="g-rs g-rs-x" data-rs="x" title="Cambiar ancho"></span><span class="g-rs g-rs-y" data-rs="y" title="Cambiar alto"></span><span class="g-rs g-rs-xy" data-rs="xy" title="Cambiar tamaño"></span>`; }
 function gymStageHtml(layout, t, editable) {
   const isTour = !!t, occ = gymOccupancy(t), cur = new Set(Object.keys(occ).map(Number));
   const freed = [..._gymPrevOcc].filter(n => !cur.has(n)); _gymPrevOcc = cur;
@@ -3424,7 +3437,8 @@ function gymStageHtml(layout, t, editable) {
     if (ctl) staff.forEach((s, i) => { const px = ctl.x + ctl.w * ((i + 0.5) / n), py = ctl.y + ctl.h + 0.15;
       ppl += `<div class="g-person" style="left:${(px / GYM_COLS * 100).toFixed(2)}%;top:${(py / GYM_ROWS * 100).toFixed(2)}%">${s.name ? `<div class="ptag">${esc(s.name)}</div>` : ''}${gymPersonSVG(s)}</div>`; });
     if (buf) ppl += `<div class="g-person" style="left:${((buf.x + buf.w * 0.62) / GYM_COLS * 100).toFixed(2)}%;top:${((buf.y + buf.h * 0.62) / GYM_ROWS * 100).toFixed(2)}%">${gymPersonSVG({ apron: 1, cap: '#c1121f', shirt: '#2b3440' })}</div>`;
-    ppl += `<div class="g-wander w1">${gymPersonSVG({ shirt: '#ff7a1a', drink: 1 })}</div><div class="g-wander w2">${gymPersonSVG({ shirt: '#7a3ea6', hair: '#15110d' })}</div><div class="g-wander w3">${gymPersonSVG({ shirt: '#3ac0c9', drink: 1, hair: '#6b4423' })}</div>`;
+    const wndr = (cls, o) => `<div class="g-wander ${cls}"><div class="wp wp-front">${gymPersonSVG(o)}</div><div class="wp wp-back">${gymPersonSVG(Object.assign({}, o, { back: 1 }))}</div></div>`;
+    ppl += wndr('w1', { shirt: '#ff7a1a', drink: 1 }) + wndr('w2', { shirt: '#7a3ea6', hair: '#15110d' }) + wndr('w3', { shirt: '#3ac0c9', drink: 1, hair: '#6b4423' });
   }
   return `<div class="gym-stage ${editable ? 'editing' : ''} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}${ppl}</div>`;
 }
@@ -3440,7 +3454,8 @@ function renderGymView(app, ref) {
       <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button>
         <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
         ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
-      ${editing ? `<div class="gym-edithint">✏️ Arrastrá para mover · esquina ⤡ para redimensionar · ↻ rotar · ✕ quitar${isTour ? ' · la cantidad de mesas la fija el torneo' : ''}.</div>${gymEditToolbarHtml(isTour)}` : ''}
+      ${editing ? `<div class="gym-edithint">✏️ Arrastrá para mover · tiradores del borde = ancho/alto, esquina = ambos · ↻ rotar · ✕ quitar${isTour ? ' · la cantidad de mesas la fija el torneo' : ''}.</div>${gymEditToolbarHtml(isTour)}` : ''}
+      ${!editing ? `<style>${gymWanderCSS(layout)}</style>` : ''}
       ${gymStageHtml(layout, t, editing)}
       <div class="gym-foot muted">${isTour ? (editing ? 'Estás editando la vista de ESTE torneo (no cambia el resto).' : '🔴 Quién está jugando en cada mesa, en tiempo real.') : 'Vista base del gimnasio: la heredan los torneos que se jueguen acá.'}</div>
     </div>`;
@@ -3454,7 +3469,21 @@ function gymArr(l, kind) { return kind === 'table' ? (l.tables = l.tables || [])
 function gymRotate(kind, i) { const l = gymTargetLayout(true); if (!l) return; if (kind === 'table') gymEnsureTable(l, i, i + 1); const it = gymArr(l, kind)[i]; if (it) { it.rot = ((it.rot || 0) + 90) % 360; save(DB); render(); } }
 function gymDel(kind, i) { const l = gymTargetLayout(true); if (!l) return; const arr = gymArr(l, kind); if (arr[i]) { arr.splice(i, 1); save(DB); render(); } }
 function gymAddTable() { const l = gymTargetLayout(true); if (!l) return; (l.tables = l.tables || []).push({ x: 5, y: 3.5, w: 2, h: 1, rot: 0 }); save(DB); render(); }
-function gymAddProp(tp) { const l = gymTargetLayout(true); if (!l) return; const d = GYM_DEF[tp] || [2, 1]; (l.props = l.props || []).push(tp === 'court' ? { type: tp, x: 2, y: 2, w: 6, h: 3.4, rot: 0, material: 'wood', color: '#b9854e' } : { type: tp, x: 4.5, y: 0.6, w: d[0], h: d[1], rot: 0 }); save(DB); render(); }
+function gymAddProp(tp) {
+  const l = gymTargetLayout(true); if (!l) return; const d = GYM_DEF[tp] || [2, 1]; let item;
+  if (tp === 'court') item = { type: tp, x: 2, y: 2, w: 6, h: 3.4, rot: 0, material: 'wood', color: '#b9854e' };
+  else if (tp === 'barrier') { const court = (l.props || []).find(p => p.type === 'court'); // la valla nace pegada al borde superior del piso (fácil de ubicar)
+    if (court) { const c = gymItem(court, 'court'); item = { type: tp, x: +c.x.toFixed(2), y: +Math.max(0, c.y - 0.5).toFixed(2), w: c.w, h: 0.5, rot: 0 }; } else item = { type: tp, x: 3, y: 0.8, w: d[0], h: d[1], rot: 0 }; }
+  else item = { type: tp, x: 4.5, y: 0.6, w: d[0], h: d[1], rot: 0 };
+  (l.props = l.props || []).push(item); save(DB); render();
+}
+// Imán: al soltar una valla cerca de un borde del piso de cancha, la alinea a ese borde (fácil de colocar).
+function gymSnapBarrier(l, it) {
+  const court = (l.props || []).find(p => p.type === 'court'); if (!court) return; const c = gymItem(court, 'court'), TH = 0.7;
+  if (Math.abs(it.y - (c.y - it.h)) < TH) it.y = +(c.y - it.h).toFixed(2);
+  else if (Math.abs(it.y - (c.y + c.h)) < TH) it.y = +(c.y + c.h).toFixed(2);
+  if (it.x + it.w > c.x && it.x < c.x + c.w && Math.abs(it.x - c.x) < TH) it.x = +c.x.toFixed(2);
+}
 function gymFloorMat(i, m) { const l = gymTargetLayout(true); if (!l || !l.props || !l.props[i]) return; l.props[i].material = m; save(DB); render(); }
 function gymFloorColor(i, c) { const l = gymTargetLayout(true); if (!l || !l.props || !l.props[i]) return; l.props[i].color = c; save(DB); render(); }
 function openGymView(tid) { _gymEditMode = false; _gymPrevOcc = new Set(); go('gym:' + tid); }
@@ -3468,14 +3497,17 @@ function wireGymEditor() {
       const rect = stage.getBoundingClientRect();
       const elx = parseFloat(el.style.left) / 100 * GYM_COLS, ely = parseFloat(el.style.top) / 100 * GYM_ROWS;
       const cx = (e.clientX - rect.left) / rect.width * GYM_COLS, cy = (e.clientY - rect.top) / rect.height * GYM_ROWS;
-      _gymDrag = { el, kind: el.dataset.kind, idx: +el.dataset.idx, resize: !!e.target.closest('[data-rs]'), moved: false, downX: e.clientX, downY: e.clientY, rect, offX: cx - elx, offY: cy - ely };
+      const rsEl = e.target.closest('[data-rs]');
+      _gymDrag = { el, kind: el.dataset.kind, idx: +el.dataset.idx, resize: !!rsEl, axis: rsEl ? rsEl.getAttribute('data-rs') : 'xy', moved: false, downX: e.clientX, downY: e.clientY, rect, offX: cx - elx, offY: cy - ely };
       try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('dragging');
     });
     el.addEventListener('pointermove', e => {
       const d = _gymDrag; if (!d || d.el !== el) return;
       if (Math.abs(e.clientX - d.downX) + Math.abs(e.clientY - d.downY) > 5) d.moved = true;
       const cx = (e.clientX - d.rect.left) / d.rect.width * GYM_COLS, cy = (e.clientY - d.rect.top) / d.rect.height * GYM_ROWS;
-      if (d.resize) { const elx = parseFloat(el.style.left) / 100 * GYM_COLS, ely = parseFloat(el.style.top) / 100 * GYM_ROWS; d.bw = Math.max(0.5, Math.min(GYM_COLS, cx - elx)); d.bh = Math.max(0.5, Math.min(GYM_ROWS, cy - ely)); el.style.width = (d.bw / GYM_COLS * 100) + '%'; el.style.height = (d.bh / GYM_ROWS * 100) + '%'; }
+      if (d.resize) { const elx = parseFloat(el.style.left) / 100 * GYM_COLS, ely = parseFloat(el.style.top) / 100 * GYM_ROWS;
+        if (d.axis.includes('x')) { d.bw = Math.max(0.5, Math.min(GYM_COLS, cx - elx)); el.style.width = (d.bw / GYM_COLS * 100) + '%'; }
+        if (d.axis.includes('y')) { d.bh = Math.max(0.5, Math.min(GYM_ROWS, cy - ely)); el.style.height = (d.bh / GYM_ROWS * 100) + '%'; } }
       else { d.x = Math.max(0, Math.min(GYM_COLS - 0.5, cx - d.offX)); d.y = Math.max(0, Math.min(GYM_ROWS - 0.5, cy - d.offY)); el.style.left = (d.x / GYM_COLS * 100) + '%'; el.style.top = (d.y / GYM_ROWS * 100) + '%'; }
     });
     const end = () => {
@@ -3483,8 +3515,11 @@ function wireGymEditor() {
       const l = gymTargetLayout(true); if (!l) return;
       if (d.kind === 'table') gymEnsureTable(l, d.idx, d.idx + 1);
       const it = gymArr(l, d.kind)[d.idx]; if (!it) return;
-      if (d.resize && d.moved) { const sw = (it.rot || 0) % 180 === 90, bw = Math.round(d.bw * 4) / 4, bh = Math.round(d.bh * 4) / 4; if (sw) { it.w = bh; it.h = bw; } else { it.w = bw; it.h = bh; } save(DB); render(); }
-      else if (d.moved) { it.x = Math.round(d.x * 4) / 4; it.y = Math.round(d.y * 4) / 4; save(DB); render(); }
+      if (d.resize && d.moved) { const sw = (it.rot || 0) % 180 === 90; // redimensión de 1 sola dimensión o ambas
+        if (d.axis.includes('x')) { const bw = Math.round(d.bw * 4) / 4; if (sw) it.h = bw; else it.w = bw; }
+        if (d.axis.includes('y')) { const bh = Math.round(d.bh * 4) / 4; if (sw) it.w = bh; else it.h = bh; }
+        save(DB); render(); }
+      else if (d.moved) { it.x = Math.round(d.x * 4) / 4; it.y = Math.round(d.y * 4) / 4; if (it.type === 'barrier') gymSnapBarrier(l, it); save(DB); render(); }
     };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   });
