@@ -1887,8 +1887,8 @@ function saveCatalogEntry(id) {
     if (min > max) { e.hidden = false; e.textContent = 'La edad mínima no puede ser mayor que la máxima.'; return; }
     rule = { type, min, max };
   }
-  const min = parseInt($('#cc_min').value, 10) || 3, max = parseInt($('#cc_max').value, 10) || 4;
-  if (min > max) { e.hidden = false; e.textContent = 'Mín por grupo no puede ser mayor que máx.'; return; }
+  const min = Math.max(2, parseInt($('#cc_min').value, 10) || 3); // mín 2 por grupo: un grupo de 1 no tiene 2°
+  const max = Math.max(min, parseInt($('#cc_max').value, 10) || 4);
   const fmt = $('#cc_fmt').value;
   let gender = $('#cc_gender') ? $('#cc_gender').value : 'any'; if (fmt !== 'double' && gender === 'mixed') gender = 'any';
   const entry = { name, rule, format: fmt, gender, setsFormat: $('#cc_setsfmt').value, groupMin: min, groupMax: max, championPoints: Math.min(20, Math.max(0, parseInt($('#cc_pts').value, 10) || 0)), cost: Math.max(0, parseInt($('#cc_cost').value, 10) || 0) };
@@ -3376,9 +3376,9 @@ function catCostSuggest() {
 }
 function saveCategoria(tid, cid) {
   const t = tById(tid), name = $('#c_name').value;
-  const min = parseInt($('#c_min').value, 10), max = parseInt($('#c_max').value, 10);
+  const min = Math.max(2, parseInt($('#c_min').value, 10) || 3); // mín 2 por grupo: un grupo de 1 no tiene 2°
+  const max = Math.max(min, parseInt($('#c_max').value, 10) || min);
   const e = $('#cerr');
-  if (min > max) { e.hidden = false; e.textContent = 'Mín no puede ser mayor que máx.'; return; }
   const format = $('#c_fmt').value, setsFormat = $('#c_setsfmt').value;
   let gender = $('#c_gender') ? $('#c_gender').value : 'any'; if (format !== 'double' && gender === 'mixed') gender = 'any';
   const rules = { sets: setsFmtById(setsFormat).bracket, groupMin: min, groupMax: max }, championPoints = Math.min(20, Math.max(0, parseInt($('#c_pts').value, 10) || 0));
@@ -3786,6 +3786,11 @@ function groupCardHtml(cat, gi) {
 
 /* ----- bracket ----- */
 function nextPow2(n) { let p = 1; while (p < n) p *= 2; return p; }
+// Orden ESTÁNDAR de posiciones de un cuadro de tamaño potencia de 2 (1-based): coloca los seeds de
+// forma que el 1 y el 2 queden en mitades opuestas y cada cabeza de serie enfrente primero al seed
+// más bajo. Así, al rellenar con BYE los seeds que sobran (los más bajos), el BYE le toca a los
+// MEJORES seeds (los que más lo merecen por su rendimiento en la zona).
+function seedOrder(size) { let order = [1]; while (order.length < size) { const sum = order.length * 2 + 1; order = order.flatMap(s => [s, sum - s]); } return order; }
 function brContender(cat, r, m, side) { if (r === 0) { const mm = cat.bracket[0][m]; return side === 'a' ? mm.a : mm.b; } return brWinner(cat, r - 1, m * 2 + (side === 'a' ? 0 : 1)); }
 function brWinner(cat, r, m) {
   const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b');
@@ -3801,13 +3806,17 @@ function generateBracket(tid, cid) {
   const cat = getCat(tid, cid);
   if (!cat.groups) { alert('Primero armá los grupos.'); return; }
   if (!groupStageComplete(cat)) { alert('⚠️ Faltan resultados de la fase de grupos.'); return; }
-  const winners = [], runners = [];
-  cat.groups.forEach((g, gi) => { const s = groupStandings(cat, gi); if (s[0]) winners.push(s[0].id); if (s[1]) runners.push(s[1].id); });
-  if (!winners.length) { alert('No hay clasificados.'); return; }
-  const G = winners.length, seeds = [];
-  for (let i = 0; i < G; i++) { seeds.push(winners[i]); if (runners.length) seeds.push(runners[(i + 1) % runners.length]); }
-  const size = Math.max(2, nextPow2(seeds.length)); while (seeds.length < size) seeds.push('BYE');
-  const rounds = [], r0 = []; for (let i = 0; i < seeds.length; i += 2) r0.push({ a: seeds[i], b: seeds[i + 1], sets: [] });
+  // Clasificados (1° y 2° de cada zona) ordenados POR MÉRITO en la fase de grupos: primero partidos
+  // ganados, luego diferencia de sets (ganados − perdidos) y, por último, diferencia de puntos.
+  // Los mejores quedan como cabezas de serie y, si el cuadro no es potencia de 2, son los que reciben BYE.
+  const quals = [];
+  cat.groups.forEach((g, gi) => { const s = groupStandings(cat, gi); [s[0], s[1]].forEach(row => { if (row) quals.push(row); }); });
+  if (!quals.length) { alert('No hay clasificados.'); return; }
+  quals.sort((a, b) => b.pg - a.pg || (b.sf - b.sc) - (a.sf - a.sc) || (b.pf - b.pc) - (a.pf - a.pc));
+  const seedIds = quals.map(q => q.id), K = seedIds.length;
+  const size = Math.max(2, nextPow2(K));
+  const slots = seedOrder(size).map(n => n <= K ? seedIds[n - 1] : 'BYE'); // posiciones estándar; el BYE cae en los mejores seeds
+  const rounds = [], r0 = []; for (let i = 0; i < slots.length; i += 2) r0.push({ a: slots[i], b: slots[i + 1], sets: [] });
   rounds.push(r0); let c = r0.length; while (c > 1) { const rr = []; for (let i = 0; i < c; i += 2) rr.push({ sets: [] }); rounds.push(rr); c = rr.length; }
   const fmt = catSetsFmt(cat); // sets por fase: la ronda final usa fmt.final, el resto de la llave fmt.bracket
   rounds.forEach((round, r) => round.forEach(mm => { mm.bestOf = r === rounds.length - 1 ? fmt.final : fmt.bracket; }));
