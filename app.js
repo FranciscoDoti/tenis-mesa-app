@@ -3335,21 +3335,36 @@ function estStartLabel(m) {
    superadmin habilita para la org (gymViewAllowed); el admin lo prende en su escuela (gymViewEnabled);
    y entonces sus torneos tienen el botón. Los jugadores la ven sin poder editar. */
 const GYM_COLS = 12, GYM_ROWS = 8;
-const GYM_DEF = { table: [2, 1], control: [2, 1.05], buffet: [2, 1.1], bathroom: [1, 1.2], stands: [3, 2], barrier: [4, 0.5], court: [5, 3.4] }; // tamaño por defecto (celdas)
-const GYM_CAP = { control: 'Mesa de control', buffet: 'Buffet', bathroom: 'Baño', stands: 'Tribuna', barrier: 'Valla', court: 'Piso' };
+const GYM_DEF = { table: [2, 1], control: [2, 1.05], buffet: [2, 1.1], bathroom: [1, 1.2], exit: [1, 1.2], stands: [3, 2], barrier: [4, 0.34], court: [5, 3.4] }; // tamaño por defecto (celdas)
+const GYM_CAP = { control: 'Mesa de control', buffet: 'Buffet', bathroom: 'Baño', exit: 'Salida', stands: 'Tribuna', barrier: 'Valla', court: 'Piso' };
+const GYM_BARRIER_H = 0.32; // grosor FIJO de las vallas (no redimensionables): chiquitas respecto del resto
 const GYM_MAT = { wood: 'Madera', rubber: 'Goma', cement: 'Cemento' };
 function gymTableSVG() { return `<svg viewBox="0 0 48 24" preserveAspectRatio="none"><ellipse cx="24" cy="23" rx="22" ry="1.5" fill="#000" fill-opacity=".22"/><rect x="6" y="18.5" width="2.6" height="5" rx="0.6" fill="#11212c"/><rect x="39.4" y="18.5" width="2.6" height="5" rx="0.6" fill="#11212c"/><rect x="8.5" y="2.5" width="1.8" height="3" fill="#0c1922"/><rect x="37.7" y="2.5" width="1.8" height="3" fill="#0c1922"/><rect x="3" y="2" width="42" height="18" rx="1.5" fill="#0b3350"/><rect x="4" y="3" width="40" height="16" fill="#2079bf"/><rect x="4" y="3" width="40" height="2.4" fill="#2f8fd6"/><rect x="4" y="3" width="40" height="16" fill="none" stroke="#f3f8fc" stroke-width="0.7"/><rect x="4" y="10.65" width="40" height="0.7" fill="#f3f8fc"/><rect x="22.4" y="2.2" width="3.2" height="0.9" fill="#fff"/><rect x="22.9" y="3" width="2.2" height="16" fill="#0e2a3d" fill-opacity=".5"/><rect x="23.2" y="3" width="0.3" height="16" fill="#cfe0ee" fill-opacity=".5"/><rect x="24" y="3" width="0.3" height="16" fill="#cfe0ee" fill-opacity=".5"/><rect x="24.7" y="3" width="0.3" height="16" fill="#cfe0ee" fill-opacity=".5"/><rect x="22.2" y="2.6" width="0.7" height="16.8" fill="#e8eef3"/><rect x="25.1" y="2.6" width="0.7" height="16.8" fill="#e8eef3"/><circle cx="33" cy="8" r="1.1" fill="#fff"/><g opacity="0.55"><circle cx="8.4" cy="16.3" r="1.5" fill="#cf3a3a"/><rect x="8.1" y="17.4" width="0.6" height="1.4" fill="#caa472"/><text x="11" y="17.5" font-size="2.3" fill="#dff0fb" font-family="Arial" font-weight="bold">ALMAR</text></g></svg>`; }
 function gymBarrierSVG() {
-  // Marcas reales de tenis de mesa, cada una con su "loguito" (emblema pixel) al lado del nombre.
-  const brands = [{ n: 'JOOLA', c: '#d6202a' }, { n: 'BUTTERFLY', c: '#0a2a6b' }, { n: 'STIGA', c: '#0f7d3a' }, { n: 'DONIC', c: '#e23030' }, { n: 'ANDRO', c: '#161616' }];
-  let p = ''; const n = brands.length, pw = 60 / n;
-  brands.forEach((b, i) => { const x = i * pw, cx = x + 2.9;
-    p += `<rect x="${x + 0.3}" y="2.4" width="${pw - 0.6}" height="7" fill="${i % 2 ? '#0a2643' : '#123a5c'}"/>`;
-    // emblema: cuadradito de color con la inicial; un detalle extra por marca para que cada logo sea distinto
-    p += `<rect x="${x + 1.1}" y="3.4" width="3.6" height="4.4" rx="0.9" fill="${b.c}"/><rect x="${x + 1.1}" y="3.4" width="3.6" height="1.3" rx="0.6" fill="#ffffff" fill-opacity=".25"/><text x="${cx}" y="7" font-size="3.4" fill="#fff" font-family="Arial" font-weight="900" text-anchor="middle">${b.n[0]}</text>`;
-    p += `<text x="${x + 5.4}" y="6.9" font-size="2.4" fill="#dfeaf5" font-family="Arial" font-weight="bold">${b.n}</text>`;
+  // Carteles de lona de patrocinadores: cada marca con SU color y estilo tipográfico (mayúsc./itálica/minúsc.).
+  // El texto es chico respecto del cartel (mucho borde) para que la valla no se vea "tapada" por el logo.
+  const brands = [
+    { n: 'JOOLA', bg: '#e2001a', fg: '#ffffff' },
+    { n: 'Butterfly', bg: '#0e2f78', fg: '#ffffff', bf: 1 },
+    { n: 'STIGA', bg: '#14181d', fg: '#ffffff', it: 1 },
+    { n: 'DONIC', bg: '#d81e26', fg: '#ffffff' },
+    { n: 'andro', bg: '#14181d', fg: '#ffe000' },
+  ];
+  const n = brands.length, pw = 60 / n; let p = '';
+  brands.forEach((b, i) => {
+    const x = i * pw, cx = x + pw / 2;
+    p += `<rect x="${x}" y="0" width="${pw}" height="10" fill="${b.bg}"/>`;
+    p += `<rect x="${x}" y="0" width="${pw}" height="1" fill="#fff" fill-opacity=".13"/><rect x="${x}" y="8.6" width="${pw}" height="1.4" fill="#000" fill-opacity=".22"/>`;
+    if (i) p += `<rect x="${x}" y="0" width="0.18" height="10" fill="#000" fill-opacity=".25"/>`;
+    let tx = cx;
+    if (b.bf) { tx = cx + 1.1; p += `<path d="M${x + 2.4} 5 C ${x + 1.1} 4 ${x + 0.7} 5.7 ${x + 2.2} 5.85 C ${x + 0.9} 6.9 ${x + 1.9} 7.6 ${x + 2.4} 6.2 C ${x + 2.9} 7.6 ${x + 3.9} 6.9 ${x + 2.6} 5.85 C ${x + 4.1} 5.7 ${x + 3.7} 4 ${x + 2.4} 5 Z" fill="${b.fg}"/>`; }
+    p += `<text x="${tx}" y="5.85" font-size="2.3" fill="${b.fg}" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-style="${b.it ? 'italic' : 'normal'}" text-anchor="middle" dominant-baseline="middle" letter-spacing="${b.it ? '0.15' : '0'}">${b.n}</text>`;
   });
-  return `<svg viewBox="0 0 60 12" preserveAspectRatio="none"><rect width="60" height="12" fill="#071a30"/><rect y="1.2" width="60" height="1.3" fill="#2a5a8c"/><rect y="9.6" width="60" height="2.4" fill="#04101c"/>${p}</svg>`;
+  return `<svg viewBox="0 0 60 10" preserveAspectRatio="none">${p}</svg>`;
+}
+// Salida / puerta de emergencia: cartel verde con figura corriendo + flecha, y la hoja de puerta.
+function gymExitSVG() {
+  return `<svg viewBox="0 0 20 24" preserveAspectRatio="none"><ellipse cx="10" cy="23.2" rx="8" ry="1.2" fill="#000" fill-opacity=".22"/><rect x="3" y="3.2" width="14" height="20" rx="0.6" fill="#39444f"/><rect x="4.3" y="4.4" width="11.4" height="18.8" rx="0.4" fill="#5a6770"/><rect x="4.3" y="4.4" width="5.7" height="18.8" fill="#2f3a45"/><circle cx="9" cy="14" r="0.7" fill="#cfd6dd"/><rect x="1.6" y="0.4" width="16.8" height="3.4" rx="0.5" fill="#1f9d4f"/><rect x="1.6" y="0.4" width="16.8" height="1" fill="#fff" fill-opacity=".18"/><g fill="#fff"><circle cx="5.6" cy="1.5" r="0.55"/><rect x="4.9" y="2.1" width="1.6" height="1.05" rx="0.4" transform="rotate(9 5.7 2.6)"/><rect x="4.6" y="2.5" width="0.7" height="0.9" rx="0.3" transform="rotate(28 4.9 2.9)"/><rect x="6.2" y="2.5" width="0.7" height="0.9" rx="0.3" transform="rotate(-22 6.5 2.9)"/></g><path d="M9.6 2.05 H13.1 V1.25 L15.4 2.1 L13.1 2.95 V2.15 H9.6 Z" fill="#fff"/></svg>`;
 }
 function gymControlSVG() { return `<svg viewBox="0 0 40 22" preserveAspectRatio="none"><ellipse cx="20" cy="20.6" rx="18" ry="1.4" fill="#000" fill-opacity=".22"/><rect x="4" y="16" width="2" height="4.6" fill="#3c2a16"/><rect x="34" y="16" width="2" height="4.6" fill="#3c2a16"/><rect x="2" y="10" width="36" height="8.2" rx="1" fill="#6b4a2a"/><rect x="2" y="16.6" width="36" height="1.6" fill="#523619"/><rect x="13.3" y="11" width="0.7" height="5.4" fill="#523619"/><rect x="26.7" y="11" width="0.7" height="5.4" fill="#523619"/><rect x="1" y="8" width="38" height="2.7" rx="0.7" fill="#9a6e3e"/><rect x="1" y="8" width="38" height="0.9" fill="#b08348"/><rect x="19" y="2.6" width="2" height="6" fill="#222a33"/><rect x="16" y="7.4" width="8" height="1.4" rx="0.4" fill="#1a222b"/><rect x="11.5" y="0.6" width="17" height="6.6" rx="0.9" fill="#222a33"/><rect x="12.6" y="1.5" width="14.8" height="4.8" rx="0.3" fill="#36c5d6"/><rect x="13.3" y="2.1" width="6.5" height="0.7" fill="#1a8fa0"/><rect x="13.3" y="3.2" width="10" height="0.6" fill="#1a8fa0" fill-opacity=".6"/><rect x="13.3" y="4.3" width="8" height="0.6" fill="#1a8fa0" fill-opacity=".5"/><rect x="4.6" y="8.3" width="8.4" height="1.5" rx="0.4" fill="#2f3a45"/><rect x="5.4" y="4.6" width="6.8" height="3.9" rx="0.4" fill="#222a33"/><rect x="6" y="5.1" width="5.6" height="2.9" fill="#cfe8ef"/><rect x="29" y="6.2" width="7.6" height="2.4" rx="0.3" fill="#eef1f4" transform="rotate(-7 32.8 7.4)"/></svg>`; }
 function gymBuffetSVG() { return `<svg viewBox="0 0 40 22" preserveAspectRatio="none"><ellipse cx="20" cy="20.6" rx="18" ry="1.4" fill="#000" fill-opacity=".22"/><rect x="6" y="0.6" width="28" height="4.6" rx="0.6" fill="#143a1f"/><rect x="6" y="0.6" width="28" height="1" fill="#1d5230"/><rect x="8" y="2" width="9" height="0.7" fill="#bfe6cc"/><rect x="8" y="3.2" width="13" height="0.6" fill="#bfe6cc" fill-opacity=".7"/><rect x="23" y="2" width="9" height="0.7" fill="#e8b04b"/><rect x="23" y="3.2" width="6" height="0.6" fill="#e8b04b" fill-opacity=".7"/><rect x="4" y="16.5" width="2" height="4.2" fill="#7d2417"/><rect x="34" y="16.5" width="2" height="4.2" fill="#7d2417"/><rect x="2" y="9.6" width="36" height="8.4" rx="1" fill="#b5341f"/><rect x="2" y="16.4" width="36" height="1.6" fill="#8c2616"/><rect x="13.3" y="10.6" width="0.7" height="5.6" fill="#8c2616"/><rect x="26.7" y="10.6" width="0.7" height="5.6" fill="#8c2616"/><rect x="1" y="7.4" width="38" height="2.6" rx="0.6" fill="#e9e9e9"/><rect x="1" y="7.4" width="38" height="0.8" fill="#fff"/><rect x="5" y="3" width="6.5" height="4.4" rx="0.5" fill="#9aa6b0"/><rect x="6" y="3.8" width="4.5" height="2.4" fill="#cfd8df"/><rect x="7.6" y="7" width="1.4" height="0.8" fill="#6b4a2a"/><rect x="5.6" y="2.4" width="1" height="0.8" fill="#7a8690"/><rect x="20" y="4" width="2.6" height="3.4" rx="0.3" fill="#e8b04b"/><rect x="22.8" y="4" width="2.6" height="3.4" rx="0.3" fill="#c1121f"/><rect x="25.6" y="4" width="2.6" height="3.4" rx="0.3" fill="#16a34a"/><rect x="31" y="3.6" width="5" height="3.8" rx="0.4" fill="#fff"/><rect x="31.6" y="4.2" width="3.8" height="0.7" fill="#c1121f"/><rect x="31.6" y="5.2" width="3.8" height="0.55" fill="#888"/><rect x="31.6" y="6.1" width="2.6" height="0.55" fill="#888"/></svg>`; }
@@ -3377,7 +3392,7 @@ function gymStandsSVG(w, h) {
     s += `<g class="gspec" style="animation-delay:${d}s">${spec(x, y, sh, ha, sk, up)}</g>`; }
   return `<svg viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none"><rect width="${VW}" height="${VH}" fill="#3a434e"/><rect width="${VW}" height="2" fill="#2c343c"/>${benches}${s}</svg>`;
 }
-const GYM_SPRITE = { table: gymTableSVG, control: gymControlSVG, buffet: gymBuffetSVG, bathroom: gymBathroomSVG, stands: gymStandsSVG, barrier: gymBarrierSVG };
+const GYM_SPRITE = { table: gymTableSVG, control: gymControlSVG, buffet: gymBuffetSVG, bathroom: gymBathroomSVG, exit: gymExitSVG, stands: gymStandsSVG, barrier: gymBarrierSVG };
 // Personita pixel-art con detalle (cabeza/pelo/cara, remera deportiva con franja, brazos, short, zapatillas);
 // opts: shirt, hair, skin, short, drink (lleva un vaso), apron+cap (vendedor del buffet).
 function gymPersonSVG(o) { o = o || {}; const shirt = o.shirt || '#1f6fb2', hair = o.hair || '#3a2a1a', skin = o.skin || '#f1c9a5', short = o.short || '#26303a';
@@ -3589,9 +3604,11 @@ function gymStageHtml(layout, t, editable) {
   (layout.props || []).forEach((p, i) => {
     if (p.type === 'court') { const it = gymItem(p, 'court'), mat = p.material || 'wood', col = p.color || '#b9854e';
       floors += `<div class="gym-el g-floor mat-${mat}" ${propEditable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)};--fc:${col}">${propEditable ? `<div class="g-floorctl"><select onchange="gymFloorMat(${i},this.value)">${Object.keys(GYM_MAT).map(m => `<option value="${m}" ${m === mat ? 'selected' : ''}>${GYM_MAT[m]}</option>`).join('')}</select><input type="color" value="${col}" oninput="gymFloorColor(${i},this.value)"></div>${gymHandles('prop', i, true)}` : ''}</div>`; return; }
-    const it = gymItem(p, p.type), sprite = p.type === 'stands' ? gymStandsSVG(it.w, it.h) : (GYM_SPRITE[p.type] || (() => ''))();
+    const it = gymItem(p, p.type);
+    if (p.type === 'barrier') it.h = GYM_BARRIER_H; // grosor FIJO (no redimensionable): valla chiquita
+    const sprite = p.type === 'stands' ? gymStandsSVG(it.w, it.h) : (GYM_SPRITE[p.type] || (() => ''))();
     if (p.type === 'control') ctl = it; if (p.type === 'buffet') buf = it;
-    els += `<div class="gym-el g-prop g-${p.type}" ${propEditable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${noCap[p.type] ? '' : `<div class="g-cap">${GYM_CAP[p.type] || ''}</div>`}${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${propEditable ? gymHandles('prop', i, true) : ''}</div>`;
+    els += `<div class="gym-el g-prop g-${p.type}" ${propEditable ? `data-kind="prop" data-idx="${i}"` : ''} style="${gymPosStyle(it)}">${noCap[p.type] ? '' : `<div class="g-cap">${GYM_CAP[p.type] || ''}</div>`}${gymTrotHtml(it, sprite)}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${(!editable && p.type === 'stands') ? '<div class="cheer c1">¡Vamos! 🏓</div><div class="cheer c2">¡Dale campeón!</div><div class="cheer c3">Apurá 😤</div>' : ''}${propEditable ? gymHandles('prop', i, true, p.type !== 'barrier') : ''}</div>`;
   });
   _gymTipData = {};
   const nTables = isTour ? tableCountOf(t) : (layout.tables || []).length;
@@ -3624,15 +3641,16 @@ function gymStageHtml(layout, t, editable) {
 }
 function gymEditToolbarHtml(isTour) {
   const l = gymTargetLayout(false) || {}; const present = new Set((l.props || []).map(p => p.type));
-  const singles = ['control', 'buffet', 'bathroom', 'stands'].filter(tp => !present.has(tp)).map(tp => `<button class="btn btn-ghost btn-sm" onclick="gymAddProp('${tp}')">➕ ${GYM_CAP[tp]}</button>`).join('');
-  return `<div class="gym-toolbar">${!isTour ? `<button class="btn btn-accent btn-sm" onclick="gymAddTable()">➕ Mesa</button>` : ''}<button class="btn btn-ghost btn-sm" onclick="gymAddProp('court')">➕ Piso</button><button class="btn btn-ghost btn-sm" onclick="gymAddProp('barrier')">➕ Valla</button><button class="btn btn-ghost btn-sm" onclick="gymBarriersCourt()">🧱 Vallas al campo</button>${present.has('barrier') ? `<button class="btn btn-ghost btn-sm" onclick="gymRemoveBarriers()">🧹 Sacar vallas</button>` : ''}${singles}</div>`;
+  // control/buffet/tribuna: uno solo (se ocultan si ya están). Baño y Salida: se pueden poner varios (botón siempre).
+  const singles = ['control', 'buffet', 'stands'].filter(tp => !present.has(tp)).map(tp => `<button class="btn btn-ghost btn-sm" onclick="gymAddProp('${tp}')">➕ ${GYM_CAP[tp]}</button>`).join('');
+  return `<div class="gym-toolbar">${!isTour ? `<button class="btn btn-accent btn-sm" onclick="gymAddTable()">➕ Mesa</button>` : ''}<button class="btn btn-ghost btn-sm" onclick="gymAddProp('court')">➕ Piso</button><button class="btn btn-ghost btn-sm" onclick="gymAddProp('barrier')">➕ Valla</button><button class="btn btn-ghost btn-sm" onclick="gymBarriersCourt()">🧱 Vallas al campo</button>${present.has('barrier') ? `<button class="btn btn-ghost btn-sm" onclick="gymRemoveBarriers()">🧹 Sacar vallas</button>` : ''}${singles}<button class="btn btn-ghost btn-sm" onclick="gymAddProp('bathroom')">➕ Baño</button><button class="btn btn-ghost btn-sm" onclick="gymAddProp('exit')">➕ Salida</button></div>`;
 }
 function gymRemoveBarriers() { const l = gymTargetLayout(true); if (!l || !l.props) return; l.props = l.props.filter(p => p.type !== 'barrier'); render(); }
 // Saca las vallas actuales y coloca 4 alrededor del piso de cancha (arriba, abajo, izquierda y derecha).
 function gymBarriersCourt() {
   const l = gymTargetLayout(true); if (!l) return;
   const court = (l.props || []).find(p => p.type === 'court'); if (!court) { alert('Primero agregá un piso de cancha (➕ Piso) para rodearlo con vallas.'); return; }
-  l.props = (l.props || []).filter(p => p.type !== 'barrier'); const c = gymItem(court, 'court'), H = 0.45;
+  l.props = (l.props || []).filter(p => p.type !== 'barrier'); const c = gymItem(court, 'court'), H = GYM_BARRIER_H;
   l.props.push({ type: 'barrier', x: +c.x.toFixed(2), y: +Math.max(0, c.y - H).toFixed(2), w: c.w, h: H, rot: 0 });
   l.props.push({ type: 'barrier', x: +c.x.toFixed(2), y: +(c.y + c.h).toFixed(2), w: c.w, h: H, rot: 0 });
   l.props.push({ type: 'barrier', x: +Math.max(0, c.x - H).toFixed(2), y: +c.y.toFixed(2), w: c.h, h: H, rot: 90 });
@@ -3648,7 +3666,7 @@ function renderGymView(app, ref) {
   if (!gym) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">${isTour ? 'Este torneo no tiene un gimnasio asignado (asignale uno desde ✏️ Datos).' : 'Gimnasio no encontrado.'}</div>`; return; }
   const canEdit = isTour ? canEditT(t) : canManageGym(gym), editing = canEdit && _gymEditMode;
   const layout = gymRenderLayout(t, gym);
-  app.innerHTML = `<div class="gym-overlay"><div class="gym-rot">
+  app.innerHTML = `<div class="gym-overlay"><div class="gym-rot${editing ? ' editing' : ''}">
       <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="${editing ? `gymEditBack('${back}')` : `go('${back}')`}">← Volver</button>
         <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
         ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
@@ -3692,7 +3710,7 @@ function gymAddProp(tp) {
   const l = gymTargetLayout(true); if (!l) return; const d = GYM_DEF[tp] || [2, 1]; let item;
   if (tp === 'court') item = { type: tp, x: 2, y: 2, w: 6, h: 3.4, rot: 0, material: 'wood', color: '#b9854e' };
   else if (tp === 'barrier') { const court = (l.props || []).find(p => p.type === 'court'); // la valla nace pegada al borde superior del piso (fácil de ubicar)
-    if (court) { const c = gymItem(court, 'court'); item = { type: tp, x: +c.x.toFixed(2), y: +Math.max(0, c.y - 0.5).toFixed(2), w: c.w, h: 0.5, rot: 0 }; } else item = { type: tp, x: 3, y: 0.8, w: d[0], h: d[1], rot: 0 }; }
+    if (court) { const c = gymItem(court, 'court'); item = { type: tp, x: +c.x.toFixed(2), y: +Math.max(0, c.y - GYM_BARRIER_H).toFixed(2), w: c.w, h: GYM_BARRIER_H, rot: 0 }; } else item = { type: tp, x: 3, y: 0.8, w: d[0], h: GYM_BARRIER_H, rot: 0 }; }
   else item = { type: tp, x: 4.5, y: 0.6, w: d[0], h: d[1], rot: 0 };
   (l.props = l.props || []).push(item); render();
 }
@@ -3713,7 +3731,8 @@ function wireGymEditor() {
   // devuelve el navegador queda alineado a la pantalla, así que para mover/redimensionar hay que mapear el dedo
   // a las coordenadas LOCALES del escenario (si no, todo se movía al revés / cruzado). rotate(90°) horario:
   // x_local crece hacia ABAJO en pantalla; y_local crece hacia la IZQUIERDA.
-  const rotated = !!(window.matchMedia && window.matchMedia('(orientation:portrait) and (max-width:820px)').matches);
+  const rotEl = stage.closest('.gym-rot'); // en edición NO se rota (queda vertical y scrolleable), así que el mapeo es directo
+  const rotated = !!(window.matchMedia && window.matchMedia('(orientation:portrait) and (max-width:820px)').matches && rotEl && !rotEl.classList.contains('editing'));
   const toGrid = (clientX, clientY, rect) => rotated
     ? { cx: (clientY - rect.top) / rect.height * GYM_COLS, cy: (1 - (clientX - rect.left) / rect.width) * GYM_ROWS }
     : { cx: (clientX - rect.left) / rect.width * GYM_COLS, cy: (clientY - rect.top) / rect.height * GYM_ROWS };
