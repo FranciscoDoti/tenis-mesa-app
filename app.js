@@ -398,11 +398,11 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, mpWorkerUrl: '', matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, mpWorkerUrl: '', matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, gymViewAllowed: false, gymViewEnabled: false, theme: DEFAULT_THEME };
 // Ajustes con alcance por ESCUELA (los controla el admin de la escuela, afectan solo a sus miembros)
 // y por ORGANIZACIÓN (los controla el superadmin, afectan a todos los miembros de la organización).
-const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard'];
-const ORG_SETTING_KEYS = ['doublesRanking', 'schoolRanking', 'paymentsAllowed'];
+const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard', 'gymViewEnabled'];
+const ORG_SETTING_KEYS = ['doublesRanking', 'schoolRanking', 'paymentsAllowed', 'gymViewAllowed'];
 // Valor heredado (top-level de DB.settings) cuando una escuela/org no tiene override propio.
 function defaultSetting(key) { const s = DB.settings || {}; return key in s ? s[key] : DEFAULT_SETTINGS[key]; }
 // Bolsa de ajustes de una escuela/org. Viven DENTRO de DB.settings para que sincronicen con app/settings.
@@ -889,6 +889,7 @@ function render() {
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
   if (view.startsWith('perfil:')) return renderProfile(app, view.split(':')[1]);
   if (view === 'torneos') return renderTournaments(app);
+  if (view.startsWith('gym:') || view.startsWith('gymedit:')) return renderGymView(app, view);
   if (view.startsWith('torneo:')) return renderTournament(app, view.split(':')[1]);
   if (view.startsWith('cat:')) { const [, tid, cid] = view.split(':'); return renderCategoria(app, tid, cid); }
 }
@@ -1793,6 +1794,7 @@ function renderGyms(app) {
     ${mapEmbed(g.address)}
     <div class="row" style="margin-top:12px">
       ${g.address ? `<a class="btn btn-accent btn-sm" href="${mapsDirUrl(g.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>` : ''}
+      ${(setting('gymViewAllowed') && canManageGym(g)) ? `<button class="btn btn-ghost btn-sm" onclick="openGymEdit('${g.id}')">🏟️ Vista</button>` : ''}
       ${canManageGym(g) ? `<button class="btn btn-ghost btn-sm" onclick="gymForm('${g.id}')">✏️ Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="delGym('${g.id}')">🗑️</button>` : ''}
     </div></div>`).join('');
@@ -2184,6 +2186,12 @@ function renderSettings(app) {
       ${setting('paymentsAllowed') ? settingRow('💳 Pagos para inscripciones ' + schoolScope,
         'Cobrar la inscripción <b>online al anotarse</b> (con MercadoPago). La cuenta donde recibís la plata se configura en <b>💳 Cuentas de cobro</b> y se elige al crear cada torneo.<br>⚠️ <b>MercadoPago cobra una comisión (~3,7%) por cada pago recibido</b> — la podés trasladar al jugador. No hay cuotas ni costos fijos.',
         setting('paymentsEnabled'), 'togglePayments') : ''}
+      ${isSuperadmin() ? settingRow('🏟️ Vista del gimnasio (habilitar para la organización) ' + orgScope,
+        'Permite que los admins de esta organización activen la <b>vista de gimnasio en pixel art</b> (mapa con las mesas, quién juega en cada una, en vivo). Si lo apagás, los admins no la ven.',
+        setting('gymViewAllowed'), 'toggleGymViewAllowed') : ''}
+      ${setting('gymViewAllowed') ? settingRow('🏟️ Vista del gimnasio ' + schoolScope,
+        'Activa un botón <b>🏟️ Vista del gimnasio</b> en los torneos de esta escuela: un mapa en pixel art del gimnasio con las mesas, quién está jugando en cada una (en vivo), el buffet, el baño y la tribuna. La distribución de cada gimnasio se arma en <b>🏟️ Gimnasios</b>. Los jugadores la ven; admin y colaboradores pueden moverla.',
+        setting('gymViewEnabled'), 'toggleGymView') : ''}
       ${isSuperadmin() ? `<div class="setting-row"><div class="setting-text" style="width:100%">
         <div class="setting-name">🔗 URL del servidor (backend) ${orgScope}</div>
         <div class="setting-desc">Pegá la URL del Worker de Cloudflare (la da <code>wrangler deploy</code>), ej: <code>https://tenis-mesa-pagos.tu-usuario.workers.dev</code>. <b>Es necesaria para la auto-inscripción de los jugadores</b> y para los pagos online. Sin esto, los jugadores no pueden anotarse solos ni aparece el botón “Pagar ahora”.</div>
@@ -2219,6 +2227,8 @@ function toggleSetting(key) {
 function toggleTableSuggestion() { toggleScopedSetting('tableSuggestion'); }
 function togglePayments() { toggleScopedSetting('paymentsEnabled'); }
 function togglePaymentsAllowed() { if (!isSuperadmin()) return; toggleScopedSetting('paymentsAllowed'); }
+function toggleGymView() { toggleScopedSetting('gymViewEnabled'); }
+function toggleGymViewAllowed() { if (!isSuperadmin()) return; toggleScopedSetting('gymViewAllowed'); }
 function saveMpWorkerUrl() { if (!isSuperadmin()) return; if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS); DB.settings.mpWorkerUrl = ($('#set_wurl').value || '').trim(); save(DB); render(); }
 function toggleMatchTimes() { toggleScopedSetting('matchTimeEstimates'); }
 function toggleNews() { toggleScopedSetting('news'); }
@@ -3318,6 +3328,88 @@ function estStartLabel(m) {
   return `<span class="est-time" title="Horario estimado de comienzo (aprox.)">🕒 ~${d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>`;
 }
 
+/* ====================== Vista de gimnasio (pixel art) ======================
+   Vista a pantalla completa del gimnasio: tribuna, mesa de control, buffet, baño y las mesas de
+   juego (con quién está jugando, en vivo). Configurable (mover/rotar) por admin (layout base del
+   gimnasio, en Gimnasios) y por admin/colaborador (override del torneo). Gating en 3 niveles:
+   superadmin habilita para la org (gymViewAllowed); el admin lo prende en su escuela (gymViewEnabled);
+   y entonces sus torneos tienen el botón. Los jugadores la ven sin poder editar. */
+const GYM_COLS = 12, GYM_ROWS = 8;
+const GYM_SPAN = { table: [2, 1], control: [2, 1], buffet: [2, 1], bathroom: [1, 1], stands: [3, 2] };
+const GYM_CAP = { control: 'Mesa de control', buffet: 'Buffet', bathroom: 'Baño', stands: 'Tribuna' };
+function gymTableSVG() { return `<svg viewBox="0 0 40 20" preserveAspectRatio="none"><rect x="1" y="1" width="38" height="18" fill="#0d3a5c"/><rect x="2" y="2" width="36" height="16" fill="#1f6fb2"/><rect x="2" y="2" width="36" height="16" fill="none" stroke="#eef3f7" stroke-width="1"/><rect x="2" y="9.3" width="36" height="1.4" fill="#eef3f7"/><rect x="19" y="1" width="2" height="18" fill="#f4f8fb"/><rect x="19" y="0" width="2" height="2" fill="#cdd6df"/><rect x="19" y="18" width="2" height="2" fill="#cdd6df"/></svg>`; }
+function gymControlSVG() { return `<svg viewBox="0 0 40 20" preserveAspectRatio="none"><rect x="2" y="8" width="36" height="11" fill="#6b4a2a"/><rect x="2" y="8" width="36" height="2" fill="#8a6238"/><rect x="13" y="2" width="14" height="8" fill="#2b3440"/><rect x="14" y="3" width="12" height="6" fill="#36c5d6"/><rect x="5" y="12" width="7" height="4" fill="#cdd6df"/><rect x="28" y="12" width="7" height="4" fill="#cdd6df"/></svg>`; }
+function gymBuffetSVG() { return `<svg viewBox="0 0 40 20" preserveAspectRatio="none"><rect x="2" y="9" width="36" height="10" fill="#b5341f"/><rect x="2" y="9" width="36" height="2" fill="#d6442b"/><rect x="2" y="6" width="36" height="3" fill="#eee"/><rect x="6" y="2" width="9" height="5" fill="#9aa6b0"/><rect x="7" y="3" width="7" height="3" fill="#cfd8df"/><rect x="24" y="3" width="6" height="4" fill="#e8b04b"/></svg>`; }
+function gymBathroomSVG() { return `<svg viewBox="0 0 20 20" preserveAspectRatio="none"><rect x="3" y="2" width="14" height="17" fill="#6a7480"/><rect x="5" y="4" width="10" height="13" fill="#48525c"/><rect x="6" y="6" width="3" height="6" fill="#5ec0e8"/><rect x="11" y="6" width="3" height="6" fill="#ef9ac2"/><rect x="12.5" y="11" width="1.5" height="1.5" fill="#ffd24a"/></svg>`; }
+function gymStandsSVG() { const heads = ['#ff7a1a', '#c1121f', '#1f6fb2', '#16a34a', '#e8b04b', '#fff', '#9b59b6', '#ff7a1a']; let h = ''; for (let r = 0; r < 3; r++) for (let c = 0; c < 8; c++) { const x = 2 + c * 4.5, y = 3 + r * 5; h += `<rect x="${x}" y="${y + 2}" width="3" height="2" fill="${heads[(r * 8 + c) % heads.length]}"/><rect x="${x}" y="${y}" width="3" height="2" fill="#f1c9a5"/>`; } return `<svg viewBox="0 0 40 20" preserveAspectRatio="none"><rect x="0" y="0" width="40" height="20" fill="#3a434e"/><rect x="0" y="4" width="40" height="1" fill="#2a313a"/><rect x="0" y="9" width="40" height="1" fill="#2a313a"/><rect x="0" y="14" width="40" height="1" fill="#2a313a"/>${h}</svg>`; }
+const GYM_SPRITE = { table: gymTableSVG, control: gymControlSVG, buffet: gymBuffetSVG, bathroom: gymBathroomSVG, stands: gymStandsSVG };
+function defaultGymLayout(n) {
+  n = Math.max(1, Math.min(12, n || 4)); const tables = []; const perRow = Math.min(n, 4);
+  for (let i = 0; i < n; i++) { const col = i % perRow, row = Math.floor(i / perRow); tables.push({ x: 3 + col * 2.3, y: 2.6 + row * 1.9, rot: 0 }); }
+  const props = [{ type: 'control', x: 4.7, y: 0.3 }, { type: 'stands', x: 0.2, y: 2.6 }, { type: 'buffet', x: 9.6, y: 0.3 }, { type: 'bathroom', x: 10.7, y: 6.4 }];
+  return { tables, props };
+}
+// Resolución de un ajuste contra la org/escuela del TORNEO (no del que mira) → vale para jugadores de otra escuela.
+function tournamentSetting(t, key) { if (!t) return defaultSetting(key); if (ORG_SETTING_KEYS.includes(key)) { const b = settingsBag('org', t.orgId); return b && key in b ? b[key] : defaultSetting(key); } const b = settingsBag('school', t.schoolId); return b && key in b ? b[key] : defaultSetting(key); }
+function gymViewOn(t) { return !!t && !!tournamentSetting(t, 'gymViewAllowed') && !!tournamentSetting(t, 'gymViewEnabled'); }
+// Ocupación por número de mesa (qué se está jugando ahí ahora).
+function gymOccupancy(t) { const occ = {}; if (!t) return occ; tournamentUnits(t).forEach(u => { if (u.table == null || u.pending <= 0) return; occ[u.table] = u.kind === 'zone' ? { title: u.label, sub: u.cat.name } : { title: u.who, sub: u.cat.name + ' · ' + u.label }; }); return occ; }
+let _gymPrevOcc = new Set(), _gymEditMode = false, _gymDrag = null;
+function gymBurstHtml() { const c = ['#ff7a1a', '#ffd24a', '#16a34a', '#1f6fb2', '#fff', '#c1121f']; let s = ''; for (let k = 0; k < 14; k++) { const a = k / 14 * 6.283; s += `<i style="--c:${c[k % c.length]};--dx:${Math.round(Math.cos(a) * 26)}px;--dy:${Math.round(Math.sin(a) * 26)}px"></i>`; } return `<div class="burst">${s}</div>`; }
+// Layout que se MUESTRA (torneo: override del torneo o base del gimnasio; Gimnasios: base del gimnasio).
+function gymRenderLayout(t, gym) { if (view.startsWith('gym:')) return (t && t.gymLayout) || (gym && gym.layout) || defaultGymLayout(t ? tableCountOf(t) : 4); return (gym && gym.layout) || defaultGymLayout(4); }
+// Layout EDITABLE según la vista: Gimnasios → gym.layout (lo escribe el admin de la escuela del gym);
+// torneo → t.gymLayout (override que también puede escribir un colaborador, porque puede escribir el torneo).
+function gymTargetLayout(ensure) {
+  if (view.startsWith('gymedit:')) { const g = gymById(view.slice(8)); if (!g || !canManageGym(g)) return null; if (ensure && !g.layout) g.layout = defaultGymLayout(4); return g.layout; }
+  if (view.startsWith('gym:')) { const t = tById(view.slice(4)); if (!t || !canEditT(t)) return null; if (ensure && !t.gymLayout) { const base = gymById(t.gymId); t.gymLayout = JSON.parse(JSON.stringify((base && base.layout) || defaultGymLayout(tableCountOf(t)))); } return t.gymLayout; }
+  return null;
+}
+function gymStageHtml(layout, t, editable) {
+  const occ = gymOccupancy(t), cur = new Set(Object.keys(occ).map(Number));
+  const freed = [..._gymPrevOcc].filter(n => !cur.has(n)); _gymPrevOcc = cur;
+  const pos = (x, y, sw, sh) => `left:${(x / GYM_COLS * 100).toFixed(2)}%;top:${(y / GYM_ROWS * 100).toFixed(2)}%;width:${(sw / GYM_COLS * 100).toFixed(2)}%;height:${(sh / GYM_ROWS * 100).toFixed(2)}%`;
+  let els = '';
+  (layout.props || []).forEach((p, i) => { const sp = GYM_SPAN[p.type] || [2, 1]; const sprite = (GYM_SPRITE[p.type] || (() => ''))();
+    els += `<div class="gym-el g-prop" ${editable ? `data-kind="prop" data-idx="${i}" data-sx="${sp[0]}" data-sy="${sp[1]}"` : ''} style="${pos(p.x, p.y, sp[0], sp[1])}"><div class="g-cap">${GYM_CAP[p.type] || ''}</div>${sprite}${p.type === 'buffet' ? '<div class="smoke"><span></span><span></span><span></span></div>' : ''}${editable ? `<button class="g-del" onclick="gymDelProp(${i})" title="Quitar">✕</button>` : ''}</div>`; });
+  (layout.tables || []).forEach((tb, i) => { const vert = tb.rot === 90, sw = vert ? 1 : 2, sh = vert ? 2 : 1, num = i + 1, o = occ[num];
+    els += `<div class="gym-el g-table ${o ? 'busy' : 'free'}" ${editable ? `data-kind="table" data-idx="${i}" data-sx="${sw}" data-sy="${sh}"` : ''} style="${pos(tb.x, tb.y, sw, sh)}"><div class="g-trot" style="transform:rotate(${tb.rot || 0}deg)">${gymTableSVG()}</div><div class="tnum">${num}</div>${o ? `<div class="g-occ"><span class="g-live-dot"></span>${esc(o.title)}</div>${o.sub ? `<div class="g-occ-sub">${esc(o.sub)}</div>` : ''}` : `<div class="g-occ dim">libre</div>`}${editable ? `<button class="g-del" onclick="gymDelTable(${i})" title="Quitar mesa">✕</button>` : ''}${(!editable && freed.includes(num)) ? gymBurstHtml() : ''}</div>`; });
+  return `<div class="gym-stage ${editable ? 'editing' : ''}" id="gymStage">${els}</div>`;
+}
+function gymEditToolbarHtml() { const l = gymTargetLayout(false) || {}; const present = new Set((l.props || []).map(p => p.type)); const propBtns = ['control', 'buffet', 'bathroom', 'stands'].filter(tp => !present.has(tp)).map(tp => `<button class="btn btn-ghost btn-sm" onclick="gymAddProp('${tp}')">➕ ${GYM_CAP[tp]}</button>`).join(''); return `<div class="gym-toolbar"><button class="btn btn-accent btn-sm" onclick="gymAddTable()">➕ Mesa</button>${propBtns}</div>`; }
+function renderGymView(app, ref) {
+  const isTour = ref.startsWith('gym:'); let t = null, gym = null, back = 'torneos';
+  if (isTour) { t = tById(ref.slice(4)); if (!t) { app.innerHTML = `<div class="empty" style="margin:16px">Torneo no encontrado.</div>`; return; } back = 'torneo:' + t.id; if (!gymViewOn(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">La vista del gimnasio no está habilitada para este torneo.</div>`; return; } gym = gymById(t.gymId); }
+  else { if (!isAdmin()) { go('ranking'); return; } gym = gymById(ref.slice(8)); back = 'gimnasios'; }
+  if (!gym) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">${isTour ? 'Este torneo no tiene un gimnasio asignado (asignale uno desde ✏️ Datos).' : 'Gimnasio no encontrado.'}</div>`; return; }
+  const canEdit = isTour ? canEditT(t) : canManageGym(gym), editing = canEdit && _gymEditMode;
+  const layout = gymRenderLayout(t, gym);
+  app.innerHTML = `<div class="gym-overlay">
+      <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button>
+        <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
+        ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
+      ${editing ? `<div class="gym-edithint">✏️ Arrastrá mesas y objetos para moverlos · tocá una mesa para rotarla · ✕ para quitar.</div>${gymEditToolbarHtml()}` : ''}
+      ${gymStageHtml(layout, t, editing)}
+      <div class="gym-foot muted">${isTour ? (editing ? 'Estás editando la vista de ESTE torneo (no cambia el resto).' : '🔴 Quién está jugando en cada mesa, en tiempo real.') : 'Vista base del gimnasio: la heredan los torneos que se jueguen acá.'}</div>
+    </div>`;
+  if (editing) wireGymEditor();
+}
+function gymEditToggle() { _gymEditMode = !_gymEditMode; render(); }
+function gymAddTable() { const l = gymTargetLayout(true); if (!l) return; (l.tables = l.tables || []).push({ x: 5, y: 3.5, rot: 0 }); save(DB); render(); }
+function gymDelTable(i) { const l = gymTargetLayout(true); if (!l || !l.tables) return; l.tables.splice(i, 1); save(DB); render(); }
+function gymAddProp(tp) { const l = gymTargetLayout(true); if (!l) return; (l.props = l.props || []).push({ type: tp, x: 5, y: 0.6 }); save(DB); render(); }
+function gymDelProp(i) { const l = gymTargetLayout(true); if (!l || !l.props) return; l.props.splice(i, 1); save(DB); render(); }
+function openGymView(tid) { _gymEditMode = false; _gymPrevOcc = new Set(); go('gym:' + tid); }
+function openGymEdit(gid) { const g = gymById(gid); if (!g || !canManageGym(g)) return; if (!g.layout) { g.layout = defaultGymLayout(4); save(DB); } _gymEditMode = true; _gymPrevOcc = new Set(); go('gymedit:' + gid); }
+function wireGymEditor() {
+  const stage = document.getElementById('gymStage'); if (!stage) return;
+  stage.querySelectorAll('.gym-el[data-kind]').forEach(el => {
+    el.addEventListener('pointerdown', e => { if (e.target.closest('button')) return; e.preventDefault(); _gymDrag = { el, kind: el.dataset.kind, idx: +el.dataset.idx, sx: +el.dataset.sx, sy: +el.dataset.sy, moved: false, downX: e.clientX, downY: e.clientY, rect: stage.getBoundingClientRect() }; try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('dragging'); });
+    el.addEventListener('pointermove', e => { const d = _gymDrag; if (!d || d.el !== el) return; if (Math.abs(e.clientX - d.downX) + Math.abs(e.clientY - d.downY) > 6) d.moved = true; let x = (e.clientX - d.rect.left) / d.rect.width * GYM_COLS - d.sx / 2, y = (e.clientY - d.rect.top) / d.rect.height * GYM_ROWS - d.sy / 2; x = Math.max(0, Math.min(GYM_COLS - d.sx, x)); y = Math.max(0, Math.min(GYM_ROWS - d.sy, y)); d.x = x; d.y = y; el.style.left = (x / GYM_COLS * 100) + '%'; el.style.top = (y / GYM_ROWS * 100) + '%'; });
+    const end = () => { const d = _gymDrag; if (!d || d.el !== el) return; _gymDrag = null; el.classList.remove('dragging'); const l = gymTargetLayout(true); if (!l) return; const arr = d.kind === 'table' ? (l.tables || []) : (l.props || []); if (d.moved) { if (arr[d.idx]) { arr[d.idx].x = Math.round(d.x * 4) / 4; arr[d.idx].y = Math.round(d.y * 4) / 4; } save(DB); render(); } else if (d.kind === 'table' && arr[d.idx]) { arr[d.idx].rot = arr[d.idx].rot === 90 ? 0 : 90; save(DB); render(); } };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  });
+}
 function renderTournament(app, tid) {
   const t = tById(tid); if (!t) { app.innerHTML = '<div class="empty">No encontrado.</div>'; return; }
   if (!t.published && !canEditT(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
@@ -3405,6 +3497,7 @@ function renderTournament(app, tid) {
       ${!t.finished ? `<span class="t-badge ${t.started ? 'live' : 'draft'}">${t.started ? '🟢 En curso' : '🟡 No iniciado'}</span>` : ''}
     </div>
     ${gym && gym.address ? `<p class="page-sub" style="margin:8px 0 0">📍 ${esc(gym.address)} <a class="maplink" href="${mapsDirUrl(gym.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a></p>` : ''}
+    ${(gymViewOn(t) && gym) ? `<button class="btn btn-accent" style="margin-top:10px" onclick="openGymView('${t.id}')">🏟️ Vista del gimnasio</button>` : ''}
     ${adminTools}
     ${collabBanner}
     ${(collabNames.length || isAdmin()) ? `<p class="page-sub" style="margin:10px 0 0">🤝 Colaboradores: ${collabNames.length ? collabNames.map(esc).join(', ') : '<span class="muted">ninguno</span>'}</p>` : ''}
@@ -4187,7 +4280,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymAddTable, gymDelTable, gymAddProp, gymDelProp, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
@@ -4252,7 +4345,7 @@ function persistNormalization(rawById) {
 // escribiendo en un campo, deja el render pendiente y se aplica al cerrar el modal.
 function liveRerender() {
   const modal = $('#modal'), ae = document.activeElement;
-  const busy = (modal && !modal.hidden) || (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName));
+  const busy = (modal && !modal.hidden) || (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) || !!_gymDrag;
   if (busy) { _livePending = true; return; }
   _livePending = false; render();
 }
