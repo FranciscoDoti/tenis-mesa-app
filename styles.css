@@ -682,9 +682,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 @keyframes gjump{0%,100%{transform:translateY(0)}40%{transform:translateY(-2.6px)}}
 .cheer{position:absolute; background:#fff; color:#1d2433; font-size:9px; font-weight:800; padding:2px 6px; border-radius:7px; white-space:nowrap; opacity:0; box-shadow:0 2px 5px rgba(0,0,0,.35); z-index:6; pointer-events:none}
 .cheer::after{content:""; position:absolute; bottom:-4px; left:8px; border:4px solid transparent; border-top-color:#fff; border-bottom:0}
-.cheer.c1{top:-12px; left:4%; animation:gcheer 13s ease-in-out infinite}
-.cheer.c2{top:-12px; left:40%; animation:gcheer 13s ease-in-out 5s infinite}
-.cheer.c3{top:-12px; right:4%; background:#ffe1bd; animation:gcheer 13s ease-in-out 9s infinite}
+/* burbujas: SOBRE la hinchada (no en el vacío) — dentro de la tribuna, encima de la fila de atrás */
+.cheer.c1{top:6%; left:10%; animation:gcheer 13s ease-in-out infinite}
+.cheer.c2{top:4%; left:44%; animation:gcheer 13s ease-in-out 5s infinite}
+.cheer.c3{top:6%; right:10%; background:#ffe1bd; animation:gcheer 13s ease-in-out 9s infinite}
 .cheer.c3::after{border-top-color:#ffe1bd}
 @keyframes gcheer{0%,88%,100%{opacity:0; transform:translateY(3px) scale(.92)}90%,97%{opacity:1; transform:translateY(0) scale(1)}}
 /* personitas: personal de mesa de control / vendedor del buffet (fijas, con balanceo) y paseantes (animadas) */
@@ -694,11 +695,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 @keyframes gpbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2px)}}
 /* paseantes: recorren lento el perímetro POR FUERA del piso (keyframes gwpath inyectadas según el piso),
    y muestran cara (de frente) o nuca (de espaldas) según el tramo → sensación de dirección. */
-.g-wander{position:absolute; width:2.7%; z-index:4; transform:translate(-50%,-82%); animation:gwpath 48s linear infinite}
-.g-wander.w2{animation-delay:-16s}.g-wander.w3{animation-delay:-32s}
+.g-staff{z-index:0} /* personal: detrás de la mesa de control (la mesa, z-index 1, les tapa las piernas) */
+.g-wander{position:absolute; width:2.7%; z-index:4; transform:translate(-50%,-82%); animation:gwpath 80s linear infinite}
+.g-wander.w2{animation-delay:-26.6s}.g-wander.w3{animation-delay:-53.3s}
+/* piernas que caminan (solo en los que pasean): se mueven alternadas */
+.g-wander .leg{transform-box:fill-box; transform-origin:50% 0}
+.g-wander .leg-l{animation:gstep .46s ease-in-out infinite}
+.g-wander .leg-r{animation:gstep .46s ease-in-out infinite reverse}
+@keyframes gstep{0%,100%{transform:rotate(12deg)}50%{transform:rotate(-12deg)}}
 .g-wander .wp-front{position:relative}
-.g-wander .wp-back{position:absolute; inset:0; opacity:0; animation:gwface 48s linear infinite}
-.g-wander.w2 .wp-back{animation-delay:-16s}.g-wander.w3 .wp-back{animation-delay:-32s}
+.g-wander .wp-back{position:absolute; inset:0; opacity:0; animation:gwface 80s linear infinite}
+.g-wander.w2 .wp-back{animation-delay:-26.6s}.g-wander.w3 .wp-back{animation-delay:-53.3s}
 .g-wander .wp svg{width:100%; height:auto; display:block; filter:drop-shadow(0 2px 3px rgba(0,0,0,.4)); animation:gpbob .6s ease-in-out infinite}
 @keyframes gwface{0%{opacity:1}24%{opacity:1}26%{opacity:0}74%{opacity:0}76%{opacity:1}100%{opacity:1}}
 /* En el celular en VERTICAL: la vista de gimnasio se muestra rotada (apaisada) para ocupar toda la pantalla. */
