@@ -784,9 +784,10 @@ textarea:focus{outline:2px solid var(--table); outline-offset:0; border-color:va
 
 /* En computadora (pantalla ancha): el menú lateral queda FIJO a la izquierda (no hace falta el ☰). */
 @media (min-width:980px){
-  .menu-btn{display:none}
+  .menu-btn{display:none !important}
   .drawer-overlay{display:none !important}
-  .drawer{transform:none; top:70px; height:calc(100vh - 70px); width:264px; max-width:264px; box-shadow:none; border-right:1px solid var(--line); padding-top:14px}
+  /* !important: el CSS crítico inline de index.html (que carga después) fija transform/top del drawer. */
+  .drawer{transform:none !important; top:70px !important; height:calc(100vh - 70px) !important; width:264px !important; max-width:264px !important; box-shadow:none; border-right:1px solid var(--line); padding-top:14px}
   main{margin-left:264px}
   .footer{margin-left:264px}
 }
