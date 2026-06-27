@@ -36,7 +36,8 @@ service cloud.firestore {
     // admin de SU misma escuela (el superadmin, cualquiera). Un admin de otra escuela no puede tocarlo.
     // org/escuela son campos NATIVOS del doc; los jugadores viejos sin esos campos se "grandfatherean"
     // (cualquier admin puede editarlos hasta que se vuelvan a guardar y queden scopeados).
-    function pOwned(data) { return canManageSchool(data) || (isAdmin() && !('orgId' in data)); }
+    // Invitados (schoolId == 'guest'): pertenecen a la org, no a una escuela → los gestiona cualquier admin de esa org.
+    function pOwned(data) { return canManageSchool(data) || (isAdmin() && data.schoolId == 'guest' && userData().orgId == data.orgId) || (isAdmin() && !('orgId' in data)); }
     match /players/{id} {
       allow read: if signedIn();
       allow create: if pOwned(request.resource.data) || myPlayerId() == id;  // alta por admin de la escuela o autoregistro (su propio doc)

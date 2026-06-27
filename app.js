@@ -587,8 +587,12 @@ const isAdmin = () => { const u = currentUser(); return !!(u && (u.role === 'adm
 const orgById = id => (DB.orgs || []).find(o => o.id === id) || null;
 const schoolById = (orgId, schoolId) => { const o = orgById(orgId); return o ? (o.schools || []).find(s => s.id === schoolId) || null : null; };
 const orgName = id => { const o = orgById(id); return o ? o.name : '—'; };
-const schoolName = (orgId, schoolId) => { const s = schoolById(orgId, schoolId); return s ? s.name : '—'; };
-const schoolLogo = (orgId, schoolId) => { const s = schoolById(orgId, schoolId); return (s && s.logo) || DEFAULT_SCHOOL_LOGO; };
+// "Invitado": jugador de la organización SIN escuela (schoolId = GUEST_SCHOOL). Figura como "Invitados",
+// no suma a ningún ranking y solo puede anotarse a torneos ABIERTOS de su organización.
+const GUEST_SCHOOL = 'guest';
+const isGuest = p => !!p && p.schoolId === GUEST_SCHOOL;
+const schoolName = (orgId, schoolId) => { if (schoolId === GUEST_SCHOOL) return 'Invitados'; const s = schoolById(orgId, schoolId); return s ? s.name : '—'; };
+const schoolLogo = (orgId, schoolId) => { if (schoolId === GUEST_SCHOOL) return '🎟️'; const s = schoolById(orgId, schoolId); return (s && s.logo) || DEFAULT_SCHOOL_LOGO; };
 // Marca visual del logo (emoji o imagen) — círculo chiquito bajo la foto del jugador.
 function schoolBadgeHtml(p) {
   if (!p || !p.schoolId) return '';
@@ -601,7 +605,7 @@ const playersOfSchool = (schoolId, orgId) => (DB.players || []).filter(p => !p.p
 const playersOfOrg = orgId => (DB.players || []).filter(p => !p.pending && p.orgId === orgId);
 // ¿Este admin puede gestionar (editar/borrar/aprobar) a este jugador? Superadmin → cualquiera;
 // admin de escuela → solo los de SU misma org+escuela.
-function canManagePlayer(p) { const u = currentUser(); if (!u || !p) return false; if (isSuperadmin()) return true; return isSchoolAdmin() && !!u.orgId && p.orgId === u.orgId && p.schoolId === u.schoolId; }
+function canManagePlayer(p) { const u = currentUser(); if (!u || !p) return false; if (isSuperadmin()) return true; if (!isSchoolAdmin() || !u.orgId) return false; if (isGuest(p)) return p.orgId === u.orgId; return p.orgId === u.orgId && p.schoolId === u.schoolId; }
 // ¿Este admin puede editar/borrar este gimnasio? Solo los de su escuela (los viejos sin escuela se
 // "grandfatherean": editables por cualquier admin hasta que se vuelvan a guardar y queden scopeados).
 function canManageGym(g) { const u = currentUser(); if (!u || !g) return false; if (isSuperadmin()) return true; if (!isSchoolAdmin() || !u.orgId) return false; if (!g.orgId) return true; return g.orgId === u.orgId && g.schoolId === u.schoolId; }
@@ -615,8 +619,8 @@ function ctxSchoolId() { const u = currentUser(); if (!u) return null; if (u.rol
 function setCtx(orgId, schoolId) { _ctxOrg = orgId || null; const o = orgById(_ctxOrg); _ctxSchool = (schoolId && schoolById(_ctxOrg, schoolId)) ? schoolId : (o && o.schools[0] ? o.schools[0].id : null); render(); }
 // Selectores org/escuela reutilizables (la escuela se actualiza al cambiar la org).
 const orgSelectHtml = (id, sel, onchange) => `<select id="${id}"${onchange ? ` onchange="${onchange}"` : ''}>${(DB.orgs || []).map(o => `<option value="${o.id}" ${o.id === sel ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}</select>`;
-function schoolOptionsHtml(orgId, schoolId) { const o = orgById(orgId) || (DB.orgs || [])[0]; return (o ? o.schools : []).map(s => `<option value="${s.id}" ${s.id === schoolId ? 'selected' : ''}>${esc(s.name)}</option>`).join(''); }
-function syncSchoolOptions(orgSel, schoolSel) { const sel = $('#' + schoolSel); if (sel) sel.innerHTML = schoolOptionsHtml($('#' + orgSel).value, null); }
+function schoolOptionsHtml(orgId, schoolId, withGuest) { const o = orgById(orgId) || (DB.orgs || [])[0]; const opts = (o ? o.schools : []).map(s => `<option value="${s.id}" ${s.id === schoolId ? 'selected' : ''}>${esc(s.name)}</option>`).join(''); return opts + (withGuest ? `<option value="${GUEST_SCHOOL}" ${schoolId === GUEST_SCHOOL ? 'selected' : ''}>🎟️ Invitado (sin escuela)</option>` : ''); }
+function syncSchoolOptions(orgSel, schoolSel) { const sel = $('#' + schoolSel); if (sel) sel.innerHTML = schoolOptionsHtml($('#' + orgSel).value, null, true); }
 // Colaborador de un torneo: jugador designado por el admin con permisos de edición sobre ese torneo.
 const isCollaboratorOf = t => { const u = currentUser(); return !!(u && u.playerId && t && (t.collaborators || []).includes(u.playerId)); };
 // Dueño del torneo = el admin que lo creó. Los torneos viejos sin dueño los gestiona un admin de su misma escuela/org (para no bloquearlos).
@@ -858,7 +862,7 @@ function renderCtxBar() {
 function ctxPickOrg(oid) { setCtx(oid); }
 function ctxPickSchool(sid) { setCtx(ctxOrgId(), sid); }
 // Solicitudes de alta (pendientes) del contexto actual (escuela del admin / seleccionada por superadmin).
-function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (DB.players || []).filter(p => p.pending && (!sid || (p.schoolId === sid && p.orgId === oid))); }
+function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (DB.players || []).filter(p => p.pending && p.orgId === oid && (!sid || p.schoolId === sid || isGuest(p))); } // invitados pendientes los aprueba cualquier admin de la org
 function render() {
   renderChrome();
   applyTheme();
@@ -1054,7 +1058,8 @@ function renderRegister(app) {
         <div><label>Fecha de nacimiento</label><input id="r_dob" type="date"/></div>
         <div><label>Género</label>${genderField('r_gender', 'M')}</div>
         <div><label>Organización</label>${orgSelectHtml('r_org', ((DB.orgs || [])[0] || {}).id, "syncSchoolOptions('r_org','r_school')")}</div>
-        <div><label>Escuela</label><select id="r_school">${schoolOptionsHtml(((DB.orgs || [])[0] || {}).id, null)}</select></div>
+        <div><label>Escuela</label><select id="r_school">${schoolOptionsHtml(((DB.orgs || [])[0] || {}).id, null, true)}</select>
+          <p class="hint" style="margin-top:4px">Elegí <b>🎟️ Invitado</b> si no pertenecés a ninguna escuela: vas a poder anotarte a torneos abiertos, pero no sumás puntos al ranking.</p></div>
       </div>
       <label>Teléfono / WhatsApp</label>${phoneFieldHtml('r_phone', null)}
       <label>${fb ? 'Email' : 'Usuario'}</label><input id="r_user" type="${fb ? 'email' : 'text'}" placeholder="${fb ? 'tu@email.com' : 'con el que vas a ingresar'}"/>
@@ -1169,7 +1174,7 @@ function renderRanking(app) {
 // Ranking general de la organización: todos los jugadores de la org.
 function renderOrgRanking(app) {
   const oid = ctxOrgId();
-  const list = playersOfOrg(oid);
+  const list = playersOfOrg(oid).filter(p => !isGuest(p)); // los invitados no figuran en ningún ranking
   app.innerHTML = `<div class="page-title"><h1>🌐 Ranking general · ${esc(orgName(oid))}</h1></div>
     <p class="page-sub">Todos los jugadores de la organización, sin importar la escuela. Tocá una categoría para verla.</p>
     ${rankingTilesHtml(list)}`;
@@ -1585,24 +1590,35 @@ async function recheckVerification() {
 /* ---------- jugadores (admin) ---------- */
 function renderPlayers(app) {
   const oid = ctxOrgId(), sid = ctxSchoolId();
-  const active = playersOfSchool(sid, oid);
-  const rows = active.slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map(p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
+  const byName = (a, b) => fullName(a).localeCompare(fullName(b));
+  const rowOf = p => { const u = (DB.users || []).find(x => x.playerId === p.id); return `<div class="player-row">${avatar(p)}
     <div class="meta"><div class="name">${nameLink(p)}</div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}${(p.username || (u && u.username)) ? ` · 👤 ${esc(p.username || u.username)}` : ''}${(u && u.email) ? ` · 📧 ${esc(u.email)}` : (p.email ? ` · 📧 ${esc(p.email)}` : '')}</div></div>
     <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
     <div class="pts">${p.points}<small> pts</small></div>
     <button class="btn btn-ghost btn-sm" onclick="playerForm('${p.id}')">✏️</button>
-    <button class="btn btn-ghost btn-sm" onclick="delPlayer('${p.id}')">🗑️</button></div>`; }).join('');
+    <button class="btn btn-ghost btn-sm" onclick="delPlayer('${p.id}')">🗑️</button></div>`; };
+  const active = playersOfSchool(sid, oid).slice().sort(byName);
+  const rows = active.map(rowOf).join('');
+  // Invitados de la organización (sin escuela): los gestiona cualquier admin de la org.
+  const guests = (DB.players || []).filter(p => !p.pending && isGuest(p) && p.orgId === oid).slice().sort(byName);
+  const guestSection = guests.length ? `<h2 class="players-subhead">🎟️ Invitados <span class="muted">(${guests.length})</span></h2>
+    <p class="page-sub" style="margin-top:0">Jugadores sin escuela. Pueden anotarse a torneos abiertos, pero no suman puntos al ranking.</p>${guests.map(rowOf).join('')}` : '';
   const pend = scopedPending().length;
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>👥 Jugadores · ${esc(schoolName(oid, sid))}</h1></div>
     <button class="btn btn-primary" onclick="playerForm()">➕ Agregar jugador</button></div>
-    <p class="page-sub">${active.length} jugadores de ${esc(schoolName(oid, sid))} (${esc(orgName(oid))}).${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores en esta escuela.</div>'}`;
+    <p class="page-sub">${active.length} jugadores de ${esc(schoolName(oid, sid))} (${esc(orgName(oid))}).${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores en esta escuela.</div>'}${guestSection}`;
 }
 function playerForm(id) {
   const p = id ? playerById(id) : { firstName: '', lastName: '', dob: '', city: CITIES[0], category: '4ta', points: NEW_PLAYER_POINTS, photo: null };
   const acc = id ? (DB.users || []).find(x => x.playerId === id) : null;
   const curEmail = (acc && acc.email) || p.email || '';
   const hasLogin = !!(acc && acc.uid);   // tiene cuenta de acceso (Firebase): el email se gestiona desde su cuenta
-  openModal(`<h3>${id ? 'Editar' : 'Inscribir'} jugador</h3>
+  // Escuela del jugador: superadmin elige cualquiera de la org (+ Invitado); admin de escuela, la suya (+ Invitado).
+  const selSchool = id ? (p.schoolId || ctxSchoolId()) : ctxSchoolId();
+  const schoolSel = isSuperadmin()
+    ? schoolOptionsHtml(ctxOrgId(), selSchool, true)
+    : `<option value="${ctxSchoolId()}" ${selSchool === ctxSchoolId() ? 'selected' : ''}>${esc(schoolName(ctxOrgId(), ctxSchoolId()))}</option><option value="${GUEST_SCHOOL}" ${selSchool === GUEST_SCHOOL ? 'selected' : ''}>🎟️ Invitado (sin escuela)</option>`;
+  openModal(`<h3>${id ? 'Editar' : 'Agregar'} jugador</h3>
     <div class="row" style="margin:12px 0">${avatar(p)}<span class="muted">${id ? esc(fullName(p)) : 'Nuevo'}</span></div>
     <div class="grid2">
       <div><label>Nombre</label><input id="f_first" value="${esc(p.firstName)}"/></div>
@@ -1611,6 +1627,7 @@ function playerForm(id) {
       <div><label>Puntos</label><input id="f_pts" type="number" min="0" value="${p.points}"/></div>
       <div><label>Fecha de nacimiento</label><input id="f_dob" type="date" value="${p.dob || ''}"/></div>
       <div><label>Género</label>${genderField('f_gender', genderOf(p))}</div>
+      <div><label>Escuela</label><select id="f_school">${schoolSel}</select></div>
     </div>
     <label>Usuario</label>
     <input id="f_username" value="${esc(p.username || (acc && acc.username) || '')}" placeholder="con el que ingresa el jugador" autocomplete="off"/>
@@ -1645,6 +1662,9 @@ function savePlayer(id) {
   if (usernameTaken(uname, id || null)) { err('Ese usuario ya está en uso, probá otro.'); return; }
   const emailInp = $('#f_email'), emailEditable = emailInp && !emailInp.disabled;
   const data = { firstName: first, lastName: last, username: uname, dob: $('#f_dob').value || null, city: readCityField('f_city'), gender: ($('#f_gender') && $('#f_gender').value) || 'M', points: parseInt($('#f_pts').value, 10) || 0, photo: window.__photo ? window.__photo() : null };
+  // Escuela elegida (puede ser "Invitado"). Un admin de escuela solo puede asignar su propia escuela o Invitado.
+  data.schoolId = ($('#f_school') && $('#f_school').value) || ctxSchoolId();
+  if (!isSuperadmin() && data.schoolId !== ctxSchoolId() && data.schoolId !== GUEST_SCHOOL) { err('Solo podés asignar tu escuela o "Invitado".'); return; }
   if (emailEditable) data.email = (emailInp.value || '').trim() || null; // email editable solo si no tiene cuenta de acceso
   if (FB() && emailEditable && !data.email) { err('El email es obligatorio: con él se crea la cuenta de acceso del jugador.'); return; }
   if (emailEditable && data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) { err('El email no es válido (ej: nombre@gmail.com).'); return; }
@@ -4068,6 +4088,7 @@ function awardPoints(tid, cid) {
     const cap = (cur, net) => { let d = net; if (cur > SCORE_CAP_HI && d > 0) d = Math.floor(d * 0.5); if (cur < SCORE_CAP_LO && d < 0) d = -Math.floor(Math.abs(d) * 0.5); return Math.max(0, cur + d) - cur; };
     Object.entries(delta).forEach(([eid, net]) => {
       const e = entById(cat, eid); if (!e) return;
+      if (e.players.some(pid => isGuest(playerById(pid)))) return; // invitados (o parejas con un invitado) no suman a ningún ranking
       let applied = net;
       if (cat.format === 'double') {
         const pr = pairRecord(e.players, cat.name, true);  // ranking de la pareja en ESTA categoría de dobles

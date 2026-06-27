@@ -123,7 +123,9 @@ async function createAccount(req, env) {
   if (role === 'admin') {
     const target = await readBlob(env, token, 'players', playerId);
     const tOrg = (target && target.orgId) || orgId || null, tSchool = (target && target.schoolId) || schoolId || null;
-    if (me.orgId !== tOrg || me.schoolId !== tSchool) return json({ error: 'no autorizado para esa escuela' }, 403);
+    // Invitados (schoolId == 'guest'): solo importa la organización; el resto, org + escuela exactas.
+    const okScope = me.orgId === tOrg && (tSchool === 'guest' || me.schoolId === tSchool);
+    if (!okScope) return json({ error: 'no autorizado para esa escuela' }, 403);
   }
   // 2) crear la cuenta con contraseña aleatoria (no la conoce nadie; el jugador la fija por email).
   //    Si el email YA existía (p. ej. un intento previo que creó la cuenta pero no mandó el mail),
@@ -181,7 +183,8 @@ async function deleteAccount(req, env) {
   // Scope por escuela: un admin (no superadmin) solo puede borrar cuentas de SU escuela.
   if (role === 'admin') {
     const target = await readUserDoc(env, token, targetUid);
-    if (!target || me.orgId !== target.orgId || me.schoolId !== target.schoolId) return json({ error: 'no autorizado para esa escuela' }, 403);
+    const okScope = target && me.orgId === target.orgId && (target.schoolId === 'guest' || me.schoolId === target.schoolId);
+    if (!okScope) return json({ error: 'no autorizado para esa escuela' }, 403);
   }
   const r = await fetch(`${PROJ}/accounts:delete`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ localId: targetUid }) });
   const d = await r.json().catch(() => ({}));

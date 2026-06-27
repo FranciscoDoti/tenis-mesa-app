@@ -622,6 +622,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 /* medallas de podio para el top-3 en rankings individuales */
 .pos.medal{font-size:18px}
 
+.players-subhead{font-size:15px; margin:24px 0 2px; display:flex; align-items:center; gap:6px; border-top:1px dashed var(--line); padding-top:16px}
+
 /* evita el zoom raro de fuentes en mobile al rotar */
 html{-webkit-text-size-adjust:100%}
 
