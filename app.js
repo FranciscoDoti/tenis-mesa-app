@@ -3460,13 +3460,13 @@ function gymStageHtml(layout, t, editable) {
     const staff = gymStaff(t), n = staff.length;
     // El personal va DETRÁS de la mesa de control (sentado, organizando): z-index por debajo de la mesa,
     // ubicado de modo que la mesa les tape las piernas y asomen torso+cabeza.
-    if (ctl) staff.forEach((s, i) => { const px = ctl.x + ctl.w * ((i + 0.5) / n), py = ctl.y + ctl.h * 0.82;
+    if (ctl) staff.forEach((s, i) => { const px = ctl.x + ctl.w * ((i + 0.5) / n), py = ctl.y + ctl.h * 0.34; // detrás de la mesa (en iso, más arriba = más atrás)
       ppl += `<div class="g-person g-staff" style="left:${(px / GYM_COLS * 100).toFixed(2)}%;top:${(py / GYM_ROWS * 100).toFixed(2)}%">${s.name ? `<div class="ptag">${esc(s.name)}</div>` : ''}${gymPersonSVG(s)}</div>`; });
-    if (buf) ppl += `<div class="g-person g-staff" style="left:${((buf.x + buf.w * 0.5) / GYM_COLS * 100).toFixed(2)}%;top:${((buf.y + buf.h * 0.82) / GYM_ROWS * 100).toFixed(2)}%">${gymPersonSVG({ apron: 1, cap: '#c1121f', shirt: '#2b3440' })}</div>`;
+    if (buf) ppl += `<div class="g-person g-staff" style="left:${((buf.x + buf.w * 0.5) / GYM_COLS * 100).toFixed(2)}%;top:${((buf.y + buf.h * 0.34) / GYM_ROWS * 100).toFixed(2)}%">${gymPersonSVG({ apron: 1, cap: '#c1121f', shirt: '#2b3440' })}</div>`;
     const wndr = (cls, o) => `<div class="g-wander ${cls}"><div class="wp wp-front">${gymPersonSVG(o)}</div><div class="wp wp-back">${gymPersonSVG(Object.assign({}, o, { back: 1 }))}</div></div>`;
     ppl += wndr('w1', { shirt: '#ff7a1a', drink: 1 }) + wndr('w2', { shirt: '#7a3ea6', hair: '#15110d' }) + wndr('w3', { shirt: '#3ac0c9', drink: 1, hair: '#6b4423' });
   }
-  return `<div class="gym-stage ${editable ? 'editing' : ''} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}${ppl}</div>`;
+  return `<div class="gym-stage ${editable ? 'editing' : 'iso'} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}${ppl}</div>`;
 }
 function gymEditToolbarHtml(isTour) {
   const l = gymTargetLayout(false) || {}; const present = new Set((l.props || []).map(p => p.type));
