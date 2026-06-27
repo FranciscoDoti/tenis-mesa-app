@@ -225,6 +225,14 @@ async function enroll(req, env) {
   const cat = (t.categorias || []).find(c => c.id === categoryId);
   if (!cat) return json({ error: 'categoría no encontrada' }, 404);
   if (cat.closed || cat.groups || cat.bracket) return json({ error: 'la inscripción de esta categoría está cerrada' }, 400);
+  // Scope del torneo: abierto → misma organización; cerrado → misma escuela. Validamos TODOS los
+  // jugadores (no solo al que llama) contra su ficha real en Firestore, no contra lo que mande el cliente.
+  for (const pid of players) {
+    const p = await readBlob(env, token, 'players', pid);
+    if (!p) return json({ error: 'jugador no encontrado' }, 404);
+    if (t.orgId && p.orgId !== t.orgId) return json({ error: 'ese jugador no pertenece a la organización del torneo' }, 403);
+    if (!t.open && p.schoolId !== t.schoolId) return json({ error: 'torneo cerrado: solo jugadores de esa escuela pueden anotarse' }, 403);
+  }
   const enrolled = new Set((cat.entrants || []).flatMap(e => e.players || []));
   for (const pid of players) if (enrolled.has(pid)) return json({ error: 'ya estás anotado' }, 400);
   cat.entrants = cat.entrants || [];
@@ -343,9 +351,19 @@ async function award(req, env) {
     if (pu.category) p.category = pu.category;
     await writeBlob(env, token, 'players', pu.id, p);
   }
-  // 3) ranking de dobles (parejas) en settings, si corresponde
+  // 3) ranking de dobles (parejas) en settings, si corresponde. UPSERT por categoría (catName):
+  //    reemplazamos SOLO las parejas de esta categoría, sin pisar las de otras categorías/orgs
+  //    (antes hacía s.pairs = pairs, que clobbereaba todo el ranking de dobles global).
   if (Array.isArray(pairs)) {
-    const s = await readSettings(env, token); if (s) { s.pairs = pairs; await writeSettings(env, token, s); }
+    const s = await readSettings(env, token);
+    if (s) {
+      const catName = cat.name;
+      const cur = Array.isArray(s.pairs) ? s.pairs : [];
+      const kept = cur.filter(p => !(p && p.catName === catName));
+      const incoming = pairs.filter(p => p && p.catName === catName);
+      s.pairs = kept.concat(incoming);
+      await writeSettings(env, token, s);
+    }
   }
   console.log('award', JSON.stringify({ tournamentId, categoryId, players: (players || []).length, pairs: Array.isArray(pairs) ? pairs.length : 0 }));
   return json({ ok: true });
@@ -386,6 +404,8 @@ async function writeBlob(env, token, coll, id, obj) {
     if (obj.orgId) fields.orgId = { stringValue: obj.orgId };
     if (obj.schoolId) fields.schoolId = { stringValue: obj.schoolId };
   }
+  // payments: playerId nativo para que el jugador pueda leer SOLO sus propios pagos (regla + consulta).
+  if (coll === 'payments' && obj.playerId) fields.playerId = { stringValue: obj.playerId };
   const r = await fetch(`${FS_BASE(env.FIREBASE_PROJECT_ID)}/${coll}/${id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ fields }),

@@ -44,8 +44,14 @@ service cloud.firestore {
       allow delete: if pOwned(resource.data);
     }
 
-    // Gimnasios: solo admin escribe.
-    match /gyms/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
+    // Gimnasios: cada admin gestiona solo los de SU escuela (org/escuela nativos, con grandfather
+    // para los gimnasios viejos sin esos campos, igual que players/tournaments).
+    function gOwned(data) { return canManageSchool(data) || (isAdmin() && !('orgId' in data)); }
+    match /gyms/{id} {
+      allow read: if signedIn();
+      allow create: if gOwned(request.resource.data);
+      allow update, delete: if gOwned(resource.data);
+    }
     // Noticias: lectura para logueados (los borradores se filtran en la app); solo admin escribe.
     match /news/{id}   { allow read: if signedIn(); allow write: if isAdmin(); }
     // Ajustes (incluye el tema): lectura pública para poder pintar la apariencia publicada en
@@ -62,7 +68,11 @@ service cloud.firestore {
     match /tournaments/{id} {
       allow read: if signedIn();
       allow create: if tOwned(request.resource.data);
-      allow update: if tOwned(resource.data) || (signedIn() && myPlayerId() in resource.data.collaborators);
+      // El dueño/superadmin puede todo. Un colaborador puede editar el torneo PERO NO cambiar la lista
+      // de colaboradores (no puede auto-promover ni sacar a otros): collaborators debe quedar igual.
+      allow update: if tOwned(resource.data)
+        || (signedIn() && myPlayerId() in resource.data.collaborators
+            && request.resource.data.collaborators == resource.data.collaborators);
       allow delete: if tOwned(resource.data);
     }
 
@@ -75,10 +85,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin() && resource.data.ownerUid == request.auth.uid;
     }
 
-    // Historial de pagos: lo escribe SOLO el backend (Worker, vía Admin SDK, que saltea reglas).
-    // Lectura para logueados: la app deduce el "pagado" desde acá y filtra el historial por rol.
+    // Historial de pagos (PII: email/monto del pagador). Lo escribe SOLO el backend (Worker, vía
+    // cuenta de servicio, que saltea reglas). Lectura SCOPEADA: superadmin todo, admin solo su escuela,
+    // jugador solo sus propios pagos. Los campos orgId/schoolId/playerId los escribe el Worker nativos.
     match /payments/{id} {
-      allow read: if signedIn();
+      allow read: if canManageSchool(resource.data) || (signedIn() && resource.data.playerId == myPlayerId());
       allow write: if false;
     }
   }

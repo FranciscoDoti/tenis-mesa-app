@@ -602,6 +602,9 @@ const playersOfOrg = orgId => (DB.players || []).filter(p => !p.pending && p.org
 // ¿Este admin puede gestionar (editar/borrar/aprobar) a este jugador? Superadmin → cualquiera;
 // admin de escuela → solo los de SU misma org+escuela.
 function canManagePlayer(p) { const u = currentUser(); if (!u || !p) return false; if (isSuperadmin()) return true; return isSchoolAdmin() && !!u.orgId && p.orgId === u.orgId && p.schoolId === u.schoolId; }
+// ¿Este admin puede editar/borrar este gimnasio? Solo los de su escuela (los viejos sin escuela se
+// "grandfatherean": editables por cualquier admin hasta que se vuelvan a guardar y queden scopeados).
+function canManageGym(g) { const u = currentUser(); if (!u || !g) return false; if (isSuperadmin()) return true; if (!isSchoolAdmin() || !u.orgId) return false; if (!g.orgId) return true; return g.orgId === u.orgId && g.schoolId === u.schoolId; }
 // ¿El jugador puede inscribirse en este torneo? Abierto → toda la org; cerrado → solo su escuela.
 function inTournamentScope(t, p) { if (!t || !p) return true; if (t.orgId && p.orgId !== t.orgId) return false; return t.open ? true : p.schoolId === t.schoolId; }
 function tournamentPool(t) { return t ? (t.open ? playersOfOrg(t.orgId) : playersOfSchool(t.schoolId, t.orgId)) : (DB.players || []).filter(p => !p.pending); }
@@ -1768,19 +1771,19 @@ function renderGyms(app) {
     ${mapEmbed(g.address)}
     <div class="row" style="margin-top:12px">
       ${g.address ? `<a class="btn btn-accent btn-sm" href="${mapsDirUrl(g.address)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>` : ''}
-      ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="gymForm('${g.id}')">✏️ Editar</button>
+      ${canManageGym(g) ? `<button class="btn btn-ghost btn-sm" onclick="gymForm('${g.id}')">✏️ Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="delGym('${g.id}')">🗑️</button>` : ''}
     </div></div>`).join('');
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>🏟️ Gimnasios</h1></div>
     <button class="btn btn-primary" onclick="gymForm()">➕ Agregar gimnasio</button></div>
     <p class="page-sub">Lugares disponibles para los torneos. Tocá <b>Cómo llegar</b> para abrir Google Maps con la dirección.</p>
-    <div class="banner" style="max-width:680px">🌐 <b>Los gimnasios son compartidos.</b> Lo que agregues, edites o borres acá lo ven <b>todas las escuelas</b> (y demás organizaciones), no solo la tuya.</div>
+    <div class="banner" style="max-width:680px">🏟️ Podés <b>ver</b> todos los gimnasios cargados, pero solo <b>editás o borrás los de tu escuela</b>.</div>
     <div class="cards gym-cards">${cards || '<div class="empty">Sin gimnasios.</div>'}</div>`;
 }
 function gymForm(id) {
   const g = id ? gymById(id) : { name: '', address: '' };
   openModal(`<h3>${id ? 'Editar' : 'Agregar'} gimnasio</h3>
-    <div class="banner" style="margin-top:0">🌐 Este gimnasio es <b>compartido</b>: el cambio impacta en lo que ven todas las escuelas y organizaciones.</div>
+    <div class="banner" style="margin-top:0">🏟️ Todas las escuelas <b>ven</b> este gimnasio, pero solo tu escuela puede editarlo o borrarlo.</div>
     <label>Nombre</label><input id="g_name" value="${esc(g.name)}" placeholder="Ej: Muni 3"/>
     <label>Domicilio</label><input id="g_addr" value="${esc(g.address)}" placeholder="Calle, ciudad, provincia"/>
     <div id="gerr" class="banner" hidden></div>
@@ -1791,11 +1794,12 @@ function saveGym(id) {
   const name = $('#g_name').value.trim(), address = $('#g_addr').value.trim(), e = $('#gerr');
   if (!name) { e.hidden = false; e.textContent = 'El nombre es obligatorio.'; return; }
   if (!DB.gyms) DB.gyms = [];
-  if (id) Object.assign(gymById(id), { name, address }); else DB.gyms.push({ id: uid('g_'), name, address });
+  if (id) { const g = gymById(id); if (!g || !canManageGym(g)) { closeModal(); return; } Object.assign(g, { name, address }); }
+  else DB.gyms.push({ id: uid('g_'), name, address, orgId: ctxOrgId(), schoolId: ctxSchoolId() }); // nuevo gimnasio: queda de la escuela del admin
   save(DB); closeModal(); render();
 }
 function delGym(id) {
-  const g = gymById(id); if (!g) return;
+  const g = gymById(id); if (!g || !canManageGym(g)) return;
   const used = DB.tournaments.filter(t => t.gymId === id).length;
   if (!confirm(`¿Eliminar "${g.name}"?` + (used ? ` ${used} torneo(s) quedarán sin lugar asignado.` : ''))) return;
   DB.gyms = DB.gyms.filter(x => x.id !== id);
@@ -1929,8 +1933,10 @@ function myPaymentsViewHtml(pid) {
 }
 function renderReportes(app) {
   const adm = isAdmin(), me = currentUser(), myPid = me && me.playerId;
-  // Torneos que puede ver: admin → los de su organización; colaborador → los que gestiona; jugador común → ninguno.
-  const accessible = (adm ? DB.tournaments.filter(t => t.orgId === ctxOrgId()) : DB.tournaments.filter(t => isCollaboratorOf(t)))
+  // Torneos que puede ver: superadmin → toda su organización; admin de escuela → SOLO los de su
+  // escuela (+ los abiertos de la org); colaborador → los que gestiona; jugador común → ninguno.
+  const inReportScope = t => isSuperadmin() ? t.orgId === ctxOrgId() : (t.orgId === ctxOrgId() && (t.schoolId === ctxSchoolId() || t.open));
+  const accessible = (adm ? DB.tournaments.filter(inReportScope) : DB.tournaments.filter(t => isCollaboratorOf(t)))
     .slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   // Jugador sin torneos a cargo → solo su propio historial.
   if (!accessible.length) { app.innerHTML = myPaymentsViewHtml(myPid); return; }
@@ -1987,9 +1993,9 @@ function renderReportes(app) {
 // Buscador de persona con SELECCIÓN (no filtra solo visualmente: al elegir, recalcula los totales para esa persona).
 function reportPersonPickerHtml() {
   if (reportPerson) { const p = playerById(reportPerson); return `<div class="rp-sel">👤 <b>${esc(p ? fullName(p) : 'Jugador')}</b><button type="button" class="chip-x" onclick="setReportPerson('')" title="Quitar filtro">✕</button></div>`; }
-  // TODOS los jugadores en alcance (el admin ve los de su organización), no solo los que aparecen en los
-  // filtros actuales → así el buscador no es confuso y compone bien con el filtro de torneo.
-  const cands = (isAdmin() ? playersOfOrg(ctxOrgId()) : (DB.players || []).filter(p => !p.pending))
+  // Jugadores en alcance: superadmin → toda la org; admin de escuela → solo su escuela. (Sin filtrar por
+  // los filtros actuales, para que el buscador no sea confuso y componga bien con el filtro de torneo.)
+  const cands = (isSuperadmin() ? playersOfOrg(ctxOrgId()) : isAdmin() ? playersOfSchool(ctxSchoolId(), ctxOrgId()) : (DB.players || []).filter(p => !p.pending))
     .slice().sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const opts = cands.map(p => `<li class="rp-opt" data-name="${esc(fullName(p)).toLowerCase()}" onclick="setReportPerson('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('');
   return `<div class="rp-picker"><input class="rp-search" placeholder="🔍 Escribí un nombre y elegilo de la lista…" autocomplete="off" oninput="rpFilter(this)"/>
@@ -2156,9 +2162,9 @@ function renderSettings(app) {
       ${setting('paymentsAllowed') ? settingRow('💳 Pagos para inscripciones ' + schoolScope,
         'Cobrar la inscripción <b>online al anotarse</b> (con MercadoPago). La cuenta donde recibís la plata se configura en <b>💳 Cuentas de cobro</b> y se elige al crear cada torneo.<br>⚠️ <b>MercadoPago cobra una comisión (~3,7%) por cada pago recibido</b> — la podés trasladar al jugador. No hay cuotas ni costos fijos.',
         setting('paymentsEnabled'), 'togglePayments') : ''}
-      ${isSuperadmin() && setting('paymentsAllowed') ? `<div class="setting-row"><div class="setting-text" style="width:100%">
-        <div class="setting-name">🔗 URL del servicio de pagos ${orgScope}</div>
-        <div class="setting-desc">Pegá la URL del Worker de Cloudflare (la da <code>wrangler deploy</code>), ej: <code>https://tenis-mesa-pagos.tu-usuario.workers.dev</code>. Sin esto, el botón “Pagar ahora” no aparece.</div>
+      ${isSuperadmin() ? `<div class="setting-row"><div class="setting-text" style="width:100%">
+        <div class="setting-name">🔗 URL del servidor (backend) ${orgScope}</div>
+        <div class="setting-desc">Pegá la URL del Worker de Cloudflare (la da <code>wrangler deploy</code>), ej: <code>https://tenis-mesa-pagos.tu-usuario.workers.dev</code>. <b>Es necesaria para la auto-inscripción de los jugadores</b> y para los pagos online. Sin esto, los jugadores no pueden anotarse solos ni aparece el botón “Pagar ahora”.</div>
         <div class="row" style="margin-top:8px"><input id="set_wurl" value="${esc(DB.settings.mpWorkerUrl || '')}" placeholder="https://...workers.dev"/>
           <button class="btn btn-primary btn-sm" onclick="saveMpWorkerUrl()">Guardar</button></div>
       </div></div>` : ''}
@@ -2845,7 +2851,7 @@ function delTournament(id) { if (!canEditT(tById(id))) return; if (confirm('¿El
 
 /* ----- colaboradores del torneo (admin) ----- */
 function collaboratorsModal(tid) {
-  const t = tById(tid); if (!t) return;
+  const t = tById(tid); if (!t || !(ownsTournament(t) || isSuperadmin())) return; // solo el dueño/superadmin gestiona colaboradores
   openModal(`<h3>Colaboradores — ${esc(t.name)}</h3>
     <p class="hint" style="margin-top:0">Pueden editar este torneo: inscribir jugadores, cargar resultados, abrir/cerrar inscripciones, armar grupos y la llave.</p>
     ${collabPickerHtml(t.collaborators)}
@@ -2854,7 +2860,7 @@ function collaboratorsModal(tid) {
   refreshCollab();
 }
 function saveCollaborators(tid) {
-  const t = tById(tid); if (!t) return;
+  const t = tById(tid); if (!t || !(ownsTournament(t) || isSuperadmin())) return; // solo el dueño/superadmin
   t.collaborators = [...(window.__collabSel || [])];
   save(DB); closeModal(); render();
 }
@@ -2862,12 +2868,16 @@ function saveCollaborators(tid) {
 /* ----- inscripción a nivel torneo ----- */
 function toggleTournamentEnroll(tid) {
   const t = tById(tid); if (!t || !canEditT(t)) return;
-  t.enrollClosed = !t.enrollClosed; save(DB); render();
+  t.enrollClosed = !t.enrollClosed;
+  // Al cerrar a nivel torneo, limpiamos los overrides por categoría que la dejaban abierta, para que el
+  // cierre realmente cierre todo (antes una categoría forzada "abierta" seguía aceptando inscripciones).
+  if (t.enrollClosed) (t.categorias || []).forEach(c => { if (c.enrollOverride === 'open') c.enrollOverride = null; });
+  save(DB); render();
 }
 
 /* ----- publicar torneo (borrador → visible para todos) ----- */
 function publishTournament(tid) {
-  const t = tById(tid); if (!t || !isAdmin()) return;
+  const t = tById(tid); if (!t || !canEditT(t)) return;
   if (!confirm('¿Publicar este torneo? Una vez publicado, todos los jugadores van a poder verlo y no se puede volver a borrador.')) return;
   t.published = true; save(DB); render();
 }
@@ -3317,7 +3327,7 @@ function renderTournament(app, tid) {
         <button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Datos</button>
         <button class="btn btn-ghost btn-sm" onclick="editTablesModal('${t.id}')">🏓 Mesas</button>
         ${!t.finished ? `<button class="btn btn-ghost btn-sm" onclick="toggleTournamentEnroll('${t.id}')">${tEnrollOpen ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'}</button>` : ''}
-        <button class="btn btn-ghost btn-sm" onclick="collaboratorsModal('${t.id}')">🤝 Colaboradores</button>
+        ${(ownsTournament(t) || isSuperadmin()) ? `<button class="btn btn-ghost btn-sm" onclick="collaboratorsModal('${t.id}')">🤝 Colaboradores</button>` : ''}
         ${!t.finished ? `<button class="btn btn-ghost btn-sm danger" onclick="finalizeTournament('${t.id}')">🏁 Finalizar</button>` : ''}
       </div>
     </details>` : '';
@@ -3522,10 +3532,14 @@ function renderCategoria(app, tid, cid) {
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
   } else {
-    // jugadores: autoinscripción si la inscripción está abierta
-    html += enr.open
-      ? `<div class="row" style="margin:16px 0"><button class="btn btn-primary" onclick="selfEnrollModal('${tid}','${cid}')">📝 Anotarme</button></div>`
-      : `<div class="banner" style="margin:16px 0">${enr.label}. No te podés anotar en este momento.</div>`;
+    // jugadores: autoinscripción si la inscripción está abierta y el jugador pertenece al alcance del torneo
+    const meP = (currentUser() && currentUser().playerId) ? playerById(currentUser().playerId) : null;
+    const inScope = !meP || inTournamentScope(tById(tid), meP); // jugador de otra escuela en torneo cerrado → no
+    html += !inScope
+      ? `<div class="banner" style="margin:16px 0">🔒 Este torneo es de otra escuela: no podés anotarte.</div>`
+      : enr.open
+        ? `<div class="row" style="margin:16px 0"><button class="btn btn-primary" onclick="selfEnrollModal('${tid}','${cid}')">📝 Anotarme</button></div>`
+        : `<div class="banner" style="margin:16px 0">${enr.label}. No te podés anotar en este momento.</div>`;
   }
 
   // Pestañas: muestran de a una sección para no saturar la pantalla.
@@ -4114,9 +4128,18 @@ function runDataMigrations() {
 
 /* ---------------- bootstrap ---------------- */
 let _loaded = false;
+// Scope para leer `payments` (PII): superadmin todo, admin su escuela, jugador sus pagos. Debe casar
+// con la regla de Firestore y con las consultas scopeadas de store.js.
+function paymentsScope() {
+  const u = currentUser(); if (!u) return null;
+  if (u.role === 'superadmin') return { role: 'superadmin' };
+  if (u.role === 'admin' && u.schoolId) return { role: 'admin', schoolId: u.schoolId };
+  if (u.playerId) return { role: 'player', playerId: u.playerId };
+  return null;
+}
 async function ensureData() {
   if (_loaded || !FB()) return;
-  const data = await window.STORE.loadAll();
+  const data = await window.STORE.loadAll(paymentsScope());
   if (data.empty) {
     if (!isAdmin()) return;                 // base vacía y no soy admin → no puedo sembrar (reglas)
     DB = seed(); DB.users = data.users;      // arma datos de ejemplo
@@ -4175,7 +4198,7 @@ function startLiveSync() {
     if (coll === 'tournaments' || coll === 'payments') mergePaymentsIntoEntrants();
     try { window.STORE.primeLast(DB); } catch (e) {} // mantiene el baseline del diff-sync al día
     liveRerender();
-  });
+  }, paymentsScope());
 }
 async function boot() {
   applyCachedTheme(); // pinta el tema publicado al instante (sirve para el login, antes de autenticar)
@@ -4216,6 +4239,10 @@ async function boot() {
         }
       }
       await reconcileFbSession(); // datos viejos: admin global → superadmin; jugador sin escuela → la de su ficha
+      // Superadmin: fijar un contexto explícito (primera org/escuela) en vez de depender del fallback
+      // silencioso, así toda escritura scopeada (torneo, cuenta de cobro, ajustes) va a un lugar visible
+      // en la barra de contexto y no "se cuela" en la primera escuela sin que se note.
+      if (isSuperadmin() && !_ctxOrg) { const o = (DB.orgs || [])[0]; if (o) { _ctxOrg = o.id; _ctxSchool = (o.schools && o.schools[0]) ? o.schools[0].id : null; } }
       startLiveSync(); // actualización en vivo entre dispositivos (y mantiene los datos frescos)
     } else { _session = null; }
     _authReady = true;   // recién acá: ya está la sesión resuelta (evita flash de login durante los await)

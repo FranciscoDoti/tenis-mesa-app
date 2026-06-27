@@ -33,20 +33,33 @@
     if (coll === 'tournaments') { d.collaborators = clean.collaborators || []; d.published = !!clean.published; d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
     // Jugadores: org/escuela nativos para que las reglas restrinjan la edición a la escuela del jugador.
     if (coll === 'players') { d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
+    // Gimnasios: org/escuela nativos para que cada admin solo gestione los de su escuela.
+    if (coll === 'gyms') { d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
     // Cuentas de cobro: dueño/escuela como campos nativos para que las reglas restrinjan la lectura
     // (el token de MercadoPago es secreto: solo el dueño/superadmin y el Worker deben poder leerlo).
     if (coll === 'payAccounts') { d.ownerUid = clean.ownerUid || null; d.orgId = clean.orgId || null; d.schoolId = clean.schoolId || null; }
     return d;
   };
 
-  STORE.loadAll = async function () {
+  // payments es PII (email/monto del pagador): cada rol lee SOLO lo suyo (consulta scopeada que casa
+  // con las reglas). superadmin → todo; admin → su escuela; jugador → sus pagos; otro → ninguno.
+  function paymentsRef(scope) {
+    if (!scope) return null;
+    const col = db.collection('payments');
+    if (scope.role === 'superadmin') return col;
+    if (scope.role === 'admin' && scope.schoolId) return col.where('schoolId', '==', scope.schoolId);
+    if (scope.playerId) return col.where('playerId', '==', scope.playerId);
+    return null;
+  }
+  STORE.loadAll = async function (scope) {
     // payAccounts: el token es secreto → cada uno lee SOLO las suyas (consulta scopeada por dueño).
     // Tolerante a fallo: un jugador no tiene permiso y debe recibir [] sin romper la carga.
     const paGet = auth.currentUser
       ? db.collection('payAccounts').where('ownerUid', '==', auth.currentUser.uid).get().catch(() => ({ docs: [] }))
       : Promise.resolve({ docs: [] });
-    // payments: historial (lo escribe el Worker). Solo lo leen los admins; el jugador recibe [] sin romper.
-    const payGet = db.collection('payments').get().catch(() => ({ docs: [] }));
+    // payments: historial (lo escribe el Worker), scopeado por rol para no filtrar PII de otras escuelas.
+    const pq = paymentsRef(scope);
+    const payGet = pq ? pq.get().catch(() => ({ docs: [] })) : Promise.resolve({ docs: [] });
     const [pl, gy, to, ne, us, pa, py, st] = await Promise.all([
       db.collection('players').get(), db.collection('gyms').get(), db.collection('tournaments').get(),
       db.collection('news').get(), db.collection('users').get(), paGet, payGet, db.doc('app/settings').get(),
@@ -92,12 +105,13 @@
   // Suscripción en tiempo real: llama onChange(coll, data) cada vez que cambia una colección en la nube
   // (la propia o por otro dispositivo). Devuelve una función para desuscribirse. Tolera errores de permiso
   // (p. ej. un jugador no puede leer payAccounts/payments → ese listener simplemente no entrega datos).
-  STORE.subscribe = function (onChange) {
+  STORE.subscribe = function (onChange, scope) {
     if (!STORE.enabled) return function () {};
     const unsubs = [];
     const parse = snap => snap.docs.map(d => { try { return JSON.parse(d.data().j); } catch (e) { return null; } }).filter(Boolean);
     const watch = (coll, ref) => unsubs.push(ref.onSnapshot(s => { try { onChange(coll, parse(s)); } catch (e) {} }, function () {}));
-    ['players', 'gyms', 'tournaments', 'news', 'payments'].forEach(c => watch(c, db.collection(c)));
+    ['players', 'gyms', 'tournaments', 'news'].forEach(c => watch(c, db.collection(c)));
+    const pq = paymentsRef(scope); if (pq) watch('payments', pq); // payments scopeado por rol (PII)
     if (auth.currentUser) watch('payAccounts', db.collection('payAccounts').where('ownerUid', '==', auth.currentUser.uid));
     unsubs.push(db.collection('users').onSnapshot(s => { try { onChange('users', s.docs.map(d => ({ uid: d.id, ...d.data() }))); } catch (e) {} }, function () {}));
     unsubs.push(db.doc('app/settings').onSnapshot(d => { try { onChange('settings', d.exists ? JSON.parse(d.data().j) : null); } catch (e) {} }, function () {}));
