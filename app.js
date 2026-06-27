@@ -663,7 +663,9 @@ function catStarted(cat) {
   if (cat.zoneTable && Object.keys(cat.zoneTable).some(k => cat.zoneTable[k] != null)) return true;
   if (cat.bracket && cat.bracket.some(round => round.some(m => m && m.table != null))) return true;
   if (cat.thirdPlace && cat.thirdPlace.table != null) return true;
-  if ((cat.matches || []).some(m => m.table != null)) return true;
+  // Cuenta como "empezada" si hay mesa asignada O si ya se jugó algún partido: liberar una mesa no
+  // "des-juega" un resultado, así que no deben reaparecer "Anotar"/"Armar grupos" (borrarían resultados).
+  if ((cat.matches || []).some(m => m.table != null || matchDone(m, cat))) return true;
   return false;
 }
 // Popup de recordatorio de pago: se muestra una vez al iniciar sesión o recargar, si el jugador
