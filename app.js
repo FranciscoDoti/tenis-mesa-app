@@ -736,6 +736,8 @@ function entName(cat, id) {
 }
 // Nombre de un jugador como link a su perfil (para listas y tablas). '—' si no hay jugador.
 function nameLink(p) { return p ? `<a class="plink" tabindex="0" role="link" onclick="event.stopPropagation();go('perfil:${p.id}')">${esc(fullName(p))}</a>` : '—'; }
+// Posición en el ranking: medalla 🥇🥈🥉 para el podio (top 3), número para el resto.
+function rankPos(i) { return i < 3 ? `<span class="pos medal">${['🥇', '🥈', '🥉'][i]}</span>` : `<span class="pos">${i + 1}</span>`; }
 // Como entName pero clickeable: cada jugador (o ambos en dobles) enlaza a su perfil. BYE/vacío en texto plano.
 function entLink(cat, id) {
   if (id === 'BYE') return 'BYE'; if (!id) return '—';
@@ -1145,7 +1147,7 @@ function rankingTilesHtml(basePlayers) {
     if (open) {
       html += `<div class="rank-body">`;
       if (!list.length) html += `<div class="empty">Sin jugadores.</div>`;
-      list.forEach((p, i) => { html += `<div class="player-row"><span class="pos">${i + 1}</span>${avatar(p)}
+      list.forEach((p, i) => { html += `<div class="player-row">${rankPos(i)}${avatar(p)}
         <div class="meta"><div class="name"><a class="plink" onclick="go('perfil:${p.id}')">${esc(fullName(p))}</a></div><div class="sub">📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}</div></div>
         <div class="pts">${p.points}<small> pts</small></div></div>`; });
       html += `</div>`;
@@ -1230,7 +1232,7 @@ function renderDoublesRanking(app) {
       if (!list.length) html += `<div class="empty">Todavía no hay parejas con puntaje en esta categoría. Aparecen al cerrar un torneo de dobles de <b>${esc(cn)}</b>.</div>`;
       list.forEach((pr, i) => {
         const avg = Math.round(pr.players.reduce((s, pid) => s + ((playerById(pid) || {}).points || NEW_PLAYER_POINTS), 0) / (pr.players.length || 1));
-        html += `<div class="player-row"><span class="pos">${i + 1}</span>
+        html += `<div class="player-row">${rankPos(i)}
           <div class="meta"><div class="name">${esc(pairName(pr))}</div><div class="sub">Promedio individual: ${avg} pts</div></div>
           <div class="pts">${pr.points}<small> pts</small></div></div>`;
       });

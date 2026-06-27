@@ -596,6 +596,32 @@ ul.awarded li:last-child{border-bottom:0}
 .live-row.zone.expanded .live-pending{display:block}
 .live-pending-row{font-size:13px; color:var(--ink); padding:3px 0; font-weight:500}
 
+/* ============ pulido visual (tokens nuevos + micro-interacciones) ============ */
+:root{
+  --danger:#c1121f; --danger-bg:#fdeaea; --warn-ink:#8a5400; --warn-bg:#fff3e0; --warn-line:#ffd8a8;
+  --ok-bg:#e6f6ec; --surface-2:#f7f9fb; --hover:#eef1f4;
+  --shadow-sm:0 1px 3px rgba(16,32,24,.08); --shadow-lg:0 14px 34px rgba(16,32,24,.16);
+}
+/* foco suave en formularios (anillo translúcido en vez de outline duro) */
+input:hover,select:hover,textarea:hover{border-color:#cfd6dd}
+input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 0 0 3px rgba(30,107,58,.15); outline:none}
+/* botones: foco accesible por teclado + feedback al presionar + hover real en ghost */
+.btn{transition:transform .06s ease, filter .15s ease, box-shadow .15s ease, background .15s ease}
+.btn:focus-visible{outline:2px solid var(--ball); outline-offset:2px}
+.btn:active{transform:translateY(1px) scale(.99)}
+.btn-ghost:hover{background:#e3e7ec}
+.nav-btn:focus-visible,.plink:focus-visible{outline:2px solid var(--ball); outline-offset:2px; border-radius:6px}
+/* tarjetas clicables: leve elevación al pasar el cursor */
+.card.clickable{transition:box-shadow .15s ease, transform .08s ease}
+.card.clickable:hover{box-shadow:var(--shadow-lg); transform:translateY(-2px)}
+/* aparición suave del modal */
+@keyframes ttpop{from{opacity:0; transform:translateY(10px) scale(.985)} to{opacity:1; transform:none}}
+.modal-card{animation:ttpop .16s ease}
+/* empty states con un guiño de tenis de mesa */
+.empty::before{content:"🏓"; display:block; font-size:34px; opacity:.3; margin-bottom:6px; line-height:1}
+/* medallas de podio para el top-3 en rankings individuales */
+.pos.medal{font-size:18px}
+
 /* evita el zoom raro de fuentes en mobile al rotar */
 html{-webkit-text-size-adjust:100%}
 
