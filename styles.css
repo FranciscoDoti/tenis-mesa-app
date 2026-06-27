@@ -602,6 +602,10 @@ html{-webkit-text-size-adjust:100%}
 @media (max-width:640px){
   main{padding:16px 12px 32px}
   .grid2{grid-template-columns:1fr}
+  /* objetivos táctiles más cómodos en el celular (mín ~40px de alto) */
+  .btn-sm{padding:9px 13px; font-size:13px}
+  .icon-btn{padding:9px 11px; min-height:40px}
+  .pay-btn{min-height:38px}
 
   /* topbar compacta (el menú ahora es lateral) */
   .topbar{gap:10px; padding:10px 14px}

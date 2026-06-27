@@ -735,7 +735,7 @@ function entName(cat, id) {
   return cat.format === 'double' ? ns.join(' / ') : ns[0];
 }
 // Nombre de un jugador como link a su perfil (para listas y tablas). '—' si no hay jugador.
-function nameLink(p) { return p ? `<a class="plink" onclick="event.stopPropagation();go('perfil:${p.id}')">${esc(fullName(p))}</a>` : '—'; }
+function nameLink(p) { return p ? `<a class="plink" tabindex="0" role="link" onclick="event.stopPropagation();go('perfil:${p.id}')">${esc(fullName(p))}</a>` : '—'; }
 // Como entName pero clickeable: cada jugador (o ambos en dobles) enlaza a su perfil. BYE/vacío en texto plano.
 function entLink(cat, id) {
   if (id === 'BYE') return 'BYE'; if (!id) return '—';
@@ -1077,7 +1077,7 @@ function renderRegister(app) {
   let photo = null; wirePhoto('r_photo', d => { photo = d; }); window.__rphoto = () => photo;
 }
 async function doRegister() {
-  const e = $('#r_err'), fail = msg => { e.hidden = false; e.textContent = msg; };
+  const e = $('#r_err'), fail = msg => { e.hidden = false; e.textContent = msg; try { e.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {} };
   const first = $('#r_first').value.trim(), last = $('#r_last').value.trim();
   const cred = $('#r_user').value.trim(), pw1 = $('#r_pw1').value, pw2 = $('#r_pw2').value;
   if (!first || !last) return fail('Nombre y apellido son obligatorios.');
@@ -1592,7 +1592,7 @@ function renderPlayers(app) {
     <button class="btn btn-ghost btn-sm" onclick="delPlayer('${p.id}')">🗑️</button></div>`; }).join('');
   const pend = scopedPending().length;
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>👥 Jugadores · ${esc(schoolName(oid, sid))}</h1></div>
-    <button class="btn btn-primary" onclick="playerForm()">➕ Inscribir jugador</button></div>
+    <button class="btn btn-primary" onclick="playerForm()">➕ Agregar jugador</button></div>
     <p class="page-sub">${active.length} jugadores de ${esc(schoolName(oid, sid))} (${esc(orgName(oid))}).${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores en esta escuela.</div>'}`;
 }
 function playerForm(id) {
@@ -1857,7 +1857,7 @@ function catalogEntryForm(id) {
       <div><label>Sets por fase</label><select id="cc_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="cc_min" type="number" min="2" value="${c ? c.groupMin : 3}"/></div>
       <div><label>Máx por grupo</label><input id="cc_max" type="number" min="2" value="${c ? c.groupMax : 4}"/></div>
-      <div><label>Valor del torneo 🏆 (máx 20)</label><input id="cc_pts" type="number" min="0" max="20" value="${c ? c.championPoints : 20}"/></div>
+      <div><label>Puntos al campeón 🏆 (máx 20)</label><input id="cc_pts" type="number" min="0" max="20" value="${c ? c.championPoints : 20}"/></div>
       <div><label>Costo de inscripción 💲</label><input id="cc_cost" type="number" min="0" step="100" value="${c && c.cost != null ? c.cost : 0}"/></div>
     </div>
     <p class="hint">Estas reglas son los <b>valores por defecto</b>: cada torneo que use esta categoría arranca con ellas y se pueden ajustar puntualmente dentro del torneo (incluido el costo de inscripción). Cambiar el catálogo no modifica torneos ya creados.</p>
@@ -2986,8 +2986,10 @@ function resultBtn(cat, kind, gidx, r, m, mm, done, cls, editLabel) {
   const args = `'${cat._tid}','${cat.id}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'}`;
   if (done) return `<button class="${cls}" onclick="resultModal(${args})">${editLabel}</button>`;
   if (matchTableOf(cat, mm) == null) {
+    // Mostramos el motivo EN PANTALLA (no solo en title=, invisible en celular).
     const tip = !catTournStarted(cat) ? 'Iniciá el torneo para cargar resultados.' : isZoneMatch(mm) ? 'Largá la zona primero (botón «Largar zona»).' : 'Iniciá el partido: tocá «Iniciar» y elegí una mesa.';
-    return `<button class="${cls}" disabled title="${tip}">Cargar</button>`;
+    const short = !catTournStarted(cat) ? '🔒 Iniciá el torneo' : isZoneMatch(mm) ? '🔒 Largá la zona' : '🔒 Iniciá el partido';
+    return `<button class="${cls}" disabled title="${tip}">${short}</button>`;
   }
   return `<button class="${cls}" onclick="resultModal(${args})">Cargar</button>`;
 }
@@ -3321,7 +3323,7 @@ function renderTournament(app, tid) {
   const startBanner = (!t.started && !t.finished && t.published && canEditT(t)) ? `<div class="banner" style="margin:8px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span>🟡 <b>Torneo no iniciado.</b> Inscribí jugadores y armá los grupos; al iniciarlo vas a poder largar zonas, cargar resultados y ver las sugerencias de mesas.</span>
       <button class="btn btn-primary btn-sm" onclick="startTournament('${t.id}')">▶️ Iniciar torneo</button></div>` : '';
-  const adminTools = canEditT(t) ? `<details class="admin-tools">
+  const adminTools = canEditT(t) ? `<details class="admin-tools" ${_openDetails.has('at:' + t.id) ? 'open' : ''} ontoggle="detToggle('at:${t.id}',this)">
       <summary>⋯ Acciones</summary>
       <div class="admin-toolbar">
         <button class="btn btn-ghost btn-sm" onclick="editTournamentModal('${t.id}')">✏️ Datos</button>
@@ -3373,7 +3375,7 @@ function categoriaForm(tid, cid) {
       <div><label>Sets por fase</label><select id="c_setsfmt">${setsOpts}</select></div>
       <div><label>Mín por grupo</label><input id="c_min" type="number" min="2" value="${r.groupMin}"/></div>
       <div><label>Máx por grupo</label><input id="c_max" type="number" min="2" value="${r.groupMax}"/></div>
-      <div><label>Valor del torneo 🏆 (máx 20)</label><input id="c_pts" type="number" min="0" max="20" value="${cat ? cat.championPoints : 20}"/></div>
+      <div><label>Puntos al campeón 🏆 (máx 20)</label><input id="c_pts" type="number" min="0" max="20" value="${cat ? cat.championPoints : 20}"/></div>
       <div><label>Costo de inscripción 💲</label><input id="c_cost" type="number" min="0" step="100" value="${defCost}"/></div>
     </div>
     <p class="hint">Solo cobran el <b>podio</b>: 🥇 valor · 🥈 ½ · 🥉 ⅓ · 4º ¼. Además cada partido suma/resta puntos por nivel (Elo). <b>Solo puntúan singles de Primera/Segunda/Tercera/Cuarta</b> — dobles y categorías por edad no mueven el ranking.${cat && cat.entrants.length ? ' <br>⚠️ Si cambiás el formato (singles/dobles) se borran los inscriptos actuales.' : ''}</p>
@@ -3414,6 +3416,9 @@ function togglePaid(tid, cid, entId) {
   const cat = getCat(tid, cid); if (!cat) return; cat._tid = tid;
   if (!canEditCat(cat)) return;
   const e = entById(cat, entId); if (!e) return;
+  // Des-marcar un pago es la acción riesgosa (toque accidental en mesa de control) → pedimos confirmación.
+  // Marcar como pagado queda en un solo toque. (Online no llega acá: muestra cartel fijo.)
+  if (e.paid && !confirm(`¿Marcar como NO pagado a ${entName(cat, entId)}?`)) return;
   e.paid = !e.paid; save(DB); render();
 }
 
@@ -3521,7 +3526,7 @@ function renderCategoria(app, tid, cid) {
     const started = catStarted(cat);            // ya se largó/jugó algún partido
     const canToggle = !cat.groups && !cat.closed;
     const preStart = !started && !cat.closed;   // anotar / armar grupos: solo antes de empezar
-    html += `<details class="cat-actions"><summary>⋯ Acciones</summary><div class="cat-actions-body">
+    html += `<details class="cat-actions" ${_openDetails.has('ca:' + cid) ? 'open' : ''} ontoggle="detToggle('ca:${cid}',this)"><summary>⋯ Acciones</summary><div class="cat-actions-body">
       ${preStart ? `<button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>` : ''}
       <button class="btn btn-ghost" onclick="categoryTimeModal('${tid}','${cid}')">🕒 ${cat.startAt ? 'Horario' : 'Poner horario'}</button>
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
@@ -3771,6 +3776,10 @@ function groupStandings(cat, gi) {
   return ids.map(id => s[id]).sort((x, y) => y.pg - x.pg || (y.sf - y.sc) - (x.sf - x.sc) || (y.pf - y.pc) - (x.pf - x.pc));
 }
 const groupStageComplete = cat => cat.matches && cat.matches.length > 0 && cat.matches.every(m => matchDone(m, cat));
+// Disclosures (⋯ Acciones) cuyo estado "abierto" recordamos entre renders — si no, se re-colapsan en
+// cada render() (que ocurre tras cargar cada resultado) y el admin tiene que reabrirlas todo el tiempo.
+const _openDetails = new Set();
+function detToggle(key, el) { if (el && el.open) _openDetails.add(key); else _openDetails.delete(key); }
 const _grpCollapsed = new Set(); // grupos colapsados (clave "catId:gi")
 function toggleGroup(cid, gi) { const k = cid + ':' + gi; if (_grpCollapsed.has(k)) _grpCollapsed.delete(k); else _grpCollapsed.add(k); render(); }
 // Zoom de la llave (sobre todo para el celu): se aplica con CSS `zoom` al contenedor de la llave,
@@ -4113,8 +4122,10 @@ function toggleLiveZone(el) {
 // Clic fuera de una zona → colapsa la que esté abierta.
 document.addEventListener('click', e => { if (!e.target.closest('.live-row.zone')) document.querySelectorAll('.live-row.expanded').forEach(x => x.classList.remove('expanded')); });
 document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
+// Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
+document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
