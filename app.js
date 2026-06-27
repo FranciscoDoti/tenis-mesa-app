@@ -2329,6 +2329,11 @@ function mergePaymentsIntoEntrants() {
     if (ok[`${t.id}|${c.id}|${e.id}`]) e.paid = true;
   })));
 }
+// ¿El pago de esta inscripción vino de un pago ONLINE aprobado (MercadoPago)? Si es así, el estado
+// se deduce de la colección `payments` y no se puede des-marcar a mano (se revertiría solo).
+function paidOnline(cat, entId) {
+  return (DB.payments || []).some(p => p && p.status === 'approved' && p.tournamentId === cat._tid && p.categoryId === cat.id && p.entrantId === entId);
+}
 
 /* ---------- historial de pagos (admin / superadmin) ---------- */
 function renderPayHistory(app) {
@@ -3442,7 +3447,8 @@ function entrantsListHtml(cat) {
       : (p ? `${p.category} · 📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}` : '');
     let pay = '';
     if (cost > 0) {
-      if (canPay) pay = `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`;
+      if (canPay && e.paid && paidOnline(cat, e.id)) pay = `<span class="pay-tag ok" title="Pago online confirmado por MercadoPago. No se puede des-marcar a mano.">✅ Pagó (online)</span>`;
+      else if (canPay) pay = `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`;
       else if (mine && e.paid) pay = `<span class="pay-tag ok">✅ Pagaste</span>`;
       else if (mine && online) pay = `<button class="btn btn-accent btn-sm" onclick="startPayment('${cat._tid}','${cat.id}','${e.id}')">💳 Pagar ${money(cost)}</button>`;
       else if (mine) pay = `<span class="pay-tag no">💲 Falta pagar ${money(cost)}</span>`;
