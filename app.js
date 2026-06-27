@@ -3385,7 +3385,21 @@ function gymPersonSVG(o) { o = o || {}; const shirt = o.shirt || '#1f6fb2', hair
   const head = o.back
     ? `<rect x="4.5" y="2" width="5" height="5.2" rx="2.2" fill="${hair}"/><rect x="5.7" y="6.5" width="2.6" height="1.1" rx="0.4" fill="${skin}"/>`
     : `<rect x="4.5" y="2" width="5" height="5.2" rx="2.2" fill="${skin}"/><rect x="4.2" y="1.2" width="5.6" height="2.7" rx="1.7" fill="${hair}"/><rect x="4.2" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="9.1" y="2.4" width="0.7" height="1.5" fill="${hair}"/><rect x="5.6" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="7.7" y="3.9" width="0.7" height="0.9" rx="0.3" fill="#2a2a2a"/><rect x="6.3" y="5.2" width="1.4" height="0.5" rx="0.25" fill="#c98b7a"/>`;
-  return `<svg viewBox="0 0 14 22" preserveAspectRatio="xMidYMid meet"><ellipse cx="7" cy="21" rx="4.3" ry="1.1" fill="#000" fill-opacity=".22"/><rect class="leg leg-l" x="5" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect class="leg leg-r" x="7.3" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="4.8" y="13.3" width="4.4" height="3" rx="0.6" fill="${short}"/><rect x="4.6" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="7.2" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="4.1" y="7.4" width="5.8" height="6.6" rx="1.4" fill="${shirt}"/><rect x="4.1" y="9.5" width="5.8" height="0.8" fill="#fff" fill-opacity=".5"/><rect x="2.9" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="2.9" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/><rect x="9.5" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="9.5" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/>${o.apron ? `<rect x="4.3" y="8.6" width="5.4" height="5.4" rx="0.6" fill="#fbfbfb"/><rect x="4.3" y="8.6" width="5.4" height="0.7" fill="#e3e3e3"/><rect x="6.4" y="8.6" width="1.2" height="5.4" fill="#ececec"/>` : ''}${head}${o.cap ? `<rect x="4.2" y="1" width="5.6" height="1.4" rx="0.7" fill="${o.cap}"/>${o.back ? '' : `<rect x="9.2" y="1.6" width="1.6" height="0.7" rx="0.3" fill="${o.cap}"/>`}` : ''}${(o.drink && !o.back) ? `<rect x="1.4" y="9.8" width="2.1" height="3" rx="0.4" fill="#ffd24a"/><rect x="1.6" y="9.2" width="1.7" height="0.7" fill="#cf3a3a"/><rect x="2.2" y="8.4" width="0.4" height="1" fill="#cf3a3a"/>` : ''}</svg>`; }
+  // Brazo izquierdo: cuelga y se balancea al caminar (clase .arm-l). El derecho cambia según qué cargue.
+  const armL = `<g class="arm arm-l"><rect x="2.9" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="2.9" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/></g>`;
+  let armR, item = '';
+  if (o.carry === 'paddle') { // brazo derecho LEVANTADO sosteniendo la paleta al costado de la cabeza
+    armR = `<g class="arm-hold"><rect x="9.6" y="6.4" width="1.6" height="3.2" rx="0.8" fill="${shirt}"/><rect x="9.7" y="5.6" width="1.8" height="1.6" rx="0.7" fill="${skin}"/></g>`;
+    item = `<g class="paddle"><rect x="10.35" y="3.2" width="1.05" height="3.1" rx="0.35" fill="#6e431f"/><rect x="10.35" y="3.2" width="0.42" height="3.1" fill="#5a3617"/><ellipse cx="10.9" cy="2.6" rx="2.15" ry="2.35" fill="#161616"/><ellipse cx="10.9" cy="2.6" rx="1.6" ry="1.8" fill="#cf2030"/><ellipse cx="10.25" cy="1.95" rx="0.55" ry="0.8" fill="#fff" fill-opacity=".28"/></g>`;
+  } else if (o.carry === 'drink' && !o.back) { // brazo derecho DOBLADO sosteniendo un vaso al pecho
+    armR = `<g class="arm-hold"><rect x="9.5" y="7.9" width="1.6" height="2.5" rx="0.8" fill="${shirt}"/><rect x="7.5" y="9.2" width="3.1" height="1.5" rx="0.75" fill="${shirt}" transform="rotate(20 9.0 9.9)"/><rect x="6.9" y="8.9" width="1.7" height="1.6" rx="0.7" fill="${skin}"/></g>`;
+    item = `<g class="drink"><rect x="5.6" y="7.9" width="3.1" height="0.8" rx="0.4" fill="#ededed"/><rect x="5.9" y="8.5" width="2.5" height="3.1" rx="0.5" fill="#ef4444"/><rect x="5.9" y="9.5" width="2.5" height="0.9" fill="#fff" fill-opacity=".85"/><rect x="7.45" y="6.0" width="0.5" height="2.1" rx="0.2" fill="#d62b2b" transform="rotate(12 7.7 7)"/></g>`;
+  } else { // sin carga (o de espaldas con bebida): brazo derecho colgando y balanceándose
+    armR = `<g class="arm arm-r"><rect x="9.5" y="7.9" width="1.6" height="4.4" rx="0.8" fill="${shirt}"/><rect x="9.5" y="11.5" width="1.6" height="1.7" rx="0.8" fill="${skin}"/></g>`;
+  }
+  const apron = o.apron ? `<rect x="4.3" y="8.6" width="5.4" height="5.4" rx="0.6" fill="#fbfbfb"/><rect x="4.3" y="8.6" width="5.4" height="0.7" fill="#e3e3e3"/><rect x="6.4" y="8.6" width="1.2" height="5.4" fill="#ececec"/>` : '';
+  const cap = o.cap ? `<rect x="4.2" y="1" width="5.6" height="1.4" rx="0.7" fill="${o.cap}"/>${o.back ? '' : `<rect x="9.2" y="1.6" width="1.6" height="0.7" rx="0.3" fill="${o.cap}"/>`}` : '';
+  return `<svg viewBox="0 0 14 22" preserveAspectRatio="xMidYMid meet"><ellipse cx="7" cy="21" rx="4.3" ry="1.1" fill="#000" fill-opacity=".22"/><rect class="leg leg-l" x="5" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect class="leg leg-r" x="7.3" y="15" width="1.7" height="5.4" rx="0.4" fill="${skin}"/><rect x="4.8" y="13.3" width="4.4" height="3" rx="0.6" fill="${short}"/><rect x="4.6" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="7.2" y="20" width="2.2" height="1.3" rx="0.5" fill="#f4f4f4"/><rect x="4.1" y="7.4" width="5.8" height="6.6" rx="1.4" fill="${shirt}"/><rect x="4.1" y="9.5" width="5.8" height="0.8" fill="#fff" fill-opacity=".5"/>${armL}${armR}${apron}${head}${cap}${item}</svg>`; }
 // Keyframes de los paseantes: recorren el PERÍMETRO POR FUERA del piso de cancha (no cruzan el campo).
 function gymWanderCSS(layout) {
   const cp = (layout.props || []).find(p => p.type === 'court'); const c = cp ? gymItem(cp, 'court') : { x: 2.5, y: 2.5, w: 7, h: 3.5 };
@@ -3463,8 +3477,17 @@ function gymStageHtml(layout, t, editable) {
     if (ctl) staff.forEach((s, i) => { const px = ctl.x + ctl.w * ((i + 0.5) / n), py = ctl.y + ctl.h * 0.82;
       ppl += `<div class="g-person g-staff" style="left:${(px / GYM_COLS * 100).toFixed(2)}%;top:${(py / GYM_ROWS * 100).toFixed(2)}%">${s.name ? `<div class="ptag">${esc(s.name)}</div>` : ''}${gymPersonSVG(s)}</div>`; });
     if (buf) ppl += `<div class="g-person g-staff" style="left:${((buf.x + buf.w * 0.5) / GYM_COLS * 100).toFixed(2)}%;top:${((buf.y + buf.h * 0.82) / GYM_ROWS * 100).toFixed(2)}%">${gymPersonSVG({ apron: 1, cap: '#c1121f', shirt: '#2b3440' })}</div>`;
-    const wndr = (cls, o) => `<div class="g-wander ${cls}"><div class="wp wp-front">${gymPersonSVG(o)}</div><div class="wp wp-back">${gymPersonSVG(Object.assign({}, o, { back: 1 }))}</div></div>`;
-    ppl += wndr('w1', { shirt: '#ff7a1a', drink: 1 }) + wndr('w2', { shirt: '#7a3ea6', hair: '#15110d' }) + wndr('w3', { shirt: '#3ac0c9', drink: 1, hair: '#6b4423' });
+    // Paseantes variados: algunos llevan su paleta camino a jugar, otros pasan tomando algo, otros con las manos libres.
+    const wndr = (o, d) => `<div class="g-wander" style="animation-delay:${d}s"><div class="wp wp-front">${gymPersonSVG(o)}</div><div class="wp wp-back" style="animation-delay:${d}s">${gymPersonSVG(Object.assign({}, o, { back: 1 }))}</div></div>`;
+    const wanderers = [
+      { shirt: '#ff7a1a', carry: 'paddle', hair: '#3a2a1a' },
+      { shirt: '#3ac0c9', carry: 'drink', hair: '#6b4423' },
+      { shirt: '#7a3ea6', hair: '#15110d' },
+      { shirt: '#1f6fb2', carry: 'paddle', cap: '#16a34a', hair: '#15110d' },
+      { shirt: '#e8b04b', carry: 'drink', short: '#2b2b2b', hair: '#3a2a1a' },
+    ];
+    const span = 80 / wanderers.length; // repartidos parejo a lo largo del recorrido de 80s
+    ppl += wanderers.map((o, i) => wndr(o, (-span * i).toFixed(1))).join('');
   }
   return `<div class="gym-stage ${editable ? 'editing' : ''} ${(!editable && freed.length) ? 'celebrate' : ''}" id="gymStage">${floors}${els}${ppl}</div>`;
 }
