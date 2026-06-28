@@ -842,6 +842,13 @@ function renderChrome() {
   if (u && u.schoolId === GUEST_SCHOOL) document.querySelectorAll('.school-scope-only').forEach(el => el.hidden = true); // invitado: sin escuela → solo ranking de la organización
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.payments-only').forEach(el => el.hidden = !(u && isAdmin() && setting('paymentsAllowed'))); // Cuentas de cobro: admin y si la organización habilitó pagos
+  // El superadmin SOLO ve ⚙️ Ajustes: se ocultan el resto de las secciones y, dentro de Administración, todo menos Ajustes.
+  if (isSuperadmin()) {
+    const rg = document.getElementById('rankGroup'); if (rg) rg.hidden = true;
+    document.querySelectorAll('#nav > .nav-btn').forEach(b => b.hidden = true);
+    const ag = document.getElementById('adminGroup'); if (ag) { ag.hidden = false; ag.classList.remove('collapsed'); }
+    document.querySelectorAll('#adminGroup .nav-btn').forEach(b => b.hidden = (b.dataset.view !== 'settings'));
+  }
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
   const altas = document.querySelector('.nav-btn[data-view="aprobaciones"]'); // badge con cantidad de solicitudes
   if (altas) { const n = scopedPending().length; altas.innerHTML = `🙋 Altas${n ? ` <span class="navcount">${n}</span>` : ''}`; }
@@ -852,17 +859,8 @@ function renderChrome() {
   const approved = DB.players.filter(p => !p.pending).length;
   $('#storeInfo').textContent = `${approved} jugadores · ${DB.tournaments.length} torneos`;
 }
-// Barra de contexto: solo el superadmin elige qué org/escuela administra.
-function renderCtxBar() {
-  const el = $('#ctxBar'); if (!el) return;
-  if (!isSuperadmin()) { el.innerHTML = ''; return; }
-  const oid = ctxOrgId(), sid = ctxSchoolId();
-  el.innerHTML = `<div class="ctx-bar">
-    <div class="ctx-title">👑 Administrando</div>
-    ${orgSelectHtml('ctxOrg', oid, 'ctxPickOrg(this.value)')}
-    <select id="ctxSchool" onchange="ctxPickSchool(this.value)">${schoolOptionsHtml(oid, sid)}</select>
-  </div>`;
-}
+// El superadmin ya NO elige org/escuela (es una figura de solo-ajustes): la barra de contexto queda vacía.
+function renderCtxBar() { const el = $('#ctxBar'); if (el) el.innerHTML = ''; }
 function ctxPickOrg(oid) { setCtx(oid); }
 function ctxPickSchool(sid) { setCtx(ctxOrgId(), sid); }
 // Solicitudes de alta (pendientes) del contexto actual (escuela del admin / seleccionada por superadmin).
@@ -870,6 +868,8 @@ function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (
 function render() {
   // El invitado no tiene escuela: su ranking es SIEMPRE el de la organización (evita la vista vacía "mi escuela").
   if ((view === 'ranking' || view === 'schools') && ctxSchoolId() === GUEST_SCHOOL) view = 'orgrank';
+  // El superadmin es una figura de SOLO ajustes: solo prende/apaga interruptores en ⚙️ Ajustes y nada más.
+  if (isSuperadmin() && view !== 'settings') view = 'settings';
   renderChrome();
   applyTheme();
   const app = $('#app');
@@ -2183,21 +2183,23 @@ function renderSettings(app) {
   const schoolScope = `<span class="scope-tag scope-school">🏫 ${esc(sName)}</span>`;
   const orgScope = `<span class="scope-tag scope-org">🏢 ${esc(oName)}</span>`;
   app.innerHTML = `<div class="page-title"><h1>⚙️ Ajustes</h1></div>
-    <p class="page-sub">Las opciones de escuela 🏫 afectan solo a los miembros de <b>${esc(sName)}</b>${isSuperadmin() ? `; las de organización 🏢 afectan a toda <b>${esc(oName)}</b>. Cambiá de escuela/organización desde la barra de contexto de arriba.` : '.'}</p>
+    <p class="page-sub">${isSuperadmin()
+      ? `Interruptores generales de la organización <b>${esc(oName)}</b> 🏢. Los admins de cada escuela activan el resto (sugerencia de mesas, noticias, horarios, etc.) en su propia sección de Ajustes.`
+      : `Las opciones de escuela 🏫 afectan solo a los miembros de <b>${esc(sName)}</b>.`}</p>
     <div class="card" style="max-width:620px">
-      ${settingRow('🏓 Sugerencia de mesas ' + schoolScope + ' ' + infoTip(TABLE_SUGGEST_HELP),
+      ${!isSuperadmin() ? settingRow('🏓 Sugerencia de mesas ' + schoolScope + ' ' + infoTip(TABLE_SUGGEST_HELP),
         'Sugiere a admin y colaboradores qué zona o llave largar en cada mesa libre del torneo, por orden de prioridad. Tocá la ℹ️ para ver todas las reglas.',
-        setting('tableSuggestion'), 'toggleTableSuggestion')}
+        setting('tableSuggestion'), 'toggleTableSuggestion') : ''}
       ${isSuperadmin() ? settingRow('💳 Pagos online (habilitar para la organización) ' + orgScope,
         'Permite que los admins de esta organización puedan cobrar inscripciones online con MercadoPago. Si lo apagás, los admins <b>ni ven</b> la opción de pagos ni la sección de cuentas de cobro.',
         setting('paymentsAllowed'), 'togglePaymentsAllowed') : ''}
-      ${setting('paymentsAllowed') ? settingRow('💳 Pagos para inscripciones ' + schoolScope,
+      ${(!isSuperadmin() && setting('paymentsAllowed')) ? settingRow('💳 Pagos para inscripciones ' + schoolScope,
         'Cobrar la inscripción <b>online al anotarse</b> (con MercadoPago). La cuenta donde recibís la plata se configura en <b>💳 Cuentas de cobro</b> y se elige al crear cada torneo.<br>⚠️ <b>MercadoPago cobra una comisión (~3,7%) por cada pago recibido</b> — la podés trasladar al jugador. No hay cuotas ni costos fijos.',
         setting('paymentsEnabled'), 'togglePayments') : ''}
       ${isSuperadmin() ? settingRow('🏟️ Vista del gimnasio (habilitar para la organización) ' + orgScope,
         'Permite que los admins de esta organización activen la <b>vista de gimnasio en pixel art</b> (mapa con las mesas, quién juega en cada una, en vivo). Si lo apagás, los admins no la ven.',
         setting('gymViewAllowed'), 'toggleGymViewAllowed') : ''}
-      ${setting('gymViewAllowed') ? settingRow('🏟️ Vista del gimnasio ' + schoolScope,
+      ${(!isSuperadmin() && setting('gymViewAllowed')) ? settingRow('🏟️ Vista del gimnasio ' + schoolScope,
         'Activa un botón <b>🏟️ Vista del gimnasio</b> en los torneos de esta escuela: un mapa en pixel art del gimnasio con las mesas, quién está jugando en cada una (en vivo), el buffet, el baño y la tribuna. La distribución de cada gimnasio se arma en <b>🏟️ Gimnasios</b>. Los jugadores la ven; admin y colaboradores pueden moverla.',
         setting('gymViewEnabled'), 'toggleGymView') : ''}
       ${isSuperadmin() ? `<div class="setting-row"><div class="setting-text" style="width:100%">
@@ -2206,18 +2208,18 @@ function renderSettings(app) {
         <div class="row" style="margin-top:8px"><input id="set_wurl" value="${esc(DB.settings.mpWorkerUrl || '')}" placeholder="https://...workers.dev"/>
           <button class="btn btn-primary btn-sm" onclick="saveMpWorkerUrl()">Guardar</button></div>
       </div></div>` : ''}
-      ${settingRow('🕒 Horarios estimados de partidos ' + schoolScope,
+      ${!isSuperadmin() ? settingRow('🕒 Horarios estimados de partidos ' + schoolScope,
         'Muestra una hora aproximada de comienzo de cada partido, estimada según la hora actual, el horario de cada categoría, la duración por cantidad de sets, las mesas disponibles y cómo vienen los partidos (con un margen de seguridad). Es una estimación.',
-        setting('matchTimeEstimates'), 'toggleMatchTimes')}
-      ${settingRow('📰 Noticias ' + schoolScope,
+        setting('matchTimeEstimates'), 'toggleMatchTimes') : ''}
+      ${!isSuperadmin() ? settingRow('📰 Noticias ' + schoolScope,
         'Habilitar la sección de Noticias para los miembros de esta escuela. Si la apagás, desaparece del menú de esta escuela.',
-        setting('news'), 'toggleNews')}
-      ${settingRow('📜 Reglamento ' + schoolScope,
+        setting('news'), 'toggleNews') : ''}
+      ${!isSuperadmin() ? settingRow('📜 Reglamento ' + schoolScope,
         'Habilitar el Reglamento para los jugadores de esta escuela. Si lo apagás, no lo ven (vos podés editarlo siempre). Además tiene que estar publicado.',
-        setting('reglamento'), 'toggleReglamento')}
-      ${settingRow('🃏 Carta de jugador ' + schoolScope,
+        setting('reglamento'), 'toggleReglamento') : ''}
+      ${!isSuperadmin() ? settingRow('🃏 Carta de jugador ' + schoolScope,
         'Mostrar la carta tipo FUT en los perfiles (overall y atributos calculados con las estadísticas reales). Cada jugador puede personalizar el estilo y el apodo de la suya. Si la apagás, los perfiles de esta escuela muestran solo los datos y estadísticas.',
-        setting('playerCard') !== false, 'togglePlayerCard')}
+        setting('playerCard') !== false, 'togglePlayerCard') : ''}
       ${isSuperadmin() ? settingRow('👥 Ranking de dobles ' + orgScope,
         'Habilitar el ranking de dobles (por pareja) y que los torneos de dobles sumen puntos. El puntaje de la pareja para el cálculo es el promedio del ranking individual de sus integrantes. Solo el superadmin lo controla (a nivel organización).',
         setting('doublesRanking'), 'toggleDoublesRanking') : ''}
