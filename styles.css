@@ -638,6 +638,22 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .gym-edithint{font-size:12.5px; color:#bcd; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px 12px}
 .gym-toolbar{display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
 .gym-foot{text-align:center; font-size:12.5px}
+/* Selector de vistas (Mesas / Gimnasio / Vivo) */
+.gym-modes{display:flex; gap:6px; justify-content:center; flex-wrap:wrap}
+.gym-mode{background:rgba(255,255,255,.08); color:#cdd6df; border:1px solid rgba(255,255,255,.16); border-radius:999px; padding:6px 14px; font-size:13px; font-weight:700; cursor:pointer}
+.gym-mode.on{background:#16532d; color:#fff; border-color:#1c6e3c}
+/* Vista simplificada: tarjetas de mesa */
+.gym-simple{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; padding:6px 2px; align-content:start; overflow:auto; flex:1 1 auto}
+.gs-card{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:14px; min-height:82px; display:flex; flex-direction:column; gap:8px; justify-content:center}
+.gs-card.busy{border-color:rgba(255,122,26,.55); background:rgba(255,122,26,.10)}
+.gs-num{font-weight:800; font-size:15px; color:#fff}
+.gs-occ{font-size:13px; font-weight:700; color:#ffd8b0}
+.gs-free{color:#9aa7b2; font-size:13px}
+/* Vista de transmisión en vivo (YouTube) */
+.gym-live{display:flex; flex-direction:column; align-items:center; gap:14px; padding:6px 2px; overflow:auto; flex:1 1 auto}
+.gym-live-wrap{width:100%; max-width:1000px; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; box-shadow:0 14px 34px rgba(0,0,0,.55)}
+.gym-live-frame{width:100%; height:100%; display:block; border:0}
+.gym-live-empty{color:#cdd6df; text-align:center; line-height:1.6; padding:40px 18px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); border-radius:12px; max-width:560px}
 .gym-stage{position:relative; width:min(96vw,1000px); aspect-ratio:12/8; margin:6px auto; border-radius:14px; overflow:hidden; background:repeating-conic-gradient(#caa472 0% 25%, #bd9866 0% 50%); background-size:13.3% 16.66%; box-shadow:inset 0 0 0 6px #8a6d44, inset 0 0 60px rgba(0,0,0,.35), 0 20px 50px rgba(0,0,0,.5); image-rendering:pixelated; touch-action:none}
 .gym-stage.editing{outline:2px dashed rgba(255,255,255,.28); outline-offset:-8px}
 .gym-el{position:absolute; display:flex; align-items:center; justify-content:center}
@@ -746,15 +762,15 @@ html:has(.gym-overlay){overflow:hidden}
    en apaisado. La shell (.gym-overlay) queda fija a pantalla completa y recorta lo que sobre, así que aunque
    las unidades vw/vh del celular no coincidan exacto con el área visible, NUNCA asoma el fondo blanco. */
 @media (orientation:portrait) and (max-width:820px){
-  /* SOLO en modo vista se rota a apaisado. En EDICIÓN queda vertical y scrolleable (para llegar a la barra de
-     herramientas y ver todo el gimnasio), y el arrastre usa coordenadas directas (sin rotación). */
-  .gym-rot:not(.editing){inset:auto; top:50%; left:50%; width:100vh; width:100dvh; height:100vw; height:100dvw;
+  /* SOLO la vista "Gimnasio" (no .flat) se rota a apaisado. Las vistas Mesas/Vivo y la EDICIÓN quedan
+     verticales y scrolleables (la rotación de un video o una grilla de tarjetas no tiene sentido). */
+  .gym-rot:not(.flat){inset:auto; top:50%; left:50%; width:100vh; width:100dvh; height:100vw; height:100dvw;
     transform-origin:center; transform:translate(-50%,-50%) rotate(90deg); padding:6px}
   /* alto EXPLÍCITO: si dejamos width:auto + aspect-ratio en columna flex, el alto queda en 0 (pantalla negra). */
-  .gym-rot:not(.editing) .gym-stage{height:min(84vw,60vh); width:auto; max-width:96vh; aspect-ratio:12/8; margin:auto; flex:0 0 auto}
-  /* En edición: permitir scroll vertical con el dedo; las mesas/objetos arrastrables bloquean el scroll (touch-action:none)
-     para que arrastrarlos no haga scroll, pero tocar zonas vacías sí scrollea hasta abajo. */
-  .gym-rot.editing{touch-action:pan-y}
+  .gym-rot:not(.flat) .gym-stage{height:min(84vw,60vh); width:auto; max-width:96vh; aspect-ratio:12/8; margin:auto; flex:0 0 auto}
+  /* Vistas planas (vertical): permitir scroll vertical con el dedo. En edición, las mesas/objetos arrastrables
+     bloquean el scroll (touch-action:none) para que arrastrarlos no scrollee, pero tocar zonas vacías sí. */
+  .gym-rot.flat{touch-action:pan-y}
   .gym-rot.editing .gym-stage{touch-action:pan-y}
   .gym-rot.editing .gym-el[data-kind]{touch-action:none}
 }

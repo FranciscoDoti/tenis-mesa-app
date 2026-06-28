@@ -3560,7 +3560,7 @@ function gymTip(num, ev) {
 }
 function gymTipOutside(e) { if (!e.target.closest('#gymTip')) gymTipClose(); }
 function gymTipClose() { if (_gymTipTimer) { clearTimeout(_gymTipTimer); _gymTipTimer = null; } document.removeEventListener('pointerdown', gymTipOutside, true); const el = document.getElementById('gymTip'); if (el) el.remove(); }
-let _gymPrevOcc = new Set(), _gymEditMode = false, _gymDrag = null, _gymEditRef = null;
+let _gymPrevOcc = new Set(), _gymEditMode = false, _gymDrag = null, _gymEditRef = null, _gymMode = 'full'; // vista: 'simple' (solo mesas) | 'full' (gimnasio) | 'live' (YouTube)
 function gymBurstHtml() { const c = ['#ff7a1a', '#ffd24a', '#16a34a', '#1f6fb2', '#fff', '#c1121f']; let s = ''; for (let k = 0; k < 14; k++) { const a = k / 14 * 6.283; s += `<i style="--c:${c[k % c.length]};--dx:${Math.round(Math.cos(a) * 26)}px;--dy:${Math.round(Math.sin(a) * 26)}px"></i>`; } return `<div class="burst">${s}</div>`; }
 // Layout que se MUESTRA (torneo: override del torneo o base del gimnasio; Gimnasios: base del gimnasio).
 function gymRenderLayout(t, gym) { if (view.startsWith('gym:')) return (t && t.gymLayout) || (gym && gym.layout) || defaultGymLayout(t ? tableCountOf(t) : 4); return (gym && gym.layout) || defaultGymLayout(4); }
@@ -3669,25 +3669,87 @@ function gymBarriersCourt() {
 }
 function renderGymView(app, ref) {
   // Si cambiamos de gimnasio/torneo, abandonamos cualquier edición pendiente (no arrastramos el modo edición/copia de otra vista).
-  if (_gymEditRef !== ref) { _gymEditMode = false; _gymEditSnap = null; _gymEditRef = ref; }
+  if (_gymEditRef !== ref) { _gymEditMode = false; _gymEditSnap = null; _gymEditRef = ref; _gymMode = 'full'; }
   const isTour = ref.startsWith('gym:'); let t = null, gym = null, back = 'torneos';
   if (isTour) { t = tById(ref.slice(4)); if (!t) { app.innerHTML = `<div class="empty" style="margin:16px">Torneo no encontrado.</div>`; return; } back = 'torneo:' + t.id; if (!gymViewOn(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">La vista del gimnasio no está habilitada para este torneo.</div>`; return; } gym = gymById(t.gymId); }
   else { if (!isAdmin()) { go('ranking'); return; } gym = gymById(ref.slice(8)); back = 'gimnasios'; }
   if (!gym) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('${back}')">← Volver</button><div class="empty" style="margin:16px">${isTour ? 'Este torneo no tiene un gimnasio asignado (asignale uno desde ✏️ Datos).' : 'Gimnasio no encontrado.'}</div>`; return; }
-  const canEdit = isTour ? canEditT(t) : canManageGym(gym), editing = canEdit && _gymEditMode;
+  const canEdit = isTour ? canEditT(t) : canManageGym(gym);
+  const mode = _gymEditMode ? 'full' : _gymMode;                 // se edita solo en el modo gimnasio
+  const editing = canEdit && _gymEditMode && mode === 'full';
   const layout = gymRenderLayout(t, gym);
-  app.innerHTML = `<div class="gym-overlay"><div class="gym-rot${editing ? ' editing' : ''}">
+  const flat = editing || mode !== 'full';                       // 'full' (gimnasio) se rota en el cel; el resto queda vertical/scrolleable
+  const liveUrl = isTour ? (t.liveUrl || '') : (gym.liveUrl || '');
+  let body, foot;
+  if (mode === 'simple') { body = gymSimpleHtml(layout, t); foot = '🔴 Mesas y quién está jugando, en tiempo real.'; }
+  else if (mode === 'live') { body = gymLiveHtml(liveUrl, canEdit); foot = '📺 Transmisión en vivo del torneo.'; }
+  else { body = `${!editing ? `<style>${gymWanderCSS(layout)}</style>` : ''}${gymStageHtml(layout, t, editing)}`; foot = isTour ? (editing ? 'Estás editando la vista de ESTE torneo (no cambia el resto).' : '🔴 Quién está jugando en cada mesa, en tiempo real.') : 'Vista base del gimnasio: la heredan los torneos que se jueguen acá.'; }
+  const topRight = (canEdit && mode === 'full')
+    ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>`
+    : '<span style="width:60px"></span>';
+  app.innerHTML = `<div class="gym-overlay"><div class="gym-rot${editing ? ' editing' : ''}${flat ? ' flat' : ''}">
       <div class="gym-bar"><button class="btn btn-ghost btn-sm" onclick="${editing ? `gymEditBack('${back}')` : `go('${back}')`}">← Volver</button>
         <div class="gym-title">🏟️ ${esc(gym.name)}${isTour ? ' · ' + esc(t.name) : ''}</div>
-        ${canEdit ? `<button class="btn ${editing ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="gymEditToggle()">${editing ? '✓ Listo' : '✏️ Editar'}</button>` : '<span style="width:60px"></span>'}</div>
+        ${topRight}</div>
+      ${!editing ? gymModesHtml(mode) : ''}
       ${editing ? (isTour
         ? `<div class="gym-edithint">✏️ Reacomodá las MESAS: arrastrá para mover · tiradores del borde = ancho/alto, esquina = ambos · ↻ rotar. La cantidad de mesas y el resto del gimnasio se configuran aparte.</div>`
         : `<div class="gym-edithint">✏️ Arrastrá para mover · tiradores del borde = ancho/alto, esquina = ambos · ↻ rotar · ✕ quitar.</div>${gymEditToolbarHtml(false)}`) : ''}
-      ${!editing ? `<style>${gymWanderCSS(layout)}</style>` : ''}
-      ${gymStageHtml(layout, t, editing)}
-      <div class="gym-foot muted">${isTour ? (editing ? 'Estás editando la vista de ESTE torneo (no cambia el resto).' : '🔴 Quién está jugando en cada mesa, en tiempo real.') : 'Vista base del gimnasio: la heredan los torneos que se jueguen acá.'}</div>
+      ${body}
+      <div class="gym-foot muted">${foot}</div>
     </div></div>`;
   if (editing) wireGymEditor();
+}
+// Selector de las 3 vistas del gimnasio.
+function gymModesHtml(mode) {
+  const b = (m, ic, lbl) => `<button class="gym-mode ${mode === m ? 'on' : ''}" onclick="gymSetMode('${m}')">${ic} ${lbl}</button>`;
+  return `<div class="gym-modes">${b('simple', '🏓', 'Mesas')}${b('full', '🏟️', 'Gimnasio')}${b('live', '📺', 'Vivo')}</div>`;
+}
+function gymSetMode(m) { _gymMode = m; render(); }
+// Vista SIMPLIFICADA: solo las mesas y quién está jugando en cada una.
+function gymSimpleHtml(layout, t) {
+  const isTour = !!t, occ = gymOccupancy(t);
+  const n = isTour ? tableCountOf(t) : (layout.tables || []).length;
+  let cards = '';
+  for (let i = 0; i < n; i++) { const num = i + 1, o = occ[num];
+    cards += `<div class="gs-card ${o ? 'busy' : 'free'}"><div class="gs-num">Mesa ${num}</div>${o ? `<div class="gs-occ"><span class="g-live-dot"></span>${esc(o.title)}</div>` : `<div class="gs-free">Libre</div>`}</div>`; }
+  return `<div class="gym-simple">${cards || '<div class="empty">Este gimnasio no tiene mesas configuradas.</div>'}</div>`;
+}
+// YouTube → URL de embed (acepta watch?v=, youtu.be/, /live/, /embed/, /shorts/).
+function ytEmbed(url) {
+  if (!url) return null; const u = String(url).trim(); let m;
+  if ((m = u.match(/[?&]v=([\w-]{6,})/))) return 'https://www.youtube.com/embed/' + m[1];
+  if ((m = u.match(/youtu\.be\/([\w-]{6,})/))) return 'https://www.youtube.com/embed/' + m[1];
+  if ((m = u.match(/youtube\.com\/(?:live|embed|shorts)\/([\w-]{6,})/))) return 'https://www.youtube.com/embed/' + m[1];
+  return null;
+}
+// Vista de TRANSMISIÓN EN VIVO: el reproductor de YouTube + (para admin/colaboradores) el botón para cargar/cambiar el link.
+function gymLiveHtml(url, canEdit) {
+  const embed = ytEmbed(url);
+  const setBtn = canEdit ? `<button class="btn btn-primary btn-sm" onclick="gymSetLive()">${url ? '🔗 Cambiar link' : '🔗 Cargar link de la transmisión'}</button>` : '';
+  if (!embed) {
+    const msg = url ? 'El link cargado no parece un video de YouTube válido.' : 'Todavía no hay una transmisión en vivo cargada.';
+    return `<div class="gym-live"><div class="gym-live-empty">📺 ${msg}${canEdit ? '' : '<br><span class="muted">Cuando el organizador cargue el link, vas a verla acá.</span>'}</div>${setBtn}</div>`;
+  }
+  return `<div class="gym-live"><div class="gym-live-wrap"><iframe class="gym-live-frame" src="${embed}" title="Transmisión en vivo" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>${setBtn}</div>`;
+}
+// Cargar/cambiar el link de YouTube (lo guarda en el torneo o, en la vista base, en el gimnasio).
+function gymSetLive() {
+  const isTour = view.startsWith('gym:');
+  const cur = isTour ? ((tById(view.slice(4)) || {}).liveUrl || '') : ((gymById(view.slice(8)) || {}).liveUrl || '');
+  openModal(`<h3>📺 Transmisión en vivo (YouTube)</h3>
+    <p class="hint" style="margin-top:0">Pegá el link del video o de la transmisión en vivo de YouTube. Ej: <code>https://youtu.be/XXXX</code>, <code>youtube.com/watch?v=XXXX</code> o <code>youtube.com/live/XXXX</code>. Dejalo vacío para sacar la transmisión.</p>
+    <input id="gy_url" value="${esc(cur)}" placeholder="https://youtube.com/..."/>
+    <div id="gy_err" class="banner" hidden></div>
+    <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveGymLive()">Guardar</button></div>`);
+}
+function saveGymLive() {
+  const v = ($('#gy_url').value || '').trim(), e = $('#gy_err');
+  if (v && !ytEmbed(v)) { e.hidden = false; e.textContent = 'Ese link no parece un video de YouTube. Usá el formato youtu.be/ID, watch?v=ID o live/ID.'; return; }
+  if (view.startsWith('gym:')) { const t = tById(view.slice(4)); if (!t || !canEditT(t)) return; if (v) t.liveUrl = v; else delete t.liveUrl; }
+  else if (view.startsWith('gymedit:')) { const g = gymById(view.slice(8)); if (!g || !canManageGym(g)) return; if (v) g.liveUrl = v; else delete g.liveUrl; }
+  save(DB); closeModal(); _gymMode = 'live'; render();
 }
 // Los cambios de edición NO se guardan hasta tocar "Listo". Al entrar a editar guardamos una copia del layout;
 // si el usuario sale con "Volver" sin tocar "Listo", se descartan los cambios (se restaura la copia).
@@ -4662,7 +4724,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
