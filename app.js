@@ -820,7 +820,7 @@ function wirePhoto(id, set) {
 let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
 let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = '', reportStatus = 'all'; // estado del reporte de pagos
-let payHistTid = '', payHistQ = ''; // filtros del historial de pagos online
+let payHistTid = '', payHistPid = ''; // filtros del historial de pagos online (torneo + persona)
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(); // categorías del ranking desplegadas (todas colapsadas por defecto; se ve el líder en el encabezado)
 let catTab = null, catTabFor = null; // pestaña activa del detalle de categoría (Inscriptos/Grupos/Llave) y para qué categoría
@@ -2028,17 +2028,17 @@ function renderReportes(app) {
   }).join('');
   app.innerHTML = html;
 }
-// Buscador de persona con SELECCIÓN (no filtra solo visualmente: al elegir, recalcula los totales para esa persona).
-function reportPersonPickerHtml() {
-  if (reportPerson) { const p = playerById(reportPerson); return `<div class="rp-sel">👤 <b>${esc(p ? fullName(p) : 'Jugador')}</b><button type="button" class="chip-x" onclick="setReportPerson('')" title="Quitar filtro">✕</button></div>`; }
-  // Jugadores en alcance: superadmin → toda la org; admin de escuela → solo su escuela. (Sin filtrar por
-  // los filtros actuales, para que el buscador no sea confuso y componga bien con el filtro de torneo.)
-  const cands = (isSuperadmin() ? playersOfOrg(ctxOrgId()) : isAdmin() ? playersOfSchool(ctxSchoolId(), ctxOrgId()) : (DB.players || []).filter(p => !p.pending))
-    .slice().sort((a, b) => fullName(a).localeCompare(fullName(b)));
-  const opts = cands.map(p => `<li class="rp-opt" data-name="${esc(fullName(p)).toLowerCase()}" onclick="setReportPerson('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('');
+// Candidatos del buscador de personas: TODOS los jugadores de la organización (incluidos invitados y los de
+// otras escuelas), sin importar el filtro de escuela del que mira. Así se puede buscar a cualquiera.
+function personPickerCands() { return (DB.players || []).filter(p => !p.pending && p.orgId === ctxOrgId()).slice().sort((a, b) => fullName(a).localeCompare(fullName(b))); }
+// Buscador de persona con SELECCIÓN (al elegir, recalcula sobre esa persona). onPickFn = nombre de la función global a llamar con el id.
+function personPickerHtml(selId, onPickFn) {
+  if (selId) { const p = playerById(selId); return `<div class="rp-sel">👤 <b>${esc(p ? fullName(p) : 'Jugador')}</b><button type="button" class="chip-x" onclick="${onPickFn}('')" title="Quitar filtro">✕</button></div>`; }
+  const opts = personPickerCands().map(p => `<li class="rp-opt" data-name="${esc((fullName(p) + ' ' + (p.city || '')).toLowerCase())}" onclick="${onPickFn}('${p.id}')">${esc(fullName(p))} <span class="muted">· ${isGuest(p) ? '🎟️ Invitado' : p.category}</span></li>`).join('');
   return `<div class="rp-picker"><input class="rp-search" placeholder="🔍 Escribí un nombre y elegilo de la lista…" autocomplete="off" oninput="rpFilter(this)"/>
     <ul class="rp-results" id="rp-results" hidden>${opts || '<li class="muted" style="padding:8px 10px">No hay jugadores.</li>'}</ul></div>`;
 }
+function reportPersonPickerHtml() { return personPickerHtml(reportPerson, 'setReportPerson'); }
 function setReportPerson(pid) { reportPerson = pid || ''; render(); }
 function rpFilter(inp) {
   const q = (inp.value || '').trim().toLowerCase(), box = $('#rp-results'); if (!box) return;
@@ -2390,41 +2390,42 @@ function paidOnline(cat, entId) {
 }
 
 /* ---------- historial de pagos (admin → torneos de su escuela · jugador → los suyos) ---------- */
-function setPayHist(field, val) { if (field === 'tid') payHistTid = val; else if (field === 'q') payHistQ = val; render(); }
-function renderPayHistory(app) {
-  const u = currentUser(), isAdm = isAdmin(), oid = ctxOrgId(), sid = ctxSchoolId(), myPid = u && u.playerId;
-  // Alcance por rol: admin de escuela → pagos a torneos de SU escuela; superadmin → no llega acá (es solo-ajustes);
-  // jugador → SOLO los pagos que hizo él. (El live-sync ya trae a cada uno solo lo que puede leer.)
-  const base = (DB.payments || []).filter(p => isAdm ? (isSuperadmin() ? p.orgId === oid : p.schoolId === sid) : p.playerId === myPid);
-  const fmtDate = s => { if (!s) return '—'; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); };
-  // opciones de torneo (de los pagos del alcance)
-  const tourMap = {}; base.forEach(p => { if (p.tournamentId) tourMap[p.tournamentId] = p.tournamentName || p.tournamentId; });
-  const tOpts = `<option value="">Todos los torneos</option>` + Object.keys(tourMap).sort((a, b) => tourMap[a].localeCompare(tourMap[b])).map(id => `<option value="${id}" ${payHistTid === id ? 'selected' : ''}>${esc(tourMap[id])}</option>`).join('');
-  const subtitle = isAdm ? `Pagos online aprobados a torneos de ${esc(schoolName(oid, sid))}.` : 'Tus pagos online aprobados.';
-  let html = `<div class="page-title"><h1>🧾 Historial de pagos</h1></div>
-    <p class="page-sub">${subtitle}</p>
-    <div class="card" style="max-width:680px">
-      <div class="grid2">
-        <div><label>Torneo</label><select onchange="setPayHist('tid', this.value)">${tOpts}</select></div>
-        <div><label>Buscar</label><input value="${esc(payHistQ)}" oninput="setPayHist('q', this.value)" placeholder="${isAdm ? 'nombre, categoría o email…' : 'torneo o categoría…'}"/></div>
-      </div>
-    </div>`;
-  // No traer todo: los resultados recién aparecen cuando se aplica un filtro (torneo o búsqueda).
-  const hasFilter = !!(payHistTid || payHistQ.trim());
-  if (!hasFilter) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">🔎 Elegí un <b>torneo</b> o escribí en el <b>buscador</b> para ver los pagos.</div>`; return; }
-  const q = payHistQ.trim().toLowerCase();
-  const list = base.filter(p => {
-    if (payHistTid && p.tournamentId !== payHistTid) return false;
-    if (q) { const hay = `${p.playerName || ''} ${p.payerEmail || ''} ${p.tournamentName || ''} ${p.categoryName || ''}`.toLowerCase(); if (!hay.includes(q)) return false; }
-    return true;
-  }).slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const rows = list.map(p => `<div class="player-row">
+function setPayHist(field, val) { if (field === 'tid') payHistTid = val; render(); }
+function setPayHistPerson(pid) { payHistPid = pid || ''; render(); }
+const payRowHtml = (p, fmtDate) => `<div class="player-row">
     <div class="meta"><div class="name">${esc(p.playerName || p.payerEmail || 'Pago')}</div>
       <div class="sub">${esc(p.tournamentName || '')}${p.categoryName ? ' · ' + esc(p.categoryName) : ''} · ${fmtDate(p.createdAt)}</div></div>
-    <span class="pay-tag ok">${money(p.amount)}</span></div>`).join('');
+    <span class="pay-tag ok">${money(p.amount)}</span></div>`;
+function renderPayHistory(app) {
+  const u = currentUser(), isAdm = isAdmin(), oid = ctxOrgId(), sid = ctxSchoolId(), myPid = u && u.playerId;
+  const fmtDate = s => { if (!s) return '—'; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); };
+  const sortDesc = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  // ----- Jugador: SOLO sus propios pagos, lista directa (es una lista corta y personal) -----
+  if (!isAdm) {
+    const list = (DB.payments || []).filter(p => p.playerId === myPid).slice().sort(sortDesc);
+    const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    app.innerHTML = `<div class="page-title"><h1>🧾 Mis pagos</h1></div>
+      <p class="page-sub">Tus pagos online aprobados.${list.length ? ` ${list.length} pago(s) · total <b>${money(total)}</b>.` : ''}</p>
+      ${list.length ? list.map(p => payRowHtml(p, fmtDate)).join('') : '<div class="empty">Todavía no hiciste pagos online.</div>'}`;
+    return;
+  }
+  // ----- Admin: pagos a torneos de SU escuela (superadmin no llega acá: es solo-ajustes) -----
+  const base = (DB.payments || []).filter(p => isSuperadmin() ? p.orgId === oid : p.schoolId === sid);
+  const tourMap = {}; base.forEach(p => { if (p.tournamentId) tourMap[p.tournamentId] = p.tournamentName || p.tournamentId; });
+  const tOpts = `<option value="">Todos los torneos</option>` + Object.keys(tourMap).sort((a, b) => tourMap[a].localeCompare(tourMap[b])).map(id => `<option value="${id}" ${payHistTid === id ? 'selected' : ''}>${esc(tourMap[id])}</option>`).join('');
+  let html = `<div class="page-title"><h1>🧾 Historial de pagos</h1></div>
+    <p class="page-sub">Pagos online aprobados a torneos de ${esc(schoolName(oid, sid))}. Filtrá por torneo o persona para ver los pagos.</p>
+    <div class="card" style="max-width:680px">
+      <label>Torneo</label><select onchange="setPayHist('tid', this.value)">${tOpts}</select>
+      <label style="margin-top:8px">Buscar persona</label>${personPickerHtml(payHistPid, 'setPayHistPerson')}
+    </div>`;
+  // No traer todo: los resultados recién aparecen cuando se aplica un filtro (torneo o persona).
+  const hasFilter = !!(payHistTid || payHistPid);
+  if (!hasFilter) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">🔎 Elegí un <b>torneo</b> o una <b>persona</b> para ver los pagos.</div>`; return; }
+  const list = base.filter(p => (!payHistTid || p.tournamentId === payHistTid) && (!payHistPid || p.playerId === payHistPid)).slice().sort(sortDesc);
+  const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   html += `<div class="report-total"><b>${list.length}</b> pago(s) · total <b>${money(total)}</b></div>`;
-  app.innerHTML = html + (list.length ? rows : `<div class="empty" style="margin-top:12px">No hay pagos para esos filtros.</div>`);
+  app.innerHTML = html + (list.length ? list.map(p => payRowHtml(p, fmtDate)).join('') : `<div class="empty" style="margin-top:12px">No hay pagos para esos filtros.</div>`);
 }
 
 /* ---------- noticias ---------- */
@@ -4779,7 +4780,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymCardDetail, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, setPayHist, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymCardDetail, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, setPayHist, setPayHistPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
