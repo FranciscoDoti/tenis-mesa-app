@@ -3699,7 +3699,6 @@ function renderGymView(app, ref) {
       <div class="gym-foot muted">${foot}</div>
     </div></div>`;
   if (editing) wireGymEditor();
-  else if (mode === 'live' && ytId(liveUrl)) wireGymLive(ytId(liveUrl));
 }
 // Selector de las 3 vistas del gimnasio.
 function gymModesHtml(mode) {
@@ -3711,10 +3710,18 @@ function gymSetMode(m) { _gymMode = m; render(); }
 function gymSimpleHtml(layout, t) {
   const isTour = !!t, occ = gymOccupancy(t);
   const n = isTour ? tableCountOf(t) : (layout.tables || []).length;
+  _gymTipData = {};
   let cards = '';
   for (let i = 0; i < n; i++) { const num = i + 1, o = occ[num];
-    cards += `<div class="gs-card ${o ? 'busy' : 'free'}"><div class="gs-num">Mesa ${num}</div>${o ? `<div class="gs-occ"><span class="g-live-dot"></span>${esc(o.title)}</div>` : `<div class="gs-free">Libre</div>`}</div>`; }
+    if (o) _gymTipData[num] = gymUnitDetail(o.unit); // detalle para el modal al tocar la tarjeta
+    cards += `<div class="gs-card ${o ? 'busy tappable' : 'free'}"${o ? ` onclick="gymCardDetail(${num})"` : ''}><div class="gs-num">Mesa ${num}${o ? ' <span class="gs-i">ⓘ</span>' : ''}</div>${o ? `<div class="gs-occ"><span class="g-live-dot"></span>${esc(o.title)}</div>` : `<div class="gs-free">Libre</div>`}</div>`; }
   return `<div class="gym-simple">${cards || '<div class="empty">Este gimnasio no tiene mesas configuradas.</div>'}</div>`;
+}
+// Detalle de la mesa (en la vista simplificada): abre un modal con los partidos de la zona y sus resultados,
+// o quién está jugando la llave (el mismo contenido que el tooltip de la vista de gimnasio).
+function gymCardDetail(num) {
+  const html = _gymTipData[num]; if (!html) return;
+  openModal(`<div class="gtip-modal">${html}</div><div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div>`);
 }
 // YouTube → id de video (acepta watch?v=, youtu.be/, /live/, /embed/, /shorts/).
 function ytId(url) {
@@ -3724,8 +3731,10 @@ function ytId(url) {
   if ((m = u.match(/youtube\.com\/(?:live|embed|shorts)\/([\w-]{6,})/))) return m[1];
   return null;
 }
-// Vista de TRANSMISIÓN EN VIVO: reproductor de YouTube (IFrame API) con controles propios (pausar, volver al
-// vivo, pantalla completa horizontal) + (para admin/colaboradores) el botón para cargar/cambiar el link.
+// Vista de TRANSMISIÓN EN VIVO: el reproductor de YouTube con SUS controles nativos (pausar, "volver al vivo"
+// con el indicador EN VIVO, pantalla completa). Lo único que agregamos es que, al entrar en pantalla completa
+// en el celular, se bloquee la orientación HORIZONTAL para verlo completo (listener global, más abajo).
+// + (admin/colaboradores) el botón para cargar/cambiar el link.
 function gymLiveHtml(url, canEdit) {
   const id = ytId(url);
   const setBtn = canEdit ? `<button class="btn btn-ghost btn-sm" onclick="gymSetLive()">${url ? '🔗 Cambiar link' : '🔗 Cargar link de la transmisión'}</button>` : '';
@@ -3733,43 +3742,23 @@ function gymLiveHtml(url, canEdit) {
     const msg = url ? 'El link cargado no parece un video de YouTube válido.' : 'Todavía no hay una transmisión en vivo cargada.';
     return `<div class="gym-live"><div class="gym-live-empty">📺 ${msg}${canEdit ? '' : '<br><span class="muted">Cuando el organizador cargue el link, vas a verla acá.</span>'}</div>${setBtn}</div>`;
   }
-  return `<div class="gym-live">
-    <div class="gym-live-wrap" id="gymLiveWrap"><div id="gymLivePlayer"></div></div>
-    <div class="gym-live-ctrls">
-      <button class="btn btn-ghost btn-sm" id="gymLivePause" onclick="gymLivePause()">⏸ Pausar</button>
-      <button class="btn btn-accent btn-sm" onclick="gymLiveGoLive()">🔴 Volver al vivo</button>
-      <button class="btn btn-ghost btn-sm" onclick="gymLiveFull()">⛶ Pantalla completa</button>
-    </div>${setBtn}</div>`;
+  const src = `https://www.youtube.com/embed/${id}?rel=0&playsinline=1&autoplay=1&mute=1`;
+  return `<div class="gym-live"><div class="gym-live-wrap"><iframe class="gym-live-frame" src="${src}" title="Transmisión en vivo" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>${setBtn}</div>`;
 }
-// ---- Reproductor en vivo (YouTube IFrame API) ----
-let _ytPlayer = null;
-function ytApiReady(cb) {
-  if (window.YT && window.YT.Player) return cb();
-  const prev = window.onYouTubeIframeAPIReady;
-  window.onYouTubeIframeAPIReady = function () { try { prev && prev(); } catch (e) {} cb(); };
-  if (!document.getElementById('yt-iframe-api')) { const s = document.createElement('script'); s.id = 'yt-iframe-api'; s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); }
-}
-function wireGymLive(id) {
-  try { if (_ytPlayer && _ytPlayer.destroy) _ytPlayer.destroy(); } catch (e) {} _ytPlayer = null;
-  ytApiReady(function () {
-    if (!document.getElementById('gymLivePlayer')) return; // ya cambió de vista
-    _ytPlayer = new YT.Player('gymLivePlayer', {
-      width: '100%', height: '100%', videoId: id,
-      playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, modestbranding: 1 },
-      events: { onStateChange: gymLiveStateChange },
-    });
-  });
-}
-function gymLiveStateChange(e) { const b = document.getElementById('gymLivePause'); if (b && window.YT) b.textContent = (e.data === YT.PlayerState.PLAYING) ? '⏸ Pausar' : '▶ Reproducir'; }
-function gymLivePause() { if (!_ytPlayer || !window.YT) return; if (_ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) _ytPlayer.pauseVideo(); else _ytPlayer.playVideo(); }
-// Volver al vivo: salta al borde en vivo (fin de la ventana DVR) y reanuda.
-function gymLiveGoLive() { if (!_ytPlayer) return; try { const d = _ytPlayer.getDuration(); if (d) _ytPlayer.seekTo(d, true); _ytPlayer.playVideo(); } catch (e) {} }
-// Pantalla completa en HORIZONTAL (en el cel): pone el reproductor a pantalla completa y bloquea la orientación
-// apaisada. En iOS (que no soporta lock) cae al botón de pantalla completa nativo de YouTube.
-async function gymLiveFull() {
-  const wrap = document.getElementById('gymLiveWrap'); if (!wrap) return;
-  try { const rf = wrap.requestFullscreen || wrap.webkitRequestFullscreen; if (rf) await rf.call(wrap); } catch (e) {}
-  try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch (e) {}
+// Al entrar en PANTALLA COMPLETA (con el botón nativo de YouTube), bloquear la orientación HORIZONTAL en el
+// celular para que el video se vea completo; al salir, liberarla. (En iOS el sistema no permite el lock → usa
+// su pantalla completa nativa, que igual rota al girar el teléfono.) Único uso de fullscreen en la app.
+if (typeof document !== 'undefined' && !window.__gymFsLock) {
+  window.__gymFsLock = true;
+  const onFs = () => {
+    const fs = document.fullscreenElement || document.webkitFullscreenElement;
+    try {
+      if (fs && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+      else if (!fs && screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+    } catch (e) {}
+  };
+  document.addEventListener('fullscreenchange', onFs);
+  document.addEventListener('webkitfullscreenchange', onFs);
 }
 // ¿Se está mostrando el video en vivo? (para no recargar el reproductor en cada actualización en vivo del torneo)
 function gymLiveShowing() { return /^gym(edit)?:/.test(view) && _gymMode === 'live' && !_gymEditMode; }
@@ -4764,7 +4753,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymLivePause, gymLiveGoLive, gymLiveFull, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymCardDetail, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {
