@@ -205,7 +205,7 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .empty{color:var(--muted); padding:30px; text-align:center; border:2px dashed var(--line); border-radius:12px}
 
 /* ---------- modal ---------- */
-.modal-overlay{position:fixed; inset:0; background:rgba(15,25,20,.45); display:flex; align-items:flex-start; justify-content:center; padding:6vh 16px; z-index:40}
+.modal-overlay{position:fixed; inset:0; background:rgba(15,25,20,.45); display:flex; align-items:flex-start; justify-content:center; padding:6vh 16px; z-index:90} /* por encima de TODO, incl. la vista de gimnasio (z-index 70) — si no, el modal se abría detrás */
 .modal-overlay[hidden]{display:none}  /* respetar el atributo hidden (display:flex lo pisaba) */
 .modal-card{background:#fff; border-radius:var(--radius); box-shadow:var(--shadow); width:100%; max-width:520px; padding:22px; max-height:86vh; overflow:auto}
 .modal-card h3{margin:0 0 4px}
