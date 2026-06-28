@@ -819,7 +819,8 @@ function wirePhoto(id, set) {
 /* ================= VIEWS ================= */
 let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
-let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = '', reportStatus = 'all'; // estado del historial de pagos
+let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = '', reportStatus = 'all'; // estado del reporte de pagos
+let payHistTid = '', payHistQ = ''; // filtros del historial de pagos online
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(); // categorías del ranking desplegadas (todas colapsadas por defecto; se ve el líder en el encabezado)
 let catTab = null, catTabFor = null; // pestaña activa del detalle de categoría (Inscriptos/Grupos/Llave) y para qué categoría
@@ -842,6 +843,7 @@ function renderChrome() {
   if (u && u.schoolId === GUEST_SCHOOL) document.querySelectorAll('.school-scope-only').forEach(el => el.hidden = true); // invitado: sin escuela → solo ranking de la organización
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.payments-only').forEach(el => el.hidden = !(u && isAdmin() && setting('paymentsAllowed'))); // Cuentas de cobro: admin y si la organización habilitó pagos
+  document.querySelectorAll('.mypay-only').forEach(el => el.hidden = !(u && u.playerId && !isAdmin() && setting('paymentsAllowed'))); // "Mis pagos": jugador (no admin) si la org tiene pagos online
   // El superadmin SOLO ve ⚙️ Ajustes: se ocultan el resto de las secciones y, dentro de Administración, todo menos Ajustes.
   if (isSuperadmin()) {
     const rg = document.getElementById('rankGroup'); if (rg) rg.hidden = true;
@@ -886,7 +888,7 @@ function render() {
   if (view === 'categorias') return isAdmin() ? renderCatalog(app) : renderRanking(app);
   if (view === 'reportes') return renderReportes(app); // estado de pagos: admin/colaborador con filtros, jugador solo su historial
   if (view === 'cuentas') return (isAdmin() && setting('paymentsAllowed')) ? renderPayAccounts(app) : renderRanking(app);
-  if (view === 'pagos') return (isAdmin() && setting('paymentsAllowed')) ? renderPayHistory(app) : renderRanking(app);
+  if (view === 'pagos') { if (isAdmin() && setting('paymentsAllowed')) return renderPayHistory(app); if (currentUser() && currentUser().playerId) return renderPayHistory(app); return renderRanking(app); }
   if (view === 'aprobaciones') return isAdmin() ? renderApprovals(app) : renderRanking(app);
   if (view === 'noticias') return setting('news') ? renderNoticias(app) : renderRanking(app);
   if (view === 'dobles') return renderDoublesRanking(app); // el menú ya se oculta si la feature está apagada
@@ -1987,6 +1989,10 @@ function renderReportes(app) {
       ${single ? `<div style="margin-top:6px"><label>Categoría</label><select onchange="setReport('cat', this.value)"><option value="">Todas las categorías</option>${single.categorias.filter(c => catCost(c) > 0).map(c => `<option value="${c.id}" ${reportCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : ''}
       <label>Buscar persona</label>${reportPersonPickerHtml()}
     </div>`;
+  // No traer NADA hasta que se aplique al menos un filtro (torneo, estado, categoría o persona) → así se calcula
+  // sobre eso y no se listan siempre todos los pagos de todos los torneos.
+  const hasFilter = !!(reportTid || reportPerson || reportCat || reportStatus !== 'all');
+  if (!hasFilter) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">🔎 Elegí un <b>torneo</b>, un <b>estado</b> (pendientes/pagados) o una <b>persona</b> para ver los resultados.</div>`; return; }
   // Entradas (una por inscripción a categoría con costo), aplicando TODOS los filtros (torneo/categoría/estado/persona).
   const entries = [];
   tList.forEach(t => (t.categorias || []).forEach(c => {
@@ -2383,22 +2389,42 @@ function paidOnline(cat, entId) {
   return (DB.payments || []).some(p => p && p.status === 'approved' && p.tournamentId === cat._tid && p.categoryId === cat.id && p.entrantId === entId);
 }
 
-/* ---------- historial de pagos (admin / superadmin) ---------- */
+/* ---------- historial de pagos (admin → torneos de su escuela · jugador → los suyos) ---------- */
+function setPayHist(field, val) { if (field === 'tid') payHistTid = val; else if (field === 'q') payHistQ = val; render(); }
 function renderPayHistory(app) {
-  const oid = ctxOrgId(), sid = ctxSchoolId();
-  // El admin ve los pagos de su escuela; el superadmin, los de la organización del contexto.
-  const list = (DB.payments || [])
-    .filter(p => isSuperadmin() ? p.orgId === oid : p.schoolId === sid)
-    .slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const u = currentUser(), isAdm = isAdmin(), oid = ctxOrgId(), sid = ctxSchoolId(), myPid = u && u.playerId;
+  // Alcance por rol: admin de escuela → pagos a torneos de SU escuela; superadmin → no llega acá (es solo-ajustes);
+  // jugador → SOLO los pagos que hizo él. (El live-sync ya trae a cada uno solo lo que puede leer.)
+  const base = (DB.payments || []).filter(p => isAdm ? (isSuperadmin() ? p.orgId === oid : p.schoolId === sid) : p.playerId === myPid);
   const fmtDate = s => { if (!s) return '—'; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); };
+  // opciones de torneo (de los pagos del alcance)
+  const tourMap = {}; base.forEach(p => { if (p.tournamentId) tourMap[p.tournamentId] = p.tournamentName || p.tournamentId; });
+  const tOpts = `<option value="">Todos los torneos</option>` + Object.keys(tourMap).sort((a, b) => tourMap[a].localeCompare(tourMap[b])).map(id => `<option value="${id}" ${payHistTid === id ? 'selected' : ''}>${esc(tourMap[id])}</option>`).join('');
+  const subtitle = isAdm ? `Pagos online aprobados a torneos de ${esc(schoolName(oid, sid))}.` : 'Tus pagos online aprobados.';
+  let html = `<div class="page-title"><h1>🧾 Historial de pagos</h1></div>
+    <p class="page-sub">${subtitle}</p>
+    <div class="card" style="max-width:680px">
+      <div class="grid2">
+        <div><label>Torneo</label><select onchange="setPayHist('tid', this.value)">${tOpts}</select></div>
+        <div><label>Buscar</label><input value="${esc(payHistQ)}" oninput="setPayHist('q', this.value)" placeholder="${isAdm ? 'nombre, categoría o email…' : 'torneo o categoría…'}"/></div>
+      </div>
+    </div>`;
+  // No traer todo: los resultados recién aparecen cuando se aplica un filtro (torneo o búsqueda).
+  const hasFilter = !!(payHistTid || payHistQ.trim());
+  if (!hasFilter) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">🔎 Elegí un <b>torneo</b> o escribí en el <b>buscador</b> para ver los pagos.</div>`; return; }
+  const q = payHistQ.trim().toLowerCase();
+  const list = base.filter(p => {
+    if (payHistTid && p.tournamentId !== payHistTid) return false;
+    if (q) { const hay = `${p.playerName || ''} ${p.payerEmail || ''} ${p.tournamentName || ''} ${p.categoryName || ''}`.toLowerCase(); if (!hay.includes(q)) return false; }
+    return true;
+  }).slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const rows = list.map(p => `<div class="player-row">
-    <div class="meta"><div class="name">${esc(p.payerName || p.playerName || p.payerEmail || 'Pago')}</div>
+    <div class="meta"><div class="name">${esc(p.playerName || p.payerEmail || 'Pago')}</div>
       <div class="sub">${esc(p.tournamentName || '')}${p.categoryName ? ' · ' + esc(p.categoryName) : ''} · ${fmtDate(p.createdAt)}</div></div>
     <span class="pay-tag ok">${money(p.amount)}</span></div>`).join('');
-  app.innerHTML = `<div class="page-title"><h1>🧾 Historial de pagos</h1></div>
-    <p class="page-sub">Pagos online aprobados${isSuperadmin() ? ` de ${esc(orgName(oid))}` : ` de ${esc(schoolName(oid, sid))}`}. ${list.length} pago(s) · total <b>${money(total)}</b>.</p>
-    ${list.length ? rows : '<div class="empty">Todavía no hay pagos registrados.</div>'}`;
+  html += `<div class="report-total"><b>${list.length}</b> pago(s) · total <b>${money(total)}</b></div>`;
+  app.innerHTML = html + (list.length ? rows : `<div class="empty" style="margin-top:12px">No hay pagos para esos filtros.</div>`);
 }
 
 /* ---------- noticias ---------- */
@@ -4753,7 +4779,7 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 // Accesibilidad: los links de jugador (.plink) son <a> sin href → activarlos con Enter/Espacio por teclado.
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('plink')) { e.preventDefault(); e.target.click(); } });
 
-Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymCardDetail, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
+Object.assign(window, { doLogin, logout, go, playerForm, savePlayer, delPlayer, gymForm, saveGym, delGym, tournamentForm, saveTournament, delTournament, categoriaForm, saveCategoria, delCategoria, enrollModal, saveEnrollSingles, enrollDoubles, addTeam, rmTeam, saveEnrollDoubles, toggleEnroll, selfEnrollModal, saveSelfEnroll, makeGroups, generateBracket, resultModal, saveResult, awardPoints, histToggle, histPick, histFilter, histVs, openPhoto, saveProfile, changePassword, cardCustomizer, setCardTheme, ccNick, saveCardDesign, rankToggle, closeModal, toggleDrawer, closeDrawer, toggleTableSuggestion, togglePayments, toggleMatchTimes, toggleNews, togglePlayerCard, toggleGymView, toggleGymViewAllowed, openGymView, openGymEdit, gymEditToggle, gymEditBack, gymTip, gymSetMode, gymSetLive, saveGymLive, gymCardDetail, gymAddTable, gymAddProp, gymDel, gymRotate, gymFloorMat, gymFloorColor, gymBarriersCourt, gymRemoveBarriers, toggleGroup, detToggle, brZoom, brZoomReset, toggleNavGroup, toggleDoublesRanking, toggleRankGroup, catFmtChange, noticiaForm, saveNoticia, toggleNoticiaPublish, delNoticia, toggleReglamento, reglamentoForm, saveReglamento, toggleReglamentoPublish, setThemeField, resetTheme, publishTheme, discardTheme, openEmojiPicker, pickEmoji, openTablePopover, assignTableFromPopover, openZonePopover, assignZoneTable, postponeMatch, resumeMatch, noShowModal, applyWalkover, editTablesModal, saveTables, setMatchTable, tournFilter, setAuthMode, doRegister, approvePlayer, rejectPlayer, collaboratorsModal, saveCollaborators, toggleTournamentEnroll, resetEnrollOverride, publishTournament, editTournamentModal, saveTournamentEdit, collabFilter, collabAdd, collabRemove, collabOpen, collabClose, doForgot, toggleCityOther, enrollFilter, resendVerification, recheckVerification, requestPasswordChange, categoryTimeModal, saveCategoryTime, finalizeTournament, reopenTournament, renderCatalog, catalogEntryForm, catRuleTypeChange, saveCatalogEntry, delCatalogEntry, togglePaid, catCostSuggest, setReport, reportFilterPerson, setReportPerson, setPayHist, rpFilter, prUpdateTotal, payReminderSelected, startPaymentMulti, setCtx, syncSchoolOptions, ctxPickOrg, ctxPickSchool, toggleSchoolRanking, setSchoolName, uploadSchoolLogo, toggleLiveZone, setCatTab, togglePw, confirmCreateTournament, startTournament, togglePaymentsAllowed, payAccountForm, savePayAccount, delPayAccount, startPayment, saveMpWorkerUrl });
 
 // Migraciones de datos de ejemplo (puntos, roster, fotos). Las de username solo en modo local.
 function runDataMigrations() {

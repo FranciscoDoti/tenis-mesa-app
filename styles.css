@@ -213,6 +213,9 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .admin-only[hidden]{display:none}
 .profile-only[hidden]{display:none}
 .news-only[hidden]{display:none}
+/* GENERAL: cualquier botón del menú con [hidden] debe ocultarse. Sin esto, .nav-btn{display:flex} pisa el
+   atributo hidden y la opción seguía viéndose (p. ej. Dobles con el ranking de dobles desactivado). */
+.nav-btn[hidden]{display:none}
 .banner.ok{background:#dcfce7; border-color:#86efac; color:#166534}
 
 /* ---------- ranking colapsable (tiles) ---------- */
