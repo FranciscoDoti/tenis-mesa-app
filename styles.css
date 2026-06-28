@@ -650,9 +650,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .gs-occ{font-size:13px; font-weight:700; color:#ffd8b0}
 .gs-free{color:#9aa7b2; font-size:13px}
 /* Vista de transmisión en vivo (YouTube) */
-.gym-live{display:flex; flex-direction:column; align-items:center; gap:14px; padding:6px 2px; overflow:auto; flex:1 1 auto}
+.gym-live{display:flex; flex-direction:column; align-items:center; gap:12px; padding:6px 2px; overflow:auto; flex:1 1 auto}
 .gym-live-wrap{width:100%; max-width:1000px; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; box-shadow:0 14px 34px rgba(0,0,0,.55)}
-.gym-live-frame{width:100%; height:100%; display:block; border:0}
+#gymLivePlayer, #gymLivePlayer iframe{width:100%; height:100%; display:block; border:0}
+/* pantalla completa: ocupa toda la pantalla (en horizontal en el cel, por el lock de orientación) */
+.gym-live-wrap:fullscreen{aspect-ratio:auto; width:100%; height:100%; max-width:none; border-radius:0}
+.gym-live-wrap:-webkit-full-screen{aspect-ratio:auto; width:100%; height:100%; max-width:none; border-radius:0}
+.gym-live-ctrls{display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
 .gym-live-empty{color:#cdd6df; text-align:center; line-height:1.6; padding:40px 18px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); border-radius:12px; max-width:560px}
 .gym-stage{position:relative; width:min(96vw,1000px); aspect-ratio:12/8; margin:6px auto; border-radius:14px; overflow:hidden; background:repeating-conic-gradient(#caa472 0% 25%, #bd9866 0% 50%); background-size:13.3% 16.66%; box-shadow:inset 0 0 0 6px #8a6d44, inset 0 0 60px rgba(0,0,0,.35), 0 20px 50px rgba(0,0,0,.5); image-rendering:pixelated; touch-action:none}
 .gym-stage.editing{outline:2px dashed rgba(255,255,255,.28); outline-offset:-8px}
