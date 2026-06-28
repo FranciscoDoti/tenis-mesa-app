@@ -664,7 +664,10 @@ const hasPayWorker = () => !!(((DB.settings && DB.settings.mpWorkerUrl) || '').t
 //   1) el superadmin habilita la funcionalidad para la organización (paymentsAllowed = interruptor maestro);
 //   2) el admin de la ESCUELA del que mira la activa para su escuela (paymentsEnabled).
 // Además: costo > 0, el torneo con cuenta de cobro y la URL del worker configurada. Si no, solo mesa de control.
-function onlinePayReady(t, cat) { return paymentsOn() && setting('paymentsEnabled') && catCost(cat) > 0 && !!(t && t.payAccountId) && hasPayWorker(); }
+// IMPORTANTE: los ajustes de pago se resuelven contra la ESCUELA/ORG DEL TORNEO (no la del que mira). Si no,
+// un jugador de otra escuela (o un invitado, que no tiene escuela) nunca vería el botón Pagar aunque la escuela
+// dueña del torneo sí tenga los pagos habilitados.
+function onlinePayReady(t, cat) { return !!tournamentSetting(t, 'paymentsAllowed') && !!tournamentSetting(t, 'paymentsEnabled') && catCost(cat) > 0 && !!(t && t.payAccountId) && hasPayWorker(); }
 // ¿La categoría ya arrancó? (se largó al menos una mesa: zona, llave, 3er puesto o partido individual)
 function catStarted(cat) {
   if (cat.zoneTable && Object.keys(cat.zoneTable).some(k => cat.zoneTable[k] != null)) return true;
@@ -836,6 +839,7 @@ function renderChrome() {
   document.querySelectorAll('.news-only').forEach(el => el.hidden = !(u && setting('news'))); // Noticias solo si la escuela la activó
   document.querySelectorAll('.doubles-only').forEach(el => el.hidden = !(u && setting('doublesRanking'))); // Ranking de dobles según la organización
   document.querySelectorAll('.schoolrank-only').forEach(el => el.hidden = !(u && setting('schoolRanking'))); // Ranking de escuelas: según la organización
+  if (u && u.schoolId === GUEST_SCHOOL) document.querySelectorAll('.school-scope-only').forEach(el => el.hidden = true); // invitado: sin escuela → solo ranking de la organización
   document.querySelectorAll('.reglamento-link').forEach(el => el.hidden = !(u && canSeeReglamento())); // Reglamento: admin siempre; jugador si está activo y publicado
   document.querySelectorAll('.payments-only').forEach(el => el.hidden = !(u && isAdmin() && setting('paymentsAllowed'))); // Cuentas de cobro: admin y si la organización habilitó pagos
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', view.startsWith(b.dataset.view)));
@@ -864,6 +868,8 @@ function ctxPickSchool(sid) { setCtx(ctxOrgId(), sid); }
 // Solicitudes de alta (pendientes) del contexto actual (escuela del admin / seleccionada por superadmin).
 function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (DB.players || []).filter(p => p.pending && p.orgId === oid && (!sid || p.schoolId === sid || isGuest(p))); } // invitados pendientes los aprueba cualquier admin de la org
 function render() {
+  // El invitado no tiene escuela: su ranking es SIEMPRE el de la organización (evita la vista vacía "mi escuela").
+  if ((view === 'ranking' || view === 'schools') && ctxSchoolId() === GUEST_SCHOOL) view = 'orgrank';
   renderChrome();
   applyTheme();
   const app = $('#app');
@@ -1165,6 +1171,8 @@ function rankingTilesHtml(basePlayers) {
 // Ranking intraescuela: solo los jugadores de la escuela del contexto. Cada escuela ve solo el suyo.
 function renderRanking(app) {
   const oid = ctxOrgId(), sid = ctxSchoolId();
+  // El invitado no pertenece a ninguna escuela → su "ranking" es el de la ORGANIZACIÓN (si no, mostraba vacío).
+  if (sid === GUEST_SCHOOL) return renderOrgRanking(app);
   const list = playersOfSchool(sid, oid);
   const logo = schoolLogo(oid, sid);
   const logoEl = /^(data:|https?:)/.test(logo) ? `<span class="title-logo"><img src="${logo}" alt=""/></span>` : `<span class="title-logo">${esc(logo)}</span>`;
@@ -3976,11 +3984,18 @@ function entrantsListHtml(cat) {
       : (p ? `${p.category} · 📍 ${esc(p.city)}${ageFromDob(p.dob) != null ? ` · ${ageFromDob(p.dob)} años` : ''}` : '');
     let pay = '';
     if (cost > 0) {
-      if (canPay && e.paid && paidOnline(cat, e.id)) pay = `<span class="pay-tag ok" title="Pago online confirmado por MercadoPago. No se puede des-marcar a mano.">✅ Pagó (online)</span>`;
-      else if (canPay) pay = `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`;
-      else if (mine && e.paid) pay = `<span class="pay-tag ok">✅ Pagaste</span>`;
-      else if (mine && online) pay = `<button class="btn btn-accent btn-sm" onclick="startPayment('${cat._tid}','${cat.id}','${e.id}')">💳 Pagar ${money(cost)}</button>`;
-      else if (mine) pay = `<span class="pay-tag no">💲 Falta pagar ${money(cost)}</span>`;
+      const isPaidOnline = e.paid && paidOnline(cat, e.id), parts = [];
+      // Admin/colaborador: control manual de "pagado" (o etiqueta fija si el pago fue online).
+      if (canPay) parts.push(isPaidOnline
+        ? `<span class="pay-tag ok" title="Pago online confirmado por MercadoPago. No se puede des-marcar a mano.">✅ Pagó (online)</span>`
+        : `<button class="btn btn-ghost btn-sm pay-btn ${e.paid ? 'paid' : ''}" onclick="togglePaid('${cat._tid}','${cat.id}','${e.id}')">${e.paid ? '✅ Pagó' : '💲 Marcar pagado'}</button>`);
+      // El PROPIO inscripto (incluido el admin si se anotó) puede pagar online si está disponible y no pagó aún.
+      if (mine) {
+        if (e.paid) { if (!canPay) parts.push(`<span class="pay-tag ok">✅ Pagaste</span>`); }
+        else if (online) parts.push(`<button class="btn btn-accent btn-sm" onclick="startPayment('${cat._tid}','${cat.id}','${e.id}')">💳 Pagar ${money(cost)}</button>`);
+        else if (!canPay) parts.push(`<span class="pay-tag no">💲 Falta pagar ${money(cost)}</span>`);
+      }
+      pay = parts.join(' ');
     }
     return `<div class="player-row${mine ? ' mine-row' : ''}"><span class="pos">${n}</span>${cat.format === 'double' ? '' : (p ? avatar(p) : '')}
       <div class="meta"><div class="name">${entLink(cat, e.id)}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
@@ -4247,7 +4262,12 @@ async function enrollViaWorker(tid, cid, players, errEl) {
     const r = await fetch(wurl + '/enroll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, tournamentId: tid, categoryId: cid, players }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { if (btn) { btn.disabled = false; btn.textContent = 'Anotarme'; } fail(d.error ? '⛔ ' + d.error : 'No se pudo anotar, probá de nuevo.'); return; }
-    closeModal(); // el live-sync trae el torneo con la inscripción en ~1s
+    // Optimista: el worker ya confirmó, así que reflejamos la inscripción YA (antes el live-sync podía tardar
+    // y parecía que "no se anotó", llevando a re-intentar y recibir "ya estás anotado"). El snapshot luego trae
+    // la versión autoritativa (mismo jugador, id real) y reconcilia.
+    const cat = getCat(tid, cid);
+    if (cat) { const have = new Set((cat.entrants || []).flatMap(e => e.players)); if (!players.some(pid => have.has(pid))) { cat.entrants = cat.entrants || []; cat.entrants.push({ id: uid('e_'), players }); } }
+    closeModal(); render(); // el live-sync trae el torneo con la inscripción y reconcilia
   } catch (err) { if (btn) { btn.disabled = false; btn.textContent = 'Anotarme'; } fail('No se pudo anotar: ' + (err && err.message || err)); }
 }
 
