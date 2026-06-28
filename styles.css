@@ -574,6 +574,10 @@ ul.awarded li:last-child{border-bottom:0}
 /* ---------- buscador + torneos antiguos (cards horizontales) ---------- */
 .tourn-search{max-width:440px; margin:0 0 14px}
 .cards-h{display:flex; flex-direction:column; gap:12px}
+/* Link a la página de torneos antiguos (desde la pantalla principal de Torneos) */
+.old-tourn-link{display:flex; align-items:center; gap:10px; width:100%; margin-top:18px; padding:14px 16px; background:var(--card,#fff); border:1px solid var(--line,#e6e9ee); border-radius:14px; font-size:15px; font-weight:700; color:var(--ink); cursor:pointer; text-align:left; box-shadow:var(--shadow)}
+.old-tourn-link:hover{background:#f3f6f9}
+.old-tourn-link .ot-count{margin-left:auto; background:var(--table,#1e6b3a); color:#fff; border-radius:999px; padding:1px 9px; font-size:12.5px}
 .tourn-card-h{display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:14px 18px}
 .th-main{flex:1 1 220px; min-width:0}
 .th-main h3{font-size:16px}

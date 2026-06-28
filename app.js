@@ -897,6 +897,7 @@ function render() {
   if (view === 'perfil') return (currentUser().playerId ? renderProfile(app) : renderRanking(app));
   if (view.startsWith('perfil:')) return renderProfile(app, view.split(':')[1]);
   if (view === 'torneos') return renderTournaments(app);
+  if (view === 'torneos-old') return renderOldTournaments(app);
   if (view.startsWith('gym:') || view.startsWith('gymedit:')) return renderGymView(app, view);
   if (view.startsWith('torneo:')) return renderTournament(app, view.split(':')[1]);
   if (view.startsWith('cat:')) { const [, tid, cid] = view.split(':'); return renderCategoria(app, tid, cid); }
@@ -2760,22 +2761,32 @@ function pastCardHtml(t) {
     <div class="th-podium">${pod || '<span class="muted">Sin resultados cargados</span>'}</div>
     ${canEditT(t) ? `<div class="th-actions" onclick="event.stopPropagation()"><button class="btn btn-ghost btn-sm" onclick="delTournament('${t.id}')">🗑️</button></div>` : ''}</div>`;
 }
-function renderTournaments(app) {
+// Torneos visibles para el que mira: misma org y (abierto · de su escuela · superadmin); los borradores
+// solo los ve quien puede editarlos. Ordenados por fecha desc.
+function accessibleTournaments() {
   const oid = ctxOrgId(), sid = ctxSchoolId();
-  // visibles del contexto: misma org y (abierto a la org · de mi escuela · soy superadmin)
   const inScope = t => t.orgId === oid && (isSuperadmin() || t.open || t.schoolId === sid);
-  // los borradores (no publicados) solo los ve quien puede editarlos (su dueño / superadmin / colaborador)
-  const all = DB.tournaments.filter(t => inScope(t) && (t.published || canEditT(t))).slice().sort(byDateDesc);
+  return DB.tournaments.filter(t => inScope(t) && (t.published || canEditT(t))).slice().sort(byDateDesc);
+}
+function renderTournaments(app) {
+  const all = accessibleTournaments();
   const upcoming = all.filter(t => !isPastTournament(t));
-  const past = all.filter(t => isPastTournament(t));
+  const pastN = all.filter(isPastTournament).length;
   const upCards = upcoming.map(upcomingCardHtml).join('');
-  const pastCards = past.map(pastCardHtml).join('');
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>📅 Torneos</h1></div>
     ${isAdmin() ? `<button class="btn btn-primary" onclick="tournamentForm()">➕ Crear torneo</button>` : ''}</div>
     <p class="page-sub">Cada torneo agrupa varias categorías (sub-torneos).</p>
     <div class="section-head"><h2>🔜 Torneos próximos</h2></div>
     <div class="cards">${upCards || '<div class="empty">No hay torneos próximos.</div>'}</div>
-    <div class="section-head"><h2>📚 Torneos antiguos</h2></div>
+    ${pastN ? `<button class="old-tourn-link" onclick="go('torneos-old')">📚 Torneos antiguos <span class="ot-count">${pastN}</span> →</button>` : ''}`;
+}
+// Página aparte con los torneos antiguos (con buscador), para no saturar la pantalla principal de Torneos.
+function renderOldTournaments(app) {
+  const past = accessibleTournaments().filter(isPastTournament);
+  const pastCards = past.map(pastCardHtml).join('');
+  app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver a torneos</button>
+    <div class="page-title" style="margin-top:12px"><h1>📚 Torneos antiguos</h1></div>
+    <p class="page-sub">Torneos que ya terminaron.</p>
     ${past.length ? `<input class="tourn-search" placeholder="🔍 Buscar torneo por nombre, lugar o fecha…" oninput="tournFilter(this)" value="${esc(tournSearch)}"/>` : ''}
     <div class="cards-h">${pastCards || '<div class="empty">No hay torneos antiguos todavía.</div>'}</div>`;
   if (tournSearch) { const inp = $('.tourn-search'); if (inp) tournFilter(inp); }
