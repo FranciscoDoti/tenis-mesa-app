@@ -264,6 +264,7 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .br-match.done{border-color:#d4e7db}
 .br-match.mine-match{border-color:var(--ball); box-shadow:0 0 0 2px rgba(255,122,26,.25),var(--shadow)}
 .br-slot{position:relative; display:flex; align-items:center; gap:8px; padding:9px 11px; font-size:13px}
+.br-q{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#8a94a0; font-style:normal; font-size:12px}
 .br-slot .plink{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .br-slot+.br-slot{border-top:1px solid var(--line)}
 .br-slot.win{font-weight:800; color:var(--table-dark); background:linear-gradient(90deg,rgba(22,163,74,.10),transparent)}

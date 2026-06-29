@@ -2188,7 +2188,7 @@ const TABLE_SUGGEST_HELP = `<b>Sugerencia de largado de mesas</b><br>
 // Textos de ayuda (tooltips ℹ️) reutilizables.
 const ELIG_HELP = `<b>Regla de inscripción</b><br>Podés anotarte en tu categoría o en una más alta, pero no en una más baja. Ej.: alguien de 3ra puede jugar 1ra, 2da o 3ra, pero no 4ta. Las categorías por edad (Sub/Maxi) y "todo competidor" van aparte.`;
 const GROUPS_HELP = `<b>Grupos (zonas)</b><br>Al armar las zonas, el sistema reparte a los inscriptos en grupos lo más parejos posible, dentro del rango de tamaño configurado. Si no se pueden armar grupos en ese rango, te avisa.`;
-const BYE_HELP = `<b>BYE en la llave</b><br>Un BYE es pasar de ronda sin jugar. Se asignan por mérito: a los mejores de la fase de grupos, según partidos ganados, después diferencia de sets y por último diferencia de puntos.`;
+const BYE_HELP = `<b>BYE en la llave</b><br>Un BYE es pasar de ronda sin jugar. La llave se siembra por posición de grupo (los 1ros como cabezas de serie) y los BYE, si el cuadro no es potencia de 2, les tocan a los mejores cabezas de serie. La llave se va armando sola: hasta que un grupo no termina, su lugar muestra "1ro/2do Grupo X".`;
 const AWARD_HELP = `<b>Cerrar y otorgar puntos</b><br>Al cerrar la categoría se otorgan los puntos al ranking y ya no se puede editar. Cada partido suma/resta puntos (Elo) y llegar al podio (semifinal o mejor) da puntos extra. ⚠️ No se puede deshacer.`;
 function renderSettings(app) {
   if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -3223,7 +3223,7 @@ function applyWalkover(tid, cid, kind, gidx, r, m, absentSide) {
   const n = Math.ceil(bestOfOf(mm, cat) / 2), winSide = absentSide === 'a' ? 'b' : 'a';
   mm.sets = Array.from({ length: n }, () => winSide === 'a' ? [11, 0] : [0, 11]);
   mm.walkover = winSide; if (mm.postponed) mm.postponed = false;
-  buildBracket(cat); // si con este W.O. se completó la fase de grupos, la llave se genera sola
+  syncBracket(cat); // resuelve en la llave los cruces de los grupos que con este W.O. quedaron completos
   save(DB); closeModal(); render();
 }
 // ---- popover genérico (no es modal: anclado, sin oscurecer la pantalla) ----
@@ -4234,7 +4234,7 @@ function renderCategoria(app, tid, cid) {
   }
 
   // Pestañas: muestran de a una sección para no saturar la pantalla.
-  const defaultTab = cat.bracket ? 'llave' : (cat.groups ? 'grupos' : 'inscriptos');
+  const defaultTab = (cat.bracket && groupStageComplete(cat)) ? 'llave' : (cat.groups ? 'grupos' : 'inscriptos');
   const tab = catTab || defaultTab;
   const tb = (id, label) => `<button class="cat-tab${tab === id ? ' active' : ''}" onclick="setCatTab('${id}')">${label}</button>`;
   html += `<div class="cat-tabs">${tb('inscriptos', `📋 Inscriptos${cat.entrants.length ? ` (${cat.entrants.length})` : ''}`)}${tb('grupos', '🎲 Grupos')}${tb('llave', '🏆 Llave')}</div>`;
@@ -4453,6 +4453,7 @@ function makeGroups(tid, cid) {
   const res = buildGroups(ids, cat.rules.groupMin, cat.rules.groupMax);
   if (!res.ok) { alert('⚠️ ' + res.msg); return; }
   cat.groups = res.groups; cat.matches = genMatches(res.groups, catSetsFmt(cat).groups); cat.bracket = null; cat.thirdPlace = null; cat.closed = false; cat.awarded = null;
+  buildBracketStructure(cat); // la llave se arma desde ya, con "1ro/2do Grupo X" hasta que terminen los grupos
   snapshotSeed(cat); // congela los puntajes de referencia para el Elo de todos los partidos del torneo
   save(DB); render();
 }
@@ -4527,49 +4528,57 @@ function semiLoser(cat, idx) { const T = cat.bracket.length, semR = T - 2; if (s
 // El partido por el 3er puesto solo se juega si AMBOS perdedores de semifinal son reales (no BYE).
 // Con un nº de clasificados que no es potencia de 2, una semi puede ser "real vs BYE": en ese caso
 // no hay partido por el 3º y el semifinalista real queda automáticamente 3º (no se puede bloquear el cierre).
-function thirdPlayable(cat) { if (!cat.thirdPlace) return false; const a = semiLoser(cat, 0), b = semiLoser(cat, 1); return !!(a && b && a !== 'BYE' && b !== 'BYE'); }
-// Construye la llave a partir de los grupos (función PURA: muta cat, sin alertas/guardado/render). Devuelve
-// true si la generó. Solo lo hace si hay grupos, NO hay llave todavía y la fase de grupos está completa.
-function buildBracket(cat) {
-  if (!cat || !cat.groups || cat.bracket || !groupStageComplete(cat)) return false;
-  // Clasificados (1° y 2° de cada zona) ordenados POR MÉRITO en la fase de grupos: primero partidos
-  // ganados, luego diferencia de sets (ganados − perdidos) y, por último, diferencia de puntos.
-  // Los mejores quedan como cabezas de serie y, si el cuadro no es potencia de 2, son los que reciben BYE.
-  const quals = [];
-  cat.groups.forEach((g, gi) => { const s = groupStandings(cat, gi); [s[0], s[1]].forEach(row => { if (row) quals.push(row); }); });
-  if (!quals.length) return false;
-  quals.sort((a, b) => b.pg - a.pg || (b.sf - b.sc) - (a.sf - a.sc) || (b.pf - b.pc) - (a.pf - a.pc));
-  const seedIds = quals.map(q => q.id), K = seedIds.length;
-  const size = Math.max(2, nextPow2(K));
-  const slots = seedOrder(size).map(n => n <= K ? seedIds[n - 1] : 'BYE'); // posiciones estándar; el BYE cae en los mejores seeds
+function thirdPlayable(cat) { if (!cat.thirdPlace) return false; const a = semiLoser(cat, 0), b = semiLoser(cat, 1); return !!(isRealEnt(cat, a) && isRealEnt(cat, b)); }
+// Marcadores de clasificación: cada hoja de la llave referencia una POSICIÓN de grupo ("Q:gi:pos") hasta
+// que ese grupo termina y se resuelve al jugador real. Así la llave se ve desde el principio y se va
+// completando a medida que terminan los grupos.
+const isQ = id => typeof id === 'string' && id.indexOf('Q:') === 0;
+const qLabel = id => { const p = id.split(':'); return (p[2] === '0' ? '1ro' : '2do') + ' Grupo ' + String.fromCharCode(65 + (+p[1])); };
+const isRealEnt = (cat, id) => !!entById(cat, id); // jugador/pareja de verdad (no BYE, no marcador "Q:")
+function groupComplete(cat, gi) { const ms = (cat.matches || []).filter(m => m.g === gi); return ms.length > 0 && ms.every(m => matchDone(m, cat)); }
+// Arma la ESTRUCTURA de la llave (función PURA): hojas sembradas por posición de grupo (1ros como cabezas de
+// serie; los BYE, si el cuadro no es potencia de 2, caen en los mejores seeds). Se llama al armar los grupos.
+function buildBracketStructure(cat) {
+  if (!cat.groups || !cat.groups.length) return false;
+  const qualSlots = []; // primero todos los 1ros, después todos los 2dos
+  cat.groups.forEach((g, gi) => qualSlots.push('Q:' + gi + ':0'));
+  cat.groups.forEach((g, gi) => qualSlots.push('Q:' + gi + ':1'));
+  const K = qualSlots.length, size = Math.max(2, nextPow2(K));
+  const slots = seedOrder(size).map(n => n <= K ? qualSlots[n - 1] : 'BYE');
   const rounds = [], r0 = []; for (let i = 0; i < slots.length; i += 2) r0.push({ a: slots[i], b: slots[i + 1], sets: [] });
   rounds.push(r0); let c = r0.length; while (c > 1) { const rr = []; for (let i = 0; i < c; i += 2) rr.push({ sets: [] }); rounds.push(rr); c = rr.length; }
-  const fmt = catSetsFmt(cat); // sets por fase: la ronda final usa fmt.final, el resto de la llave fmt.bracket
+  const fmt = catSetsFmt(cat);
   rounds.forEach((round, r) => round.forEach(mm => { mm.bestOf = r === rounds.length - 1 ? fmt.final : fmt.bracket; }));
   cat.bracket = rounds;
-  cat.thirdPlace = rounds.length >= 2 ? { sets: [], bestOf: fmt.bracket } : null; // partido por 3er/4to puesto
-  cat.closed = false; cat.awarded = null; snapshotSeed(cat);
+  cat.thirdPlace = rounds.length >= 2 ? { sets: [], bestOf: fmt.bracket } : null;
+  cat.closed = false; cat.awarded = null;
+  resolveBracketSlots(cat);
   return true;
 }
-// La llave se genera SOLA cuando terminan todos los grupos (ya no hay botón "Generar llave"). Igualmente
-// dejamos esta función por compatibilidad / disparo manual.
-function generateBracket(tid, cid) {
-  const cat = getCat(tid, cid);
-  if (!cat.groups) { alert('Primero armá los grupos.'); return; }
-  if (!groupStageComplete(cat)) { alert('⚠️ Faltan resultados de la fase de grupos.'); return; }
-  if (buildBracket(cat)) { save(DB); render(); }
+// Resuelve las hojas cuyo grupo ya terminó: reemplaza el marcador "Q:gi:pos" por el id del clasificado real.
+function resolveBracketSlots(cat) {
+  if (!cat.bracket || !cat.groups || !cat.bracket[0]) return;
+  cat.bracket[0].forEach(mm => ['a', 'b'].forEach(side => {
+    const v = mm[side];
+    if (isQ(v)) { const p = v.split(':'), gi = +p[1], pos = +p[2]; if (cat.groups[gi] && groupComplete(cat, gi)) { const row = groupStandings(cat, gi)[pos]; if (row) mm[side] = row.id; } }
+  }));
 }
+// Mantiene la llave al día tras cargar un resultado de grupo: la crea si falta y resuelve las hojas listas.
+function syncBracket(cat) { if (!cat || !cat.groups) return; if (!cat.bracket) buildBracketStructure(cat); else resolveBracketSlots(cat); }
+// (compat) Disparo manual: ya no hay botón "Generar llave"; la llave se arma sola al armar los grupos.
+function generateBracket(tid, cid) { const cat = getCat(tid, cid); if (!cat.groups) { alert('Primero armá los grupos.'); return; } syncBracket(cat); save(DB); render(); }
 function bracketHtml(cat) {
   const T = cat.bracket.length;
   const rname = r => { const fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); };
   const myId = (currentUser() || {}).playerId;
   const isMine = id => !!(myId && id && id !== 'BYE' && ((entById(cat, id) || {}).players || []).includes(myId));
   let meInBracket = false;
-  const slot = (id, w, sc) => { const mine = isMine(id); if (mine) meInBracket = true; return `<div class="br-slot ${w ? 'win' : ''} ${mine ? 'mine' : ''}">${w ? '<span class="br-trophy">🏆</span>' : ''}${id === 'BYE' ? '<i class="muted">BYE</i>' : id ? entLink(cat, id) : '<i class="muted">—</i>'}${mine ? '<span class="br-you">vos</span>' : ''}<span class="br-s">${sc}</span></div>`; };
+  const slotName = id => id === 'BYE' ? '<i class="muted">BYE</i>' : isQ(id) ? `<i class="br-q">${esc(qLabel(id))}</i>` : id ? entLink(cat, id) : '<i class="muted">—</i>';
+  const slot = (id, w, sc) => { const mine = isMine(id); if (mine) meInBracket = true; return `<div class="br-slot ${w ? 'win' : ''} ${mine ? 'mine' : ''}">${w ? '<span class="br-trophy">🏆</span>' : ''}${slotName(id)}${mine ? '<span class="br-you">vos</span>' : ''}<span class="br-s">${sc}</span></div>`; };
   const matchCls = (a, b, done) => `br-match${(isMine(a) || isMine(b)) ? ' mine-match' : ''}${done ? ' done' : ''}`;
   const cols = cat.bracket.map((round, r) => `<div class="br-col"><div class="br-rtitle">${rname(r)}</div>` +
     round.map((mm, m) => { const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b'), res = matchResult(mm), w = brWinner(cat, r, m), done = matchDone(mm, cat);
-      const playable = a && b && a !== 'BYE' && b !== 'BYE';
+      const playable = isRealEnt(cat, a) && isRealEnt(cat, b); // ambos contendientes definidos (no "1ro/2do Grupo X" ni BYE)
       const can = canEditCat(cat) && playable;
       const mesa = (playable && !done) ? startControl(cat, 'bracket', null, r, m, mm) : '';
       return `<div class="${matchCls(a, b, done)}">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
@@ -4585,7 +4594,7 @@ function bracketHtml(cat) {
     if (real) extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(real, null, true)}">${slot(real, true, '')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
   } else if (cat.thirdPlace) {
     const a = semiLoser(cat, 0), b = semiLoser(cat, 1), res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
-    const playable = a && b && a !== 'BYE' && b !== 'BYE';
+    const playable = isRealEnt(cat, a) && isRealEnt(cat, b);
     const can = canEditCat(cat) && playable;
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
     extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(a, b, done)}">
@@ -4659,7 +4668,7 @@ function saveResult(tid, cid, kind, gidx, r, m) {
   if (decided < 0) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
   if (decided < sets.length - 1) { e.hidden = false; e.textContent = `Cargaste sets de más: el partido termina cuando alguien llega a ${n} sets (no puede ganar por más de ${n}).`; return; }
   mm.sets = sets; if (mm.walkover) delete mm.walkover;
-  buildBracket(cat); // si con este resultado se completó la fase de grupos, la llave se genera sola
+  syncBracket(cat); // resuelve en la llave los cruces de los grupos que con este resultado quedaron completos
   save(DB); closeModal(); render();
 }
 
