@@ -600,9 +600,13 @@ function schoolBadgeHtml(p) {
   const inner = /^(data:|https?:)/.test(logo) ? `<img src="${logo}" alt=""/>` : esc(logo);
   return `<span class="school-badge" title="${title}">${inner}</span>`;
 }
-// Jugadores del contexto: de una escuela / de toda la organización (sin pendientes salvo que se pida).
-const playersOfSchool = (schoolId, orgId) => (DB.players || []).filter(p => !p.pending && p.schoolId === schoolId && (!orgId || p.orgId === orgId));
-const playersOfOrg = orgId => (DB.players || []).filter(p => !p.pending && p.orgId === orgId);
+// "Baja lógica": un jugador eliminado por el admin queda con deleted=true. NO se borra del todo, así los
+// torneos pasados siguen mostrando su nombre y resultados; solo se lo oculta de rankings, listas y selectores.
+const isDeleted = p => !!(p && p.deleted);
+const isActivePlayer = p => !!p && !p.pending && !p.deleted;
+// Jugadores del contexto: de una escuela / de toda la organización (sin pendientes ni dados de baja salvo que se pida).
+const playersOfSchool = (schoolId, orgId) => (DB.players || []).filter(p => isActivePlayer(p) && p.schoolId === schoolId && (!orgId || p.orgId === orgId));
+const playersOfOrg = orgId => (DB.players || []).filter(p => isActivePlayer(p) && p.orgId === orgId);
 // ¿Este admin puede gestionar (editar/borrar/aprobar) a este jugador? Superadmin → cualquiera;
 // admin de escuela → solo los de SU misma org+escuela.
 function canManagePlayer(p) { const u = currentUser(); if (!u || !p) return false; if (isSuperadmin()) return true; if (!isSchoolAdmin() || !u.orgId) return false; if (isGuest(p)) return p.orgId === u.orgId; return p.orgId === u.orgId && p.schoolId === u.schoolId; }
@@ -611,7 +615,7 @@ function canManagePlayer(p) { const u = currentUser(); if (!u || !p) return fals
 function canManageGym(g) { const u = currentUser(); if (!u || !g) return false; if (isSuperadmin()) return true; if (!isSchoolAdmin() || !u.orgId) return false; if (!g.orgId) return true; return g.orgId === u.orgId && g.schoolId === u.schoolId; }
 // ¿El jugador puede inscribirse en este torneo? Abierto → toda la org; cerrado → solo su escuela.
 function inTournamentScope(t, p) { if (!t || !p) return true; if (t.orgId && p.orgId !== t.orgId) return false; return t.open ? true : p.schoolId === t.schoolId; }
-function tournamentPool(t) { return t ? (t.open ? playersOfOrg(t.orgId) : playersOfSchool(t.schoolId, t.orgId)) : (DB.players || []).filter(p => !p.pending); }
+function tournamentPool(t) { return t ? (t.open ? playersOfOrg(t.orgId) : playersOfSchool(t.schoolId, t.orgId)) : (DB.players || []).filter(isActivePlayer); }
 // Contexto activo (org/escuela que se está viendo/administrando). El superadmin lo elige; admin/player = el suyo.
 let _ctxOrg = null, _ctxSchool = null;
 function ctxOrgId() { const u = currentUser(); if (!u) return null; if (u.role === 'superadmin') return _ctxOrg || ((DB.orgs[0] || {}).id || null); return u.orgId || null; }
@@ -859,7 +863,7 @@ function renderChrome() {
   const chip = u ? (isSuperadmin() ? '👑 ' : u.role === 'admin' ? '🛠️ ' : '🎾 ') : '';
   $('#userArea').innerHTML = u ? `<span class="chip ${isAdmin() ? 'admin' : ''}">${chip}${esc(u.name)}</span>
      <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>` : '';
-  const approved = DB.players.filter(p => !p.pending).length;
+  const approved = DB.players.filter(isActivePlayer).length;
   $('#storeInfo').textContent = `${approved} jugadores · ${DB.tournaments.length} torneos`;
 }
 // El superadmin ya NO elige org/escuela (es una figura de solo-ajustes): la barra de contexto queda vacía.
@@ -867,7 +871,7 @@ function renderCtxBar() { const el = $('#ctxBar'); if (el) el.innerHTML = ''; }
 function ctxPickOrg(oid) { setCtx(oid); }
 function ctxPickSchool(sid) { setCtx(ctxOrgId(), sid); }
 // Solicitudes de alta (pendientes) del contexto actual (escuela del admin / seleccionada por superadmin).
-function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (DB.players || []).filter(p => p.pending && p.orgId === oid && (!sid || p.schoolId === sid || isGuest(p))); } // invitados pendientes los aprueba cualquier admin de la org
+function scopedPending() { const sid = ctxSchoolId(), oid = ctxOrgId(); return (DB.players || []).filter(p => p.pending && !p.deleted && p.orgId === oid && (!sid || p.schoolId === sid || isGuest(p))); } // invitados pendientes los aprueba cualquier admin de la org
 function render() {
   // El invitado no tiene escuela: su ranking es SIEMPRE el de la organización (evita la vista vacía "mi escuela").
   if ((view === 'ranking' || view === 'schools') && ctxSchoolId() === GUEST_SCHOOL) view = 'orgrank';
@@ -1295,7 +1299,7 @@ function headToHead(aId, bId) {
 }
 function histPickerHtml(side, sel) {
   const p = sel ? playerById(sel) : null, open = histOpen === side;
-  const list = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)))
+  const list = DB.players.filter(isActivePlayer).sort((a, b) => fullName(a).localeCompare(fullName(b)))
     .map(pl => `<li class="hist-opt" data-name="${esc(fullName(pl)).toLowerCase()}" onclick="histPick('${side}','${pl.id}')">${esc(fullName(pl))} <span class="muted">· ${pl.category} · ${pl.points} pts</span></li>`).join('');
   return `<div class="hist-picker">
     <button class="hist-box ${p ? 'sel' : ''}" onclick="histToggle('${side}')"><span>${p ? esc(fullName(p)) : 'Elegí jugador'}</span><span>▾</span></button>
@@ -1614,13 +1618,22 @@ function renderPlayers(app) {
   const active = playersOfSchool(sid, oid).slice().sort(byName);
   const rows = active.map(rowOf).join('');
   // Invitados de la organización (sin escuela): los gestiona cualquier admin de la org.
-  const guests = (DB.players || []).filter(p => !p.pending && isGuest(p) && p.orgId === oid).slice().sort(byName);
+  const guests = (DB.players || []).filter(p => isActivePlayer(p) && isGuest(p) && p.orgId === oid).slice().sort(byName);
   const guestSection = guests.length ? `<h2 class="players-subhead">🎟️ Invitados <span class="muted">(${guests.length})</span></h2>
     <p class="page-sub" style="margin-top:0">Jugadores sin escuela. Pueden anotarse a torneos abiertos, pero no suman puntos al ranking.</p>${guests.map(rowOf).join('')}` : '';
+  // Dados de baja (baja lógica): no figuran en rankings/listas/selectores, pero los torneos donde jugaron
+  // conservan su nombre. Sección colapsada con opción de restaurar.
+  const removed = (DB.players || []).filter(p => isDeleted(p) && canManagePlayer(p)).slice().sort(byName);
+  const delRowOf = p => `<div class="player-row">${avatar(p)}
+    <div class="meta"><div class="name">${esc(fullName(p))}</div><div class="sub">📍 ${esc(p.city)}${isGuest(p) ? ' · 🎟️ Invitado' : ''}</div></div>
+    <span class="cat-badge ${catClass(p.category)}" style="height:28px;min-width:28px">${p.category}</span>
+    <button class="btn btn-ghost btn-sm" onclick="restorePlayer('${p.id}')">↩️ Restaurar</button></div>`;
+  const removedSection = removed.length ? `<details class="card" style="margin-top:18px"><summary style="cursor:pointer;font-weight:800">🗑️ Eliminados <span class="muted">(${removed.length})</span></summary>
+    <p class="page-sub" style="margin:8px 0 0">Dados de baja. No aparecen en el ranking ni en los selectores, pero se conservan en los torneos donde ya jugaron. Podés restaurarlos.</p>${removed.map(delRowOf).join('')}</details>` : '';
   const pend = scopedPending().length;
   app.innerHTML = `<div class="section-head"><div class="page-title"><h1>👥 Jugadores · ${esc(schoolName(oid, sid))}</h1></div>
     <button class="btn btn-primary" onclick="playerForm()">➕ Agregar jugador</button></div>
-    <p class="page-sub">${active.length} jugadores de ${esc(schoolName(oid, sid))} (${esc(orgName(oid))}).${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores en esta escuela.</div>'}${guestSection}`;
+    <p class="page-sub">${active.length} jugadores de ${esc(schoolName(oid, sid))} (${esc(orgName(oid))}).${pend ? ` · <a class="maplink" onclick="go('aprobaciones')">🙋 ${pend} solicitud${pend > 1 ? 'es' : ''} de alta pendiente${pend > 1 ? 's' : ''}</a>` : ''}</p>${rows || '<div class="empty">Sin jugadores en esta escuela.</div>'}${guestSection}${removedSection}`;
 }
 function playerForm(id) {
   const p = id ? playerById(id) : { firstName: '', lastName: '', dob: '', city: CITIES[0], category: '4ta', points: NEW_PLAYER_POINTS, photo: null };
@@ -1753,14 +1766,21 @@ async function deleteAuthAccount(uid, email) {
     await fetch(wurl + '/delete-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, uid: uid || null, email: email || null }) });
   } catch (e) {}
 }
+// Baja LÓGICA: el jugador no se borra de la base (así los torneos donde jugó conservan su nombre y resultados);
+// se lo marca deleted=true y desaparece de rankings, listas y selectores. Se le quita la cuenta de acceso.
+// Es reversible desde "🗑️ Eliminados" en la pantalla de Jugadores.
 function delPlayer(id) {
   const p = playerById(id); if (!p || !canManagePlayer(p)) return;
-  if (!confirm(`¿Eliminar a ${fullName(p)}?`)) return;
-  const em = p.email || null;
-  DB.players = DB.players.filter(x => x.id !== id);
-  dropUserDoc(id, em);
-  DB.tournaments.forEach(t => t.categorias.forEach(c => { c.entrants = c.entrants.filter(e => !e.players.includes(id)); c.groups = null; c.matches = null; c.bracket = null; c.thirdPlace = null; }));
+  if (!confirm(`¿Dar de baja a ${fullName(p)}?\n\nSe lo quita del ranking, las listas y los selectores, y pierde el acceso a su cuenta. Los torneos donde ya jugó conservan su nombre y resultados. Podés restaurarlo después desde "Eliminados".`)) return;
+  dropUserDoc(id, p.email || null); // le quita la cuenta de acceso y libera usuario/email
+  p.deleted = true; delete p.email; delete p.username; delete p.pending;
   save(DB); render();
+}
+// Deshace la baja lógica: el jugador vuelve a figurar en rankings, listas y selectores (sin cuenta de acceso).
+function restorePlayer(id) {
+  const p = playerById(id); if (!p || !canManagePlayer(p)) return;
+  if (!confirm(`¿Restaurar a ${fullName(p)}? Va a volver a aparecer en el ranking y las listas (sin cuenta de acceso; puede registrarse de nuevo).`)) return;
+  delete p.deleted; save(DB); render();
 }
 
 /* ---------- altas / aprobaciones (admin) ---------- */
@@ -2033,7 +2053,7 @@ function renderReportes(app) {
 }
 // Candidatos del buscador de personas: TODOS los jugadores de la organización (incluidos invitados y los de
 // otras escuelas), sin importar el filtro de escuela del que mira. Así se puede buscar a cualquiera.
-function personPickerCands() { return (DB.players || []).filter(p => !p.pending && p.orgId === ctxOrgId()).slice().sort((a, b) => fullName(a).localeCompare(fullName(b))); }
+function personPickerCands() { return (DB.players || []).filter(p => isActivePlayer(p) && p.orgId === ctxOrgId()).slice().sort((a, b) => fullName(a).localeCompare(fullName(b))); }
 // Buscador de persona con SELECCIÓN (al elegir, recalcula sobre esa persona). onPickFn = nombre de la función global a llamar con el id.
 function personPickerHtml(selId, onPickFn) {
   if (selId) { const p = playerById(selId); return `<div class="rp-sel">👤 <b>${esc(p ? fullName(p) : 'Jugador')}</b><button type="button" class="chip-x" onclick="${onPickFn}('')" title="Quitar filtro">✕</button></div>`; }
@@ -2850,7 +2870,7 @@ function tournFilter(inp) {
 // Selector de colaboradores con buscador + chips. El estado vive en window.__collabSel.
 function collabPickerHtml(initial) {
   window.__collabSel = [...(initial || [])];
-  const list = DB.players.filter(p => !p.pending).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+  const list = DB.players.filter(isActivePlayer).sort((a, b) => fullName(a).localeCompare(fullName(b)));
   const results = list.length
     ? list.map(p => `<li class="collab-opt" data-id="${p.id}" data-name="${esc(fullName(p)).toLowerCase()}" onclick="collabAdd('${p.id}')">${esc(fullName(p))} <span class="muted">· ${p.category}</span></li>`).join('')
     : '<li class="muted" style="padding:8px 10px">No hay jugadores.</li>';
