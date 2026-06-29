@@ -649,6 +649,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--table); box-shadow:0 
 .gym-modes{display:flex; gap:6px; justify-content:center; flex-wrap:wrap}
 .gym-mode{background:rgba(255,255,255,.08); color:#cdd6df; border:1px solid rgba(255,255,255,.16); border-radius:999px; padding:6px 14px; font-size:13px; font-weight:700; cursor:pointer}
 .gym-mode.on{background:#16532d; color:#fff; border-color:#1c6e3c}
+.gym-modes-help{text-align:center; font-size:12px; color:#aebccb; margin-top:-2px}
 /* Vista simplificada: tarjetas de mesa */
 .gym-simple{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; padding:6px 2px; align-content:start; overflow:auto; flex:1 1 auto}
 .gs-card{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:14px; min-height:82px; display:flex; flex-direction:column; gap:8px; justify-content:center}

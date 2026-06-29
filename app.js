@@ -1181,6 +1181,7 @@ function renderRanking(app) {
   const logoEl = /^(data:|https?:)/.test(logo) ? `<span class="title-logo"><img src="${logo}" alt=""/></span>` : `<span class="title-logo">${esc(logo)}</span>`;
   app.innerHTML = `<div class="page-title" style="display:flex;align-items:center;gap:10px">${logoEl}<h1 style="margin:0">${esc(schoolName(oid, sid))}</h1></div>
     <p class="page-sub">Ranking de tu escuela (${esc(orgName(oid))}). Tocá una categoría para ver u ocultar su ranking.</p>
+    <p class="hint" style="margin-top:-4px">🏆 <b>Mi escuela</b>: ranking de tu escuela · 🌐 <b>Organización</b>: todos los jugadores · 🏫 <b>Escuelas</b>: suma de puntos por escuela (solo de torneos abiertos).</p>
     ${rankingTilesHtml(list)}`;
 }
 // Ranking general de la organización: todos los jugadores de la org.
@@ -1981,7 +1982,7 @@ function renderReportes(app) {
   const tOpts = `<option value="">Todos los torneos</option>` + accessible.map(t => `<option value="${t.id}" ${reportTid === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
   const stOpts = [['all', 'Todos'], ['pending', 'Pendientes'], ['paid', 'Pagados']].map(([v, l]) => `<option value="${v}" ${reportStatus === v ? 'selected' : ''}>${l}</option>`).join('');
   let html = `<div class="page-title"><h1>💲 Estado de pagos</h1></div>
-    <p class="page-sub">Quién pagó la inscripción${adm ? '' : ' en tus torneos'}. Filtrá por torneo, categoría, estado o persona.</p>
+    <p class="page-sub">Quién pagó y quién debe la inscripción de cada categoría con costo${adm ? '' : ' en tus torneos'}. Filtrá por torneo, categoría, estado o persona.${adm ? ' Para el registro de pagos ya hechos (online y en mesa de control), entrá a 🧾 Historial de pagos.' : ''}</p>
     <div class="card" style="max-width:680px">
       <div class="grid2">
         <div><label>Torneo</label><select onchange="setReport('tid', this.value)">${tOpts}</select></div>
@@ -2184,6 +2185,11 @@ const TABLE_SUGGEST_HELP = `<b>Sugerencia de largado de mesas</b><br>
   <li>Respeta el <b>horario de inicio</b> programado de cada categoría.</li>
   <li>Nunca propone largar a un jugador que <b>ya está jugando en otra mesa</b> (un jugador puede estar en varias categorías a la vez).</li>
   <li>Muestra la mejor opción para cada mesa libre + hasta <b>2 alternativas</b>; tocás un botón para largar.</li></ul>`;
+// Textos de ayuda (tooltips ℹ️) reutilizables.
+const ELIG_HELP = `<b>Regla de inscripción</b><br>Podés anotarte en tu categoría o en una más alta, pero no en una más baja. Ej.: alguien de 3ra puede jugar 1ra, 2da o 3ra, pero no 4ta. Las categorías por edad (Sub/Maxi) y "todo competidor" van aparte.`;
+const GROUPS_HELP = `<b>Grupos (zonas)</b><br>Al armar las zonas, el sistema reparte a los inscriptos en grupos lo más parejos posible, dentro del rango de tamaño configurado. Si no se pueden armar grupos en ese rango, te avisa.`;
+const BYE_HELP = `<b>BYE en la llave</b><br>Un BYE es pasar de ronda sin jugar. Se asignan por mérito: a los mejores de la fase de grupos, según partidos ganados, después diferencia de sets y por último diferencia de puntos.`;
+const AWARD_HELP = `<b>Cerrar y otorgar puntos</b><br>Al cerrar la categoría se otorgan los puntos al ranking y ya no se puede editar. Cada partido suma/resta puntos (Elo) y llegar al podio (semifinal o mejor) da puntos extra. ⚠️ No se puede deshacer.`;
 function renderSettings(app) {
   if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS);
   const sName = schoolName(ctxOrgId(), ctxSchoolId()), oName = orgName(ctxOrgId());
@@ -2887,7 +2893,7 @@ function tournamentForm() {
     <p class="hint" style="margin-top:0">Marcá las que se jueguen. Heredan las reglas del catálogo global (formato, sets, grupos, puntos) — las gestiona el admin en <b>🗂️ Categorías</b> y podés ajustarlas por torneo después.</p>
     <div class="catgrid">${checks}</div>
     <label>Colaboradores <span class="muted">(opcional)</span></label>
-    <p class="hint" style="margin-top:0">Buscá y agregá jugadores que van a poder ayudar a gestionar este torneo (inscribir, cargar resultados, abrir/cerrar inscripciones).</p>
+    <p class="hint" style="margin-top:0">Un colaborador puede inscribir jugadores, cargar resultados y abrir/cerrar inscripciones de ESTE torneo. No puede otorgar puntos al ranking ni cambiar la lista de colaboradores.</p>
     ${collabPickerHtml([])}
     <div id="terr" class="banner" hidden></div>
     <p class="hint" style="margin-top:0">El torneo se crea como <b>borrador</b> (solo lo ves vos) hasta que lo publiques.</p>
@@ -2948,7 +2954,7 @@ function delTournament(id) { if (!canEditT(tById(id))) return; if (confirm('¿El
 function collaboratorsModal(tid) {
   const t = tById(tid); if (!t || !(ownsTournament(t) || isSuperadmin())) return; // solo el dueño/superadmin gestiona colaboradores
   openModal(`<h3>Colaboradores — ${esc(t.name)}</h3>
-    <p class="hint" style="margin-top:0">Pueden editar este torneo: inscribir jugadores, cargar resultados, abrir/cerrar inscripciones, armar grupos y la llave.</p>
+    <p class="hint" style="margin-top:0">Un colaborador puede inscribir jugadores, cargar resultados y abrir/cerrar inscripciones de ESTE torneo. No puede otorgar puntos al ranking ni cambiar la lista de colaboradores.</p>
     ${collabPickerHtml(t.collaborators)}
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveCollaborators('${tid}')">Guardar</button></div>`);
@@ -3756,7 +3762,10 @@ function renderGymView(app, ref) {
 // Selector de las 3 vistas del gimnasio.
 function gymModesHtml(mode) {
   const b = (m, ic, lbl) => `<button class="gym-mode ${mode === m ? 'on' : ''}" onclick="gymSetMode('${m}')">${ic} ${lbl}</button>`;
-  return `<div class="gym-modes">${b('simple', '🏓', 'Mesas')}${b('full', '🏟️', 'Gimnasio')}${b('live', '📺', 'Vivo')}</div>`;
+  const help = mode === 'simple' ? 'Solo qué se juega en cada mesa (tocá una mesa para ver el detalle).'
+    : mode === 'live' ? 'La transmisión en vivo del torneo por YouTube.'
+    : 'El mapa completo del gimnasio, con quién juega en cada mesa en vivo.';
+  return `<div class="gym-modes">${b('simple', '🏓', 'Mesas')}${b('full', '🏟️', 'Gimnasio')}${b('live', '📺', 'Vivo')}</div><div class="gym-modes-help">${help}</div>`;
 }
 function gymSetMode(m) { _gymMode = m; render(); }
 // Vista SIMPLIFICADA: solo las mesas y quién está jugando en cada una.
@@ -4102,7 +4111,7 @@ function categoryTimeModal(tid, cid) {
   const t = tById(tid);
   const def = cat.startAt || ((t && t.date ? t.date : '') + 'T10:00');
   openModal(`<h3>Hora de comienzo — ${esc(cat.name)}</h3>
-    <p class="hint" style="margin-top:0">Cuándo arranca esta categoría. La ven todos; la editan admin y colaboradores.</p>
+    <p class="hint" style="margin-top:0">Cuándo arranca esta categoría. La ven todos; la editan admin y colaboradores. Se usa para las sugerencias de largado y los horarios estimados: no se propone largar una zona antes de esa hora.</p>
     <label>Fecha y hora</label><input id="ct_start" type="datetime-local" value="${esc(def)}"/>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <div class="row" style="gap:8px">${cat.startAt ? `<button class="btn btn-ghost" onclick="saveCategoryTime('${tid}','${cid}',true)">Quitar</button>` : ''}
@@ -4152,7 +4161,9 @@ function entrantsListHtml(cat) {
   const unpaid = cat.entrants.filter(e => !e.paid).sort(byName), paid = cat.entrants.filter(e => e.paid).sort(byName);
   let n = 0;
   const sec = (title, arr, cls) => arr.length ? `<div class="enr-sec ${cls}"><div class="enr-sec-h">${title} <span class="muted">(${arr.length})</span></div>${arr.map(e => row(e, ++n)).join('')}</div>` : '';
-  return sec('💲 Falta pagar', unpaid, 'unpaid') + sec('✅ Pagaron', paid, 'paid');
+  // Aclaración para el organizador sobre el botón "Marcar pagado" (pago en mesa de control vs online).
+  const markHint = canPay ? `<p class="hint" style="margin:0 0 10px">💡 <b>“Marcar pagado”</b> es para el pago en efectivo o transferencia en la mesa de control. Los pagos online (MercadoPago) se confirman solos y no se pueden desmarcar a mano.</p>` : '';
+  return markHint + sec('💲 Falta pagar', unpaid, 'unpaid') + sec('✅ Pagaron', paid, 'paid');
 }
 function renderCategoria(app, tid, cid) {
   const t = tById(tid), cat = getCat(tid, cid);
@@ -4171,8 +4182,8 @@ function renderCategoria(app, tid, cid) {
       <details class="rules-more"><summary>ℹ️</summary>
         <div class="tags" style="margin-top:8px">
           ${cat.gender && cat.gender !== 'any' ? `<span class="tag">${GENDER_RULE_LABEL[cat.gender]}</span>` : ''}
-          <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>
-          <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>
+          <span class="tag">📋 Inscripción: ${ruleLabel(cat.rule)}</span>${infoTip(ELIG_HELP)}
+          <span class="tag">🎾 ${catSetsFmt(cat).label}</span><span class="tag">Grupos ${cat.rules.groupMin}–${cat.rules.groupMax}</span>${infoTip(GROUPS_HELP)}
           <span class="tag">🥇 ${cat.championPoints} pts</span>
           ${catCost(cat) > 0 ? `<span class="tag">💲 ${money(catCost(cat))}</span>` : ''}
           ${cat.startAt ? `<span class="tag">🕒 ${fmtStartAt(cat.startAt)}</span>` : ''}
@@ -4208,7 +4219,7 @@ function renderCategoria(app, tid, cid) {
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
       ${preStart ? `<button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>` : ''}
       ${cat.groups && !cat.bracket && !cat.closed ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
-      ${finalDone && thirdReady && !cat.closed && canAwardPoints(t) ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>` : ''}
+      ${finalDone && thirdReady && !cat.closed && canAwardPoints(t) ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>${infoTip(AWARD_HELP)}` : ''}
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
   } else {
@@ -4276,7 +4287,7 @@ function enrollModal(tid, cid) {
       ${isPaid ? `<br><small style="color:#16a34a">🔒 ya pagó — no se puede desinscribir</small>` : (el.ok ? '' : `<br><small style="color:#b42318">⛔ ${esc(el.reason)}</small>`)}</span></label>`;
   }).join('');
   openModal(`<h3>Anotar jugadores — ${esc(cat.name)}</h3>
-    <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b></p>
+    <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b> ${infoTip(ELIG_HELP)}</p>
     <input class="enroll-search" placeholder="🔍 Buscar jugador por nombre o localidad…" oninput="enrollFilter(this)"/>
     <div id="enrollList" style="max-height:46vh;overflow:auto">${opts || '<div class="empty">No hay jugadores.</div>'}</div>
     <div class="row spread" style="margin-top:16px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -4310,7 +4321,7 @@ function renderDoublesModal(tid, cid) {
     ${e.paid ? '<span class="muted" style="color:#16a34a;font-size:12px">🔒 pagó</span>' : `<button class="btn btn-ghost btn-sm" onclick="rmTeam(${i},'${tid}','${cid}')">🗑️</button>`}</div>`).join('');
   const cat = getCat(tid, cid);
   openModal(`<h3>Anotar parejas — ${esc(cat.name)}</h3>
-    <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b> (aplica a ambos)</p>
+    <p class="hint" style="margin-top:0">Regla de inscripción: <b>${ruleLabel(cat.rule)}</b> (aplica a ambos) ${infoTip(ELIG_HELP)}</p>
     <div class="grid2"><div>${sel('d_a')}</div><div>${sel('d_b')}</div></div>
     <button class="btn btn-accent btn-sm" style="margin-top:8px" onclick="addTeam('${tid}','${cid}')">➕ Agregar pareja</button>
     <div id="derr" class="banner" hidden></div>
@@ -4350,7 +4361,7 @@ function selfEnrollModal(tid, cid) {
     .filter(p => !enrolledIds.has(p.id) && p.id !== exclude && eligible(cat, p).ok);
   const sel = (id, list) => `<select id="${id}"><option value="">— elegí —</option>${list.map(p => `<option value="${p.id}">${esc(fullName(p))} · ${p.category}</option>`).join('')}</select>`;
   const close = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
-  const head = `<h3>Anotarme — ${esc(cat.name)}</h3><p class="hint" style="margin-top:0">Regla: <b>${ruleLabel(cat.rule)}</b>${cat.format === 'double' ? ' (aplica a ambos)' : ''}</p>`;
+  const head = `<h3>Anotarme — ${esc(cat.name)}</h3><p class="hint" style="margin-top:0">Regla: <b>${ruleLabel(cat.rule)}</b>${cat.format === 'double' ? ' (aplica a ambos)' : ''} ${infoTip(ELIG_HELP)}</p>`;
 
   if (me) { // logueado como jugador específico: se anota directo
     if (enrolledIds.has(me.id)) { openModal(`${head}<div class="banner">Ya estás anotado en esta categoría, ${esc(me.firstName)}.</div><div class="row spread" style="margin-top:16px">${close}</div>`); return; }
@@ -4584,7 +4595,7 @@ function bracketHtml(cat) {
         <button class="brz-btn" type="button" onclick="brZoom(1)" aria-label="Acercar">+</button>
         <button class="brz-btn brz-reset" type="button" onclick="brZoomReset()" aria-label="Restablecer zoom" title="Restablecer">⟳</button>
       </div>
-      <span class="brz-hint">${meInBracket ? '⭐ Tus partidos están resaltados · ' : ''}↔ deslizá para ver toda la llave</span>
+      <span class="brz-hint">${meInBracket ? '⭐ Tus partidos están resaltados · ' : ''}↔ deslizá para ver toda la llave ${infoTip(BYE_HELP)}</span>
     </div>`;
   return `${tools}<div class="bracket-scroll"><div class="bracket" id="brkt" style="zoom:${_brZoom}">${cols}${extra}</div></div>${champHtml}${awardedHtml(cat)}`;
 }
