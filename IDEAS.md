@@ -2,6 +2,8 @@
 
 ## Funcionalidades
 
+
+- [] que se pueda cambiar las reglas del torneo cuando ya se definieron los grupos pero no arracnaron todavía los partidos
 - [x] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
 - [x] Implementar el sistema que sugiera qué mesas y zonas largar .
   - [x] agregar un link en la setting para una página o un tooltip donde explique cómo funciona esta funcionalidad
@@ -59,3 +61,4 @@
 - [ ] 🤝 **Química de dobles** — analiza con qué compañero ganás más y sugiere tu **dupla ideal**.
 - [ ] 📈 **El club en números** — dashboard general (partidos totales, jugador más activo, partido más largo, día más movido…) + **"dato curioso del día"** automático.
 - [ ] 🎁 _Bonus:_ **Tu Año en el Club** (Wrapped estilo Spotify), **Coach IA** (scouting report personal con tus stats) y **Bot de WhatsApp** del club (postea resultados y responde `/ranking`).
+
