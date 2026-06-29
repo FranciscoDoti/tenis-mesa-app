@@ -682,6 +682,18 @@ function catStarted(cat) {
   if ((cat.matches || []).some(m => m.table != null || matchDone(m, cat))) return true;
   return false;
 }
+// ¿Se largó/jugó algo de la FASE DE GRUPOS? (primera mesa de zona, o algún partido de grupo con mesa o jugado)
+function groupsStarted(cat) {
+  if (cat.zoneTable && Object.keys(cat.zoneTable).some(k => cat.zoneTable[k] != null)) return true;
+  return (cat.matches || []).some(m => m.table != null || matchDone(m, cat));
+}
+// ¿Se largó/jugó algún partido de la LLAVE? (incluye el 3er puesto). La estructura de la llave se crea al
+// armar los grupos, así que la existencia de cat.bracket NO alcanza: hay que mirar si algún partido arrancó.
+function bracketStarted(cat) {
+  if (!cat.bracket) return false;
+  if (cat.bracket.some(round => round.some(m => m && (m.table != null || matchDone(m, cat))))) return true;
+  return !!(cat.thirdPlace && (cat.thirdPlace.table != null || matchDone(cat.thirdPlace, cat)));
+}
 // Popup de recordatorio de pago: se muestra una vez al iniciar sesión o recargar, si el jugador
 // tiene inscripciones impagas. Marca las categorías que ya empezaron (primera mesa largada).
 let _payReminderDone = false;
@@ -3989,10 +4001,15 @@ function renderTournament(app, tid) {
   if (!t.published && !canEditT(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
   const cards = t.categorias.map(c => {
     c._tid = t.id;
-    const finished = catFinished(c);
-    // "Finalizada" cuando ya hay campeón (con o sin puntos otorgados); "En llave" solo mientras se juega.
-    const st = (c.closed || finished) ? '🏁 Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : enrollmentStatus(c).label;
-    const stCls = (c.closed || finished) ? 'done' : (c.bracket || c.groups) ? 'live' : (enrollmentStatus(c).open ? 'open' : 'closed');
+    // Estado por fase (de la más avanzada a la menos): la estructura de la llave existe desde que se arman
+    // los grupos, así que NO alcanza con que exista cat.bracket — hay que mirar qué se está jugando.
+    let st, stCls;
+    if (c.closed || catFinished(c)) { st = '🏁 Finalizada'; stCls = 'done'; }              // ya hay campeón
+    else if (bracketStarted(c)) { st = '🏆 En llave'; stCls = 'live'; }                      // jugándose la llave
+    else if (groupStageComplete(c)) { st = '🏆 Llave por jugar'; stCls = 'live'; }           // grupos listos, llave sin largar
+    else if (groupsStarted(c)) { st = '🎲 Jugando grupos'; stCls = 'live'; }                 // grupos en juego
+    else if (c.groups) { st = '🎲 Grupos armados'; stCls = 'live'; }                         // grupos armados, nada jugado
+    else { const e = enrollmentStatus(c); st = e.label; stCls = e.open ? 'open' : 'closed'; } // todavía en inscripción
     const meta = [ruleLabel(c.rule), catSetsFmt(c).label, `🥇 ${c.championPoints}`,
       `${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jug.'}`,
       c.gender && c.gender !== 'any' ? GENDER_RULE_LABEL[c.gender] : null,
