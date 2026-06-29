@@ -2393,29 +2393,44 @@ function paidOnline(cat, entId) {
 /* ---------- historial de pagos (admin → torneos de su escuela · jugador → los suyos) ---------- */
 function setPayHist(field, val) { if (field === 'tid') payHistTid = val; render(); }
 function setPayHistPerson(pid) { payHistPid = pid || ''; render(); }
-const payRowHtml = (p, fmtDate) => `<div class="player-row">
-    <div class="meta"><div class="name">${esc(p.playerName || p.payerEmail || 'Pago')}</div>
-      <div class="sub">${esc(p.tournamentName || '')}${p.categoryName ? ' · ' + esc(p.categoryName) : ''} · ${fmtDate(p.createdAt)}</div></div>
-    <span class="pay-tag ok">${money(p.amount)}</span></div>`;
+function payFmtDate(s) { if (!s) return ''; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); }
+// Claves de inscripciones con pago ONLINE aprobado (para no duplicar al sumar los pagos "de mesa de control").
+function onlinePaidKeys() { const s = new Set(); (DB.payments || []).forEach(p => { if (p && p.status === 'approved') s.add(`${p.tournamentId}|${p.categoryId}|${p.entrantId}`); }); return s; }
+// Filas de pagos ONLINE (registro de MercadoPago) a partir de una lista de pagos.
+function onlinePayRows(payments) { return payments.map(p => ({ kind: 'online', name: p.playerName || p.payerEmail || 'Pago', tid: p.tournamentId, tourName: p.tournamentName || '', catName: p.categoryName || '', amount: Number(p.amount) || 0, dateLabel: payFmtDate(p.createdAt), createdAt: p.createdAt || '', pids: p.playerId ? [p.playerId] : [] })); }
+// Filas de pagos MANUALES (marcados por admin/colaborador en la mesa de control): inscripciones pagadas que
+// NO tienen un pago online. tours = torneos a recorrer; entOk = filtro opcional por inscripción (p. ej. jugador).
+function manualPayRows(tours, entOk) {
+  const keys = onlinePaidKeys(), rows = [];
+  (tours || []).forEach(t => (t.categorias || []).forEach(c => { const cost = catCost(c); if (cost <= 0) return;
+    (c.entrants || []).forEach(e => { if (!e.paid || keys.has(`${t.id}|${c.id}|${e.id}`)) return; if (entOk && !entOk(e)) return;
+      rows.push({ kind: 'manual', name: entName(c, e.id), tid: t.id, tourName: t.name, catName: c.name + (c.format === 'double' ? ' (dobles)' : ''), amount: cost, dateLabel: '', createdAt: '', pids: (e.players || []).slice() }); }); }));
+  return rows;
+}
+const payRowHtml = r => `<div class="player-row">
+    <div class="meta"><div class="name">${esc(r.name)}</div>
+      <div class="sub">${esc(r.tourName || '')}${r.catName ? ' · ' + esc(r.catName) : ''}${r.kind === 'manual' ? ' · 🛎️ pagó en mesa de control' : (r.dateLabel ? ' · ' + r.dateLabel : '')}</div></div>
+    <span class="pay-tag ok">${r.kind === 'manual' ? 'Pago' : money(r.amount)}</span></div>`;
+const paySortDesc = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 function renderPayHistory(app) {
   const u = currentUser(), isAdm = isAdmin(), oid = ctxOrgId(), sid = ctxSchoolId(), myPid = u && u.playerId;
-  const fmtDate = s => { if (!s) return '—'; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); };
-  const sortDesc = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
-  // ----- Jugador: SOLO sus propios pagos, lista directa (es una lista corta y personal) -----
+  // ----- Jugador: SOLO sus propios pagos (online + los marcados en mesa de control), lista directa -----
   if (!isAdm) {
-    const list = (DB.payments || []).filter(p => p.playerId === myPid).slice().sort(sortDesc);
-    const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const rows = [...onlinePayRows((DB.payments || []).filter(p => p.playerId === myPid)),
+      ...manualPayRows(DB.tournaments || [], e => (e.players || []).includes(myPid))].sort(paySortDesc);
+    const total = rows.reduce((s, r) => s + r.amount, 0);
     app.innerHTML = `<div class="page-title"><h1>🧾 Mis pagos</h1></div>
-      <p class="page-sub">Tus pagos online aprobados.${list.length ? ` ${list.length} pago(s) · total <b>${money(total)}</b>.` : ''}</p>
-      ${list.length ? list.map(p => payRowHtml(p, fmtDate)).join('') : '<div class="empty">Todavía no hiciste pagos online.</div>'}`;
+      <p class="page-sub">Tus pagos de inscripción (online y en mesa de control).${rows.length ? ` ${rows.length} pago(s) · total <b>${money(total)}</b>.` : ''}</p>
+      ${rows.length ? rows.map(payRowHtml).join('') : '<div class="empty">Todavía no registrás pagos.</div>'}`;
     return;
   }
-  // ----- Admin: pagos a torneos de SU escuela (superadmin no llega acá: es solo-ajustes) -----
-  const base = (DB.payments || []).filter(p => isSuperadmin() ? p.orgId === oid : p.schoolId === sid);
-  const tourMap = {}; base.forEach(p => { if (p.tournamentId) tourMap[p.tournamentId] = p.tournamentName || p.tournamentId; });
+  // ----- Admin: pagos a torneos de SU escuela (online + marcados en mesa de control). Superadmin no llega acá. -----
+  const allRows = [...onlinePayRows((DB.payments || []).filter(p => isSuperadmin() ? p.orgId === oid : p.schoolId === sid)),
+    ...manualPayRows((DB.tournaments || []).filter(t => t.orgId === oid && t.schoolId === sid), null)];
+  const tourMap = {}; allRows.forEach(r => { if (r.tid) tourMap[r.tid] = r.tourName || r.tid; });
   const tOpts = `<option value="">Todos los torneos</option>` + Object.keys(tourMap).sort((a, b) => tourMap[a].localeCompare(tourMap[b])).map(id => `<option value="${id}" ${payHistTid === id ? 'selected' : ''}>${esc(tourMap[id])}</option>`).join('');
   let html = `<div class="page-title"><h1>🧾 Historial de pagos</h1></div>
-    <p class="page-sub">Pagos online aprobados a torneos de ${esc(schoolName(oid, sid))}. Filtrá por torneo o persona para ver los pagos.</p>
+    <p class="page-sub">Pagos de inscripción a torneos de ${esc(schoolName(oid, sid))} (online y en mesa de control). Filtrá por torneo o persona para ver los pagos.</p>
     <div class="card" style="max-width:680px">
       <label>Torneo</label><select onchange="setPayHist('tid', this.value)">${tOpts}</select>
       <label style="margin-top:8px">Buscar persona</label>${personPickerHtml(payHistPid, 'setPayHistPerson')}
@@ -2423,10 +2438,10 @@ function renderPayHistory(app) {
   // No traer todo: los resultados recién aparecen cuando se aplica un filtro (torneo o persona).
   const hasFilter = !!(payHistTid || payHistPid);
   if (!hasFilter) { app.innerHTML = html + `<div class="empty" style="margin-top:16px">🔎 Elegí un <b>torneo</b> o una <b>persona</b> para ver los pagos.</div>`; return; }
-  const list = base.filter(p => (!payHistTid || p.tournamentId === payHistTid) && (!payHistPid || p.playerId === payHistPid)).slice().sort(sortDesc);
-  const total = list.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  html += `<div class="report-total"><b>${list.length}</b> pago(s) · total <b>${money(total)}</b></div>`;
-  app.innerHTML = html + (list.length ? list.map(p => payRowHtml(p, fmtDate)).join('') : `<div class="empty" style="margin-top:12px">No hay pagos para esos filtros.</div>`);
+  const rows = allRows.filter(r => (!payHistTid || r.tid === payHistTid) && (!payHistPid || r.pids.includes(payHistPid))).sort(paySortDesc);
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  html += `<div class="report-total"><b>${rows.length}</b> pago(s) · total <b>${money(total)}</b></div>`;
+  app.innerHTML = html + (rows.length ? rows.map(payRowHtml).join('') : `<div class="empty" style="margin-top:12px">No hay pagos para esos filtros.</div>`);
 }
 
 /* ---------- noticias ---------- */
