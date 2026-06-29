@@ -4655,14 +4655,19 @@ function bracketHtml(cat) {
   const isMine = id => !!(myId && id && id !== 'BYE' && ((entById(cat, id) || {}).players || []).includes(myId));
   let meInBracket = false;
   const slotName = id => id === 'BYE' ? '<i class="muted">BYE</i>' : isQ(id) ? `<i class="br-q">${esc(qLabel(id))}</i>` : id ? entLink(cat, id) : '<i class="muted">—</i>';
-  const slot = (id, w, sc) => { const mine = isMine(id); if (mine) meInBracket = true; return `<div class="br-slot ${w ? 'win' : ''} ${mine ? 'mine' : ''}">${w ? '<span class="br-trophy">🏆</span>' : ''}${slotName(id)}${mine ? '<span class="br-you">vos</span>' : ''}<span class="br-s">${sc}</span></div>`; };
+  // medal: emoji a mostrar en el slot (🏆 campeón, 🥈 finalista, 🥉 3º). Vacío en el resto de los partidos.
+  const slot = (id, w, sc, medal) => { const mine = isMine(id); if (mine) meInBracket = true; return `<div class="br-slot ${w ? 'win' : ''} ${mine ? 'mine' : ''}">${medal ? `<span class="br-trophy">${medal}</span>` : ''}${slotName(id)}${mine ? '<span class="br-you">vos</span>' : ''}<span class="br-s">${sc}</span></div>`; };
   const matchCls = (a, b, done) => `br-match${(isMine(a) || isMine(b)) ? ' mine-match' : ''}${done ? ' done' : ''}`;
   const cols = cat.bracket.map((round, r) => `<div class="br-col"><div class="br-rtitle">${rname(r)}</div>` +
     round.map((mm, m) => { const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b'), res = matchResult(mm), w = brWinner(cat, r, m), done = matchDone(mm, cat);
       const playable = isRealEnt(cat, a) && isRealEnt(cat, b); // ambos contendientes definidos (no "1ro/2do Grupo X" ni BYE)
       const can = canEditCat(cat) && playable;
       const mesa = (playable && !done) ? startControl(cat, 'bracket', null, r, m, mm) : '';
-      return `<div class="${matchCls(a, b, done)}">${slot(a, w && w === a, done ? res.wa : '')}${slot(b, w && w === b, done ? res.wb : '')}
+      // El 🏆 (y la 🥈 del perdedor) van SOLO en la final; los demás partidos no llevan medalla.
+      const isFinal = r === T - 1;
+      const medA = (isFinal && done) ? (w === a ? '🏆' : isRealEnt(cat, a) ? '🥈' : '') : '';
+      const medB = (isFinal && done) ? (w === b ? '🏆' : isRealEnt(cat, b) ? '🥈' : '') : '';
+      return `<div class="${matchCls(a, b, done)}">${slot(a, w && w === a, done ? res.wa : '', medA)}${slot(b, w && w === b, done ? res.wb : '', medB)}
         ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : (playable && !done && estStartLabel(mm) ? `<div class="br-est">${estStartLabel(mm)}</div>` : '')}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
         ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}
@@ -4675,21 +4680,27 @@ function bracketHtml(cat) {
     // Alguna semi fue "real vs BYE": no hay partido por el 3º; el semifinalista real queda 3º. (Solo cuando
     // AMBAS semis ya están decididas: si una todavía no se jugó, NO mostramos el 3er puesto.)
     const real = isRealEnt(cat, sl0) ? sl0 : isRealEnt(cat, sl1) ? sl1 : null;
-    if (real) extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(real, null, true)}">${slot(real, true, '')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
+    if (real) extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(real, null, true)}">${slot(real, true, '', '🥉')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
   } else if (cat.thirdPlace && bothSemisDecided) {
     const a = sl0, b = sl1, res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
     const playable = isRealEnt(cat, a) && isRealEnt(cat, b);
     const can = canEditCat(cat) && playable;
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
     extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(a, b, done)}">
-      ${slot(a, w === 'a', done ? res.wa : '')}${slot(b, w === 'b', done ? res.wb : '')}
+      ${slot(a, w === 'a', done ? res.wa : '', done && w === 'a' ? '🥉' : '')}${slot(b, w === 'b', done ? res.wb : '', done && w === 'b' ? '🥉' : '')}
       ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : (playable && !done && estStartLabel(cat.thirdPlace) ? `<div class="br-est">${estStartLabel(cat.thirdPlace)}</div>` : '')}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
       ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}
       ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','third',null,null,null)" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div></div>`;
   }
   const champ = brWinner(cat, T - 1, 0);
-  const champHtml = champ && champ !== 'BYE' ? `<div class="champ ${isMine(champ) ? 'champ-mine' : ''}">🏆 <span>Campeón</span> <b>${entLink(cat, champ)}</b>${isMine(champ) ? ' <span class="br-you">vos</span>' : ''}</div>` : '';
+  // Podio al pie de la llave: 🏆 campeón + 🥈 2º + 🥉 3º (los que ya estén definidos).
+  let champHtml = '';
+  if (champ && champ !== 'BYE') {
+    const pmap = placements(cat), idAt = n => { const hit = Object.entries(pmap).find(([, pl]) => pl === n); return hit ? hit[0] : null; };
+    const line = (medal, label, id) => id ? `<div class="champ-line ${isMine(id) ? 'champ-mine' : ''}">${medal} <span>${label}</span> <b>${entLink(cat, id)}</b>${isMine(id) ? ' <span class="br-you">vos</span>' : ''}</div>` : '';
+    champHtml = `<div class="champ-podium">${line('🏆', 'Campeón', idAt(1))}${line('🥈', '2º puesto', idAt(2))}${line('🥉', '3er puesto', idAt(3))}</div>`;
+  }
   const tools = `<div class="bracket-tools">
       <div class="brz">
         <button class="brz-btn" type="button" onclick="brZoom(-1)" aria-label="Alejar">−</button>
@@ -4705,7 +4716,8 @@ function awardedHtml(cat) {
   if (!cat.awarded || !Object.keys(cat.awarded).length) return '';
   const rows = Object.entries(cat.awarded).sort((a, b) => b[1] - a[1]).map(([eid, pts]) =>
     `<li><span>${entLink(cat, eid)}</span><span class="pts ${pts < 0 ? 'neg' : ''}" style="margin-left:auto">${pts >= 0 ? '+' : ''}${pts} pts</span></li>`).join('');
-  return `<div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">Cambios de puntaje del torneo</h3><ul class="awarded">${rows}</ul></div>`;
+  // Colapsada por defecto: el podio queda arriba y el detalle de puntos por jugador se abre si se quiere.
+  return `<details class="card awarded-card" style="margin-top:14px"><summary>📊 Puntos sumados al ranking por jugador</summary><ul class="awarded">${rows}</ul></details>`;
 }
 
 /* ----- result modal (per-set) ----- */

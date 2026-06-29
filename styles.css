@@ -287,6 +287,19 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .champ span{text-transform:uppercase; font-size:11px; letter-spacing:.8px; font-weight:800; opacity:.8}
 .champ b{font-size:17px}
 .champ.champ-mine{background:linear-gradient(120deg,#fff1df,#ffe1bd); border-color:var(--ball); box-shadow:0 0 0 2px rgba(255,122,26,.3),var(--shadow)}
+/* podio al pie de la llave: 🏆 1º / 🥈 2º / 🥉 3º */
+.champ-podium{margin-top:16px; display:flex; flex-direction:column; gap:8px; background:linear-gradient(120deg,#fff6e6,#ffe9c7); border:1px solid #ffd8a8; border-radius:14px; padding:13px 16px; box-shadow:var(--shadow)}
+.champ-line{display:flex; align-items:center; gap:8px; color:#8a5400; font-weight:600; font-size:15px}
+.champ-line span{text-transform:uppercase; font-size:10.5px; letter-spacing:.8px; font-weight:800; opacity:.8}
+.champ-line b{font-size:16px}
+.champ-line:first-child b{font-size:18px}
+.champ-line.champ-mine{background:rgba(255,122,26,.12); border-radius:8px; margin:-2px -6px; padding:2px 6px}
+/* lista colapsable de puntos sumados al ranking */
+details.awarded-card>summary{cursor:pointer; font-weight:800; font-size:14px; list-style:none}
+details.awarded-card>summary::-webkit-details-marker{display:none}
+details.awarded-card>summary::before{content:'▸ '; color:var(--muted)}
+details.awarded-card[open]>summary::before{content:'▾ '}
+details.awarded-card[open]>summary{margin-bottom:8px}
 .setrow{display:flex; align-items:center; gap:10px; margin:6px 0}
 .setrow>span{width:52px; color:var(--muted); font-size:13px; font-weight:600}
 .setrow input{width:72px; text-align:center}
