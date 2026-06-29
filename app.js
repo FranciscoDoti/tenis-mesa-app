@@ -4507,8 +4507,14 @@ const groupStageComplete = cat => cat.matches && cat.matches.length > 0 && cat.m
 // cada render() (que ocurre tras cargar cada resultado) y el admin tiene que reabrirlas todo el tiempo.
 const _openDetails = new Set();
 function detToggle(key, el) { if (el && el.open) _openDetails.add(key); else _openDetails.delete(key); }
-const _grpCollapsed = new Set(); // grupos colapsados (clave "catId:gi")
-function toggleGroup(cid, gi) { const k = cid + ':' + gi; if (_grpCollapsed.has(k)) _grpCollapsed.delete(k); else _grpCollapsed.add(k); render(); }
+// Estado de colapso de grupos. Por defecto un grupo FINALIZADO arranca colapsado; el usuario puede
+// forzar abrir/cerrar y su elección manda (se recuerda en estos sets, según el estado efectivo que ve).
+const _grpCollapsed = new Set(); // grupos que el usuario colapsó manualmente (clave "catId:gi")
+const _grpExpanded = new Set();  // grupos que el usuario expandió manualmente (override del colapso automático)
+// `wasCollapsed` = estado efectivo que el usuario está viendo (se lo pasamos desde el header para invertirlo).
+function toggleGroup(cid, gi, wasCollapsed) { const k = cid + ':' + gi;
+  if (wasCollapsed) { _grpCollapsed.delete(k); _grpExpanded.add(k); } else { _grpExpanded.delete(k); _grpCollapsed.add(k); }
+  render(); }
 // Zoom de la llave (sobre todo para el celu): se aplica con CSS `zoom` al contenedor de la llave,
 // así el scroll del contenedor sigue funcionando. Se guarda el nivel para sobrevivir a un re-render.
 let _brZoom = 1, _brScroll = { left: 0, top: 0 }; // zoom + posición de scroll de la llave (para que no salte al re-renderizar)
@@ -4551,9 +4557,12 @@ function groupCardHtml(cat, gi) {
       ${actions}</div>`;
   }).join('');
   const zc = zoneControl(cat, gi);
-  const key = cat.id + ':' + gi, collapsed = _grpCollapsed.has(key);
-  return `<div class="group-card${collapsed ? ' collapsed' : ''}">
-    <h4 onclick="toggleGroup('${cat.id}',${gi})">Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length} <span class="grp-caret">▾</span></h4>
+  const key = cat.id + ':' + gi, done = groupComplete(cat, gi);
+  // Por defecto, un grupo finalizado arranca colapsado; respeta el override manual del usuario.
+  const collapsed = _grpExpanded.has(key) ? false : (_grpCollapsed.has(key) ? true : done);
+  return `<div class="group-card${collapsed ? ' collapsed' : ''}${done ? ' done' : ''}">
+    <h4 onclick="toggleGroup('${cat.id}',${gi},${collapsed})"><span>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</span>
+      <span class="grp-right">${done ? '<span class="grp-done">✓ FINALIZADO</span>' : ''}<span class="grp-caret">▾</span></span></h4>
     <div class="group-body">${zc ? `<div class="zone-bar">${zc}</div>` : ''}<ul>${rows}</ul><div class="matches">${ms}</div></div></div>`;
 }
 

@@ -180,9 +180,13 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .groups{display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; margin-top:14px}
 .group-card{border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff}
 .group-card h4{margin:0; padding:10px 12px; background:var(--table); color:#fff; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; user-select:none}
+.group-card .grp-right{display:flex; align-items:center; gap:8px}
 .group-card .grp-caret{font-size:12px; transition:transform .15s}
+.group-card .grp-done{font-size:10px; font-weight:800; letter-spacing:.5px; background:rgba(255,255,255,.22); color:#fff; padding:2px 8px; border-radius:999px; white-space:nowrap}
 .group-card.collapsed .grp-caret{transform:rotate(-90deg)}
 .group-card.collapsed .group-body{display:none}
+/* el header de un grupo finalizado se ve más apagado (verde-grisáceo) para distinguirlo de un vistazo */
+.group-card.done h4{background:#5a8a6f}
 .zone-bar{display:flex; justify-content:center; padding:8px 8px 0}
 .zone-bar .start-btn,.zone-bar .mesa-badge{width:100%; text-align:center; justify-content:center}
 .wo-tag{flex:0 0 auto; font-size:10px; font-weight:800; color:#8a5400; background:#fff3e0; border:1px solid #ffd8a8; border-radius:6px; padding:0 5px}
