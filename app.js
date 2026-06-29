@@ -1268,8 +1268,8 @@ function catMatchList(cat) {
   if (cat.bracket) {
     const T = cat.bracket.length;
     const rname = r => { const fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); };
-    cat.bracket.forEach((round, r) => round.forEach((mm, mi) => { const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b'); if (a && b && a !== 'BYE' && b !== 'BYE') out.push({ a, b, m: mm, phase: rname(r) }); }));
-    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') out.push({ a, b, m: cat.thirdPlace, phase: '3er puesto' }); }
+    cat.bracket.forEach((round, r) => round.forEach((mm, mi) => { const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b'); if (isRealEnt(cat, a) && isRealEnt(cat, b)) out.push({ a, b, m: mm, phase: rname(r) }); }));
+    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (isRealEnt(cat, a) && isRealEnt(cat, b)) out.push({ a, b, m: cat.thirdPlace, phase: '3er puesto' }); }
   }
   return out;
 }
@@ -3288,10 +3288,10 @@ function tournamentUnits(t) {
     });
     if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
       const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
-      if (!(a && b && a !== 'BYE' && b !== 'BYE')) return;
+      if (!(isRealEnt(cat, a) && isRealEnt(cat, b))) return;
       units.push({ kind: 'bracket', cat, m: mm, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
     }));
-    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'bracket', cat, m: cat.thirdPlace, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
+    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (isRealEnt(cat, a) && isRealEnt(cat, b)) units.push({ kind: 'bracket', cat, m: cat.thirdPlace, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
     (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, m, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), who: `${entName(cat, m.a)} vs ${entName(cat, m.b)}`, prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
   });
   return units;
@@ -3359,10 +3359,10 @@ function scheduleUnits(t) {
     if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
       if (matchDone(mm, cat)) return;
       const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
-      if (!(a && b && a !== 'BYE' && b !== 'BYE')) return; // contendientes sin definir → no estimamos
+      if (!(isRealEnt(cat, a) && isRealEnt(cat, b))) return; // contendientes sin definir → no estimamos
       units.push({ kind: 'match', cat, table: mm.table != null ? mm.table : null, matches: [mm], players: matchPlayers(cat, a, b), prio, startMs });
     }));
-    if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (a && b && a !== 'BYE' && b !== 'BYE') units.push({ kind: 'match', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, matches: [cat.thirdPlace], players: matchPlayers(cat, a, b), prio, startMs }); }
+    if (cat.thirdPlace && !matchDone(cat.thirdPlace, cat)) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (isRealEnt(cat, a) && isRealEnt(cat, b)) units.push({ kind: 'match', cat, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, matches: [cat.thirdPlace], players: matchPlayers(cat, a, b), prio, startMs }); }
     (cat.matches || []).forEach(m => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'match', cat, table: m.table != null ? m.table : null, matches: [m], players: matchPlayers(cat, m.a, m.b), prio, startMs }); });
   });
   return units;
@@ -4234,7 +4234,12 @@ function renderCategoria(app, tid, cid) {
   }
 
   // Pestañas: muestran de a una sección para no saturar la pantalla.
-  const defaultTab = (cat.bracket && groupStageComplete(cat)) ? 'llave' : (cat.groups ? 'grupos' : 'inscriptos');
+  // Pestaña por defecto al entrar a la categoría: grupos sin empezar → Inscriptos; grupos en juego → Grupos;
+  // grupos terminados → Llave. (catTab, si el usuario eligió otra pestaña, manda; se resetea al cambiar de categoría.)
+  const defaultTab = !cat.groups ? 'inscriptos'
+    : groupStageComplete(cat) ? 'llave'
+      : catStarted(cat) ? 'grupos'
+        : 'inscriptos';
   const tab = catTab || defaultTab;
   const tb = (id, label) => `<button class="cat-tab${tab === id ? ' active' : ''}" onclick="setCatTab('${id}')">${label}</button>`;
   html += `<div class="cat-tabs">${tb('inscriptos', `📋 Inscriptos${cat.entrants.length ? ` (${cat.entrants.length})` : ''}`)}${tb('grupos', '🎲 Grupos')}${tb('llave', '🏆 Llave')}</div>`;
