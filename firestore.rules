@@ -89,8 +89,14 @@ service cloud.firestore {
     // Historial de pagos (PII: email/monto del pagador). Lo escribe SOLO el backend (Worker, vía
     // cuenta de servicio, que saltea reglas). Lectura SCOPEADA: superadmin todo, admin solo su escuela,
     // jugador solo sus propios pagos. Los campos orgId/schoolId/playerId los escribe el Worker nativos.
+    // Lectura: superadmin (todo), admin de la escuela del pago, o el propio jugador. IMPORTANTE: el admin
+    // se valida SOLO por schoolId (que es un id único), NO por orgId. Si la regla dependiera de orgId,
+    // la consulta del cliente (que filtra por schoolId) sería rechazada por completo por las reglas
+    // ("las reglas no son filtros") y el admin no vería ningún pago.
     match /payments/{id} {
-      allow read: if canManageSchool(resource.data) || (signedIn() && resource.data.playerId == myPlayerId());
+      allow read: if isSuperadmin()
+        || (isAdmin() && resource.data.schoolId == userData().schoolId)
+        || (signedIn() && resource.data.playerId == myPlayerId());
       allow write: if false;
     }
   }
