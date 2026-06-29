@@ -1,8 +1,8 @@
 /* Service worker — hace la app instalable (PWA) y cachea el "shell" para abrir rápido / offline. */
-const CACHE = 'ttmesa-v5';
+const CACHE = 'ttmesa-v6';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
-  './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
+  './manifest.json', './icons/icon-192-v2.png', './icons/icon-512-v2.png'
 ];
 
 self.addEventListener('install', e => {
