@@ -4001,7 +4001,8 @@ function renderTournament(app, tid) {
     const pay = (() => { const m = myPaymentStatus(c); return m ? `<div class="pay-line ${m.paid ? 'ok' : 'no'}">${m.paid ? '✅ Inscripción pagada' : `💲 Te falta pagar ${money(m.cost)}`}</div>` : ''; })();
     // Resumen visible SIN expandir: inscriptos y (si la categoría tiene costo) cuántos pagaron / faltan.
     const nEnr = c.entrants.length, nPaid = c.entrants.filter(e => e.paid).length;
-    const counts = catCost(c) > 0
+    // El detalle de cuántos pagaron / faltan es solo para admin/colaborador; el jugador ve únicamente el total de inscriptos.
+    const counts = (catCost(c) > 0 && canEditT(t))
       ? `<span class="cc-chip">👥 ${nEnr}</span><span class="cc-chip ok">✅ ${nPaid} pagaron</span><span class="cc-chip no">💲 ${nEnr - nPaid} faltan</span>`
       : `<span class="cc-chip">👥 ${nEnr} ${c.format === 'double' ? 'parejas' : 'inscriptos'}</span>`;
     return `<details class="cat-card">
@@ -4220,8 +4221,10 @@ function entrantsListHtml(cat) {
       <div class="meta"><div class="name">${entLink(cat, e.id)}${mine ? ' <span class="you-tag">vos</span>' : ''}</div>
       <div class="sub">${sub}</div></div>${pay}</div>`;
   };
-  // Sin costo → una sola lista. Con costo → arriba los que NO pagaron, abajo los que pagaron.
-  if (cost <= 0) { let n = 0; return cat.entrants.slice().sort(byName).map(e => row(e, ++n)).join(''); }
+  // Sin costo, o jugador SIN permiso (no admin/colaborador) → una sola lista, sin revelar quién pagó y quién no.
+  // (Cada fila solo muestra el estado de pago del PROPIO inscripto; el de los demás queda oculto.)
+  if (cost <= 0 || !canPay) { let n = 0; return cat.entrants.slice().sort(byName).map(e => row(e, ++n)).join(''); }
+  // Admin/colaborador, con costo → arriba los que NO pagaron, abajo los que pagaron.
   const unpaid = cat.entrants.filter(e => !e.paid).sort(byName), paid = cat.entrants.filter(e => e.paid).sort(byName);
   let n = 0;
   const sec = (title, arr, cls) => arr.length ? `<div class="enr-sec ${cls}"><div class="enr-sec-h">${title} <span class="muted">(${arr.length})</span></div>${arr.map(e => row(e, ++n)).join('')}</div>` : '';
