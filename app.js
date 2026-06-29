@@ -821,6 +821,7 @@ let view = 'ranking';
 let histA = null, histB = null, histOpen = null; // historial head-to-head
 let reportTid = '', reportMode = 'cat', reportCat = '', reportPerson = '', reportStatus = 'all'; // estado del reporte de pagos
 let payHistTid = '', payHistPid = ''; // filtros del historial de pagos online (torneo + persona)
+let myPayTid = '', myPayCid = ''; // filtros de "Mis pagos" del jugador (torneo + categoría)
 let profileNote = ''; // aviso transitorio en Perfil
 let rankOpen = new Set(); // categorías del ranking desplegadas (todas colapsadas por defecto; se ve el líder en el encabezado)
 let catTab = null, catTabFor = null; // pestaña activa del detalle de categoría (Inscriptos/Grupos/Llave) y para qué categoría
@@ -2398,19 +2399,20 @@ function paidOnline(cat, entId) {
 
 /* ---------- historial de pagos (admin → torneos de su escuela · jugador → los suyos) ---------- */
 function setPayHist(field, val) { if (field === 'tid') payHistTid = val; render(); }
+function setMyPay(field, val) { if (field === 'tid') { myPayTid = val; myPayCid = ''; } else if (field === 'cid') myPayCid = val; render(); }
 function setPayHistPerson(pid) { payHistPid = pid || ''; render(); }
 function payFmtDate(s) { if (!s) return ''; const d = String(s).split('T')[0].split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : String(s); }
 // Claves de inscripciones con pago ONLINE aprobado (para no duplicar al sumar los pagos "de mesa de control").
 function onlinePaidKeys() { const s = new Set(); (DB.payments || []).forEach(p => { if (p && p.status === 'approved') s.add(`${p.tournamentId}|${p.categoryId}|${p.entrantId}`); }); return s; }
 // Filas de pagos ONLINE (registro de MercadoPago) a partir de una lista de pagos.
-function onlinePayRows(payments) { return payments.map(p => ({ kind: 'online', name: p.playerName || p.payerEmail || 'Pago', tid: p.tournamentId, tourName: p.tournamentName || '', catName: p.categoryName || '', amount: Number(p.amount) || 0, dateLabel: payFmtDate(p.createdAt), createdAt: p.createdAt || '', pids: p.playerId ? [p.playerId] : [] })); }
+function onlinePayRows(payments) { return payments.map(p => ({ kind: 'online', name: p.playerName || p.payerEmail || 'Pago', tid: p.tournamentId, tourName: p.tournamentName || '', cid: p.categoryId || '', catName: p.categoryName || '', amount: Number(p.amount) || 0, dateLabel: payFmtDate(p.createdAt), createdAt: p.createdAt || '', pids: p.playerId ? [p.playerId] : [] })); }
 // Filas de pagos MANUALES (marcados por admin/colaborador en la mesa de control): inscripciones pagadas que
 // NO tienen un pago online. tours = torneos a recorrer; entOk = filtro opcional por inscripción (p. ej. jugador).
 function manualPayRows(tours, entOk) {
   const keys = onlinePaidKeys(), rows = [];
   (tours || []).forEach(t => (t.categorias || []).forEach(c => { const cost = catCost(c); if (cost <= 0) return;
     (c.entrants || []).forEach(e => { if (!e.paid || keys.has(`${t.id}|${c.id}|${e.id}`)) return; if (entOk && !entOk(e)) return;
-      rows.push({ kind: 'manual', name: entName(c, e.id), tid: t.id, tourName: t.name, catName: c.name + (c.format === 'double' ? ' (dobles)' : ''), amount: cost, dateLabel: '', createdAt: '', pids: (e.players || []).slice() }); }); }));
+      rows.push({ kind: 'manual', name: entName(c, e.id), tid: t.id, tourName: t.name, cid: c.id, catName: c.name + (c.format === 'double' ? ' (dobles)' : ''), amount: cost, dateLabel: '', createdAt: '', pids: (e.players || []).slice() }); }); }));
   return rows;
 }
 const payRowHtml = r => `<div class="player-row">
@@ -2420,14 +2422,34 @@ const payRowHtml = r => `<div class="player-row">
 const paySortDesc = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 function renderPayHistory(app) {
   const u = currentUser(), isAdm = isAdmin(), oid = ctxOrgId(), sid = ctxSchoolId(), myPid = u && u.playerId;
-  // ----- Jugador: SOLO sus propios pagos (online + los marcados en mesa de control), lista directa -----
+  // ----- Jugador: SOLO sus propios pagos (online + los marcados en mesa de control), con filtros por torneo y categoría -----
   if (!isAdm) {
-    const rows = [...onlinePayRows((DB.payments || []).filter(p => p.playerId === myPid)),
+    const allMine = [...onlinePayRows((DB.payments || []).filter(p => p.playerId === myPid)),
       ...manualPayRows(DB.tournaments || [], e => (e.players || []).includes(myPid))].sort(paySortDesc);
+    // Torneos presentes en MIS pagos (cada opción rinde ≥1 resultado).
+    const tourMap = {}; allMine.forEach(r => { if (r.tid) tourMap[r.tid] = r.tourName || r.tid; });
+    const tIds = Object.keys(tourMap).sort((a, b) => tourMap[a].localeCompare(tourMap[b]));
+    if (myPayTid && !tourMap[myPayTid]) { myPayTid = ''; myPayCid = ''; } // el filtro quedó fuera de mis pagos
+    // Categorías presentes: si hay torneo elegido, las de ese torneo; si no, todas las de mis pagos.
+    const catScope = allMine.filter(r => !myPayTid || r.tid === myPayTid);
+    const catMap = {}; catScope.forEach(r => { if (r.cid) catMap[r.cid] = r.catName || r.cid; });
+    const cIds = Object.keys(catMap).sort((a, b) => catMap[a].localeCompare(catMap[b]));
+    if (myPayCid && !catMap[myPayCid]) myPayCid = ''; // la categoría no aplica al torneo elegido
+    const tOpts = `<option value="">Todos los torneos</option>` + tIds.map(id => `<option value="${id}" ${myPayTid === id ? 'selected' : ''}>${esc(tourMap[id])}</option>`).join('');
+    const cOpts = `<option value="">Todas las categorías</option>` + cIds.map(id => `<option value="${id}" ${myPayCid === id ? 'selected' : ''}>${esc(catMap[id])}</option>`).join('');
+    const rows = allMine.filter(r => (!myPayTid || r.tid === myPayTid) && (!myPayCid || r.cid === myPayCid));
     const total = rows.reduce((s, r) => s + r.amount, 0);
-    app.innerHTML = `<div class="page-title"><h1>🧾 Mis pagos</h1></div>
-      <p class="page-sub">Tus pagos de inscripción (online y en mesa de control).${rows.length ? ` ${rows.length} pago(s) · total <b>${money(total)}</b>.` : ''}</p>
-      ${rows.length ? rows.map(payRowHtml).join('') : '<div class="empty">Todavía no registrás pagos.</div>'}`;
+    let html = `<div class="page-title"><h1>🧾 Mis pagos</h1></div>
+      <p class="page-sub">Tus pagos de inscripción (online y en mesa de control).</p>`;
+    if (!allMine.length) { app.innerHTML = html + '<div class="empty">Todavía no registrás pagos.</div>'; return; }
+    html += `<div class="card" style="max-width:680px">
+        <div class="grid2">
+          <div><label>Torneo</label><select onchange="setMyPay('tid', this.value)">${tOpts}</select></div>
+          <div><label>Categoría</label><select onchange="setMyPay('cid', this.value)">${cOpts}</select></div>
+        </div>
+      </div>
+      <div class="report-total"><b>${rows.length}</b> pago(s) · total <b>${money(total)}</b></div>`;
+    app.innerHTML = html + (rows.length ? rows.map(payRowHtml).join('') : `<div class="empty" style="margin-top:12px">No hay pagos para esos filtros.</div>`);
     return;
   }
   // ----- Admin: pagos a torneos de SU escuela (online + marcados en mesa de control). Superadmin no llega acá. -----
@@ -4173,7 +4195,7 @@ function renderCategoria(app, tid, cid) {
   _est = (setting('matchTimeEstimates') && t) ? estimateSchedule(t) : null; // horarios estimados (todo el torneo)
   let html = `<button class="btn btn-ghost btn-sm" onclick="go('torneo:${tid}')">← Volver</button>
     <div class="page-title" style="margin-top:12px"><h1>${esc(cat.name)}</h1></div>`;
-  if (catTabFor !== cid) { catTabFor = cid; catTab = null; } // resetear la pestaña activa al cambiar de categoría
+  if (catTabFor !== cid) { catTabFor = cid; catTab = null; _brScroll = { left: 0, top: 0 }; } // al cambiar de categoría: pestaña por defecto y scroll de la llave reseteado
   const enr = enrollmentStatus(cat);
   // Reglas: una línea resumen + estado, con el detalle completo detrás de ℹ️.
   const summaryBits = [cat.format === 'double' ? '👥 Dobles' : '👤 Singles', ruleLabel(cat.rule), catSetsFmt(cat).label, `${cat.entrants.length} inscriptos`].join(' · ');
@@ -4253,7 +4275,14 @@ function renderCategoria(app, tid, cid) {
     else html += `<div class="empty">Primero armá los grupos.</div>`;
   }
   app.innerHTML = html;
-  if (tab === 'llave' && cat.bracket) applyBrZoom(); // dimensiona el "sizer" según el zoom (el scroll queda dentro del recuadro)
+  if (tab === 'llave' && cat.bracket) {
+    applyBrZoom(); // dimensiona el "sizer" según el zoom (el scroll queda dentro del recuadro)
+    const sc = document.querySelector('.bracket-scroll');
+    if (sc) { // restaura la posición de scroll y la recuerda, así no salta a la izquierda al cargar un resultado
+      sc.scrollLeft = _brScroll.left; sc.scrollTop = _brScroll.top;
+      sc.addEventListener('scroll', () => { _brScroll = { left: sc.scrollLeft, top: sc.scrollTop }; }, { passive: true });
+    }
+  }
 }
 
 /* ----- estado de inscripción (torneo + override por categoría) ----- */
@@ -4482,7 +4511,7 @@ const _grpCollapsed = new Set(); // grupos colapsados (clave "catId:gi")
 function toggleGroup(cid, gi) { const k = cid + ':' + gi; if (_grpCollapsed.has(k)) _grpCollapsed.delete(k); else _grpCollapsed.add(k); render(); }
 // Zoom de la llave (sobre todo para el celu): se aplica con CSS `zoom` al contenedor de la llave,
 // así el scroll del contenedor sigue funcionando. Se guarda el nivel para sobrevivir a un re-render.
-let _brZoom = 1;
+let _brZoom = 1, _brScroll = { left: 0, top: 0 }; // zoom + posición de scroll de la llave (para que no salte al re-renderizar)
 // Zoom con transform:scale (NO con `zoom`, que rompía el overflow y dejaba scrollear la página al vacío).
 // El "sizer" reserva el tamaño escalado para que el scroll quede DENTRO del recuadro de la llave.
 function applyBrZoom() {
@@ -4605,12 +4634,15 @@ function bracketHtml(cat) {
         ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','bracket',null,${r},${m})" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div>`;
     }).join('') + `</div>`).join('');
   let extra = '';
-  if (cat.thirdPlace && !thirdPlayable(cat)) {
-    // Una semifinal fue "real vs BYE": no hay partido por el 3º; el semifinalista real queda 3º.
-    const a = semiLoser(cat, 0), b = semiLoser(cat, 1), real = (a && a !== 'BYE') ? a : (b && b !== 'BYE') ? b : null;
+  // semiLoser = null si la semi NO está definida todavía; 'BYE' si entró por BYE; id si es un perdedor real.
+  const sl0 = semiLoser(cat, 0), sl1 = semiLoser(cat, 1), bothSemisDecided = sl0 != null && sl1 != null;
+  if (cat.thirdPlace && bothSemisDecided && !(isRealEnt(cat, sl0) && isRealEnt(cat, sl1))) {
+    // Alguna semi fue "real vs BYE": no hay partido por el 3º; el semifinalista real queda 3º. (Solo cuando
+    // AMBAS semis ya están decididas: si una todavía no se jugó, NO mostramos el 3er puesto.)
+    const real = isRealEnt(cat, sl0) ? sl0 : isRealEnt(cat, sl1) ? sl1 : null;
     if (real) extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(real, null, true)}">${slot(real, true, '')}<div class="br-est muted">Sin partido (rival con BYE)</div></div></div>`;
-  } else if (cat.thirdPlace) {
-    const a = semiLoser(cat, 0), b = semiLoser(cat, 1), res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
+  } else if (cat.thirdPlace && bothSemisDecided) {
+    const a = sl0, b = sl1, res = matchResult(cat.thirdPlace), w = matchWinnerSide(cat.thirdPlace, cat), done = matchDone(cat.thirdPlace, cat);
     const playable = isRealEnt(cat, a) && isRealEnt(cat, b);
     const can = canEditCat(cat) && playable;
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
@@ -4735,8 +4767,11 @@ function matchElo(cat, winId, loseId) {
   return Math.max(1, Math.round(ELO_K * (1 - Ew)));
 }
 // Para un partido terminado de una categoría que puntúa: { winId, loseId, n } o null.
+// ¿La inscripción tiene algún jugador INVITADO? (los partidos con un invitado no mueven el ranking)
+function entHasGuest(cat, id) { const e = entById(cat, id); return !!(e && (e.players || []).some(pid => isGuest(playerById(pid)))); }
 function matchEloOf(cat, mm, a, b) {
   if (!catScores(cat) || !mm || !a || !b || a === 'BYE' || b === 'BYE') return null;
+  if (entHasGuest(cat, a) || entHasGuest(cat, b)) return null; // partido contra un invitado → no suma/resta puntos (ni al rival)
   const w = matchWinnerSide(mm, cat); if (!w) return null;
   const winId = w === 'a' ? a : b, loseId = w === 'a' ? b : a;
   return { winId, loseId, n: matchElo(cat, winId, loseId) };
