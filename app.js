@@ -3223,6 +3223,7 @@ function applyWalkover(tid, cid, kind, gidx, r, m, absentSide) {
   const n = Math.ceil(bestOfOf(mm, cat) / 2), winSide = absentSide === 'a' ? 'b' : 'a';
   mm.sets = Array.from({ length: n }, () => winSide === 'a' ? [11, 0] : [0, 11]);
   mm.walkover = winSide; if (mm.postponed) mm.postponed = false;
+  buildBracket(cat); // si con este W.O. se completó la fase de grupos, la llave se genera sola
   save(DB); closeModal(); render();
 }
 // ---- popover genérico (no es modal: anclado, sin oscurecer la pantalla) ----
@@ -4218,7 +4219,6 @@ function renderCategoria(app, tid, cid) {
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
       ${preStart ? `<button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>` : ''}
-      ${cat.groups && !cat.bracket && !cat.closed ? `<button class="btn btn-accent" onclick="generateBracket('${tid}','${cid}')">🏆 Generar llave</button>` : ''}
       ${finalDone && thirdReady && !cat.closed && canAwardPoints(t) ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>${infoTip(AWARD_HELP)}` : ''}
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
@@ -4244,7 +4244,7 @@ function renderCategoria(app, tid, cid) {
     else html += `<div class="empty">Grupos sin armar.${canEditCat(cat) ? ' Anotá jugadores y usá “⋯ Acciones → Armar grupos”.' : ''}</div>`;
   } else if (tab === 'llave') {
     if (cat.bracket) html += bracketHtml(cat);
-    else if (cat.groups && cat.groups.length) html += `<div class="empty">Clasifican los 2 primeros de cada grupo.${groupStageComplete(cat) ? (canEditCat(cat) ? ' Usá “⋯ Acciones → Generar llave”.' : '') : ' Cargá todos los resultados de grupos.'}</div>`;
+    else if (cat.groups && cat.groups.length) html += `<div class="empty">Clasifican los 2 primeros de cada grupo. La llave se arma sola apenas se carguen <b>todos</b> los resultados de la fase de grupos.</div>`;
     else html += `<div class="empty">Primero armá los grupos.</div>`;
   }
   app.innerHTML = html;
@@ -4528,16 +4528,16 @@ function semiLoser(cat, idx) { const T = cat.bracket.length, semR = T - 2; if (s
 // Con un nº de clasificados que no es potencia de 2, una semi puede ser "real vs BYE": en ese caso
 // no hay partido por el 3º y el semifinalista real queda automáticamente 3º (no se puede bloquear el cierre).
 function thirdPlayable(cat) { if (!cat.thirdPlace) return false; const a = semiLoser(cat, 0), b = semiLoser(cat, 1); return !!(a && b && a !== 'BYE' && b !== 'BYE'); }
-function generateBracket(tid, cid) {
-  const cat = getCat(tid, cid);
-  if (!cat.groups) { alert('Primero armá los grupos.'); return; }
-  if (!groupStageComplete(cat)) { alert('⚠️ Faltan resultados de la fase de grupos.'); return; }
+// Construye la llave a partir de los grupos (función PURA: muta cat, sin alertas/guardado/render). Devuelve
+// true si la generó. Solo lo hace si hay grupos, NO hay llave todavía y la fase de grupos está completa.
+function buildBracket(cat) {
+  if (!cat || !cat.groups || cat.bracket || !groupStageComplete(cat)) return false;
   // Clasificados (1° y 2° de cada zona) ordenados POR MÉRITO en la fase de grupos: primero partidos
   // ganados, luego diferencia de sets (ganados − perdidos) y, por último, diferencia de puntos.
   // Los mejores quedan como cabezas de serie y, si el cuadro no es potencia de 2, son los que reciben BYE.
   const quals = [];
   cat.groups.forEach((g, gi) => { const s = groupStandings(cat, gi); [s[0], s[1]].forEach(row => { if (row) quals.push(row); }); });
-  if (!quals.length) { alert('No hay clasificados.'); return; }
+  if (!quals.length) return false;
   quals.sort((a, b) => b.pg - a.pg || (b.sf - b.sc) - (a.sf - a.sc) || (b.pf - b.pc) - (a.pf - a.pc));
   const seedIds = quals.map(q => q.id), K = seedIds.length;
   const size = Math.max(2, nextPow2(K));
@@ -4548,7 +4548,16 @@ function generateBracket(tid, cid) {
   rounds.forEach((round, r) => round.forEach(mm => { mm.bestOf = r === rounds.length - 1 ? fmt.final : fmt.bracket; }));
   cat.bracket = rounds;
   cat.thirdPlace = rounds.length >= 2 ? { sets: [], bestOf: fmt.bracket } : null; // partido por 3er/4to puesto
-  cat.closed = false; cat.awarded = null; snapshotSeed(cat); save(DB); render();
+  cat.closed = false; cat.awarded = null; snapshotSeed(cat);
+  return true;
+}
+// La llave se genera SOLA cuando terminan todos los grupos (ya no hay botón "Generar llave"). Igualmente
+// dejamos esta función por compatibilidad / disparo manual.
+function generateBracket(tid, cid) {
+  const cat = getCat(tid, cid);
+  if (!cat.groups) { alert('Primero armá los grupos.'); return; }
+  if (!groupStageComplete(cat)) { alert('⚠️ Faltan resultados de la fase de grupos.'); return; }
+  if (buildBracket(cat)) { save(DB); render(); }
 }
 function bracketHtml(cat) {
   const T = cat.bracket.length;
@@ -4649,7 +4658,9 @@ function saveResult(tid, cid, kind, gidx, r, m) {
   }
   if (decided < 0) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
   if (decided < sets.length - 1) { e.hidden = false; e.textContent = `Cargaste sets de más: el partido termina cuando alguien llega a ${n} sets (no puede ganar por más de ${n}).`; return; }
-  mm.sets = sets; if (mm.walkover) delete mm.walkover; save(DB); closeModal(); render();
+  mm.sets = sets; if (mm.walkover) delete mm.walkover;
+  buildBracket(cat); // si con este resultado se completó la fase de grupos, la llave se genera sola
+  save(DB); closeModal(); render();
 }
 
 /* ----- puntos al ranking ----- */
