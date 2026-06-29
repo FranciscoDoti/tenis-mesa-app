@@ -4811,7 +4811,21 @@ async function awardViaWorker(t, cat) {
 }
 
 /* ---------------- nav ---------------- */
-function go(v) { view = v; closeModal(); closeDrawer(); window.scrollTo(0, 0); render(); }
+function go(v) {
+  if (v === view) { closeModal(); closeDrawer(); return; } // misma vista: no apilar otra entrada de historial
+  // Historial del navegador: cada navegación deja una entrada, así el botón "Atrás" del cel/web vuelve a la
+  // pantalla anterior DENTRO de la app en vez de salirse. (No cambiamos la URL para no romper el reload en
+  // GitHub Pages; solo apilamos estados.)
+  try { if (!history.state) history.replaceState({ view }, ''); history.pushState({ view: v }, ''); } catch (e) {}
+  view = v; closeModal(); closeDrawer(); window.scrollTo(0, 0); render();
+}
+// "Atrás" (popstate): restaura la vista guardada en el historial; si hay un modal/drawer abierto, igual los cierra.
+window.addEventListener('popstate', e => {
+  view = (e && e.state && e.state.view) || 'ranking';
+  closeModal(); closeDrawer(); window.scrollTo(0, 0); render();
+});
+// Estado inicial: que la primera entrada del historial tenga un estado (para que "Atrás" sea predecible).
+try { if (!history.state) history.replaceState({ view }, ''); } catch (e) {}
 function toggleDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (!d) return; const open = d.classList.toggle('open'); if (o) o.hidden = !open; }
 function closeDrawer() { const d = $('#drawer'), o = $('#drawerOverlay'); if (d) d.classList.remove('open'); if (o) o.hidden = true; }
 function toggleRankGroup() { const g = $('#rankGroup'); if (g) g.classList.toggle('collapsed'); }
