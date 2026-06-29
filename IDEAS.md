@@ -3,6 +3,9 @@
 ## Funcionalidades
 
 
+- [] implementar lo de los cabezas de serie por ranking
+- [] implementar lo del modo Arbitro para el tema de la planilla
+- [] implementar lo de que las zonas se cruzan por ejemplo, los segudnos y los primeros de cada zona van por lados distintos de la llave así no se cruzan hasta la final.
 - [] que se pueda cambiar las reglas del torneo cuando ya se definieron los grupos pero no arracnaron todavía los partidos
 - [x] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
 - [x] Implementar el sistema que sugiera qué mesas y zonas largar .
