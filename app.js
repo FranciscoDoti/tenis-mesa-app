@@ -4253,6 +4253,7 @@ function renderCategoria(app, tid, cid) {
     else html += `<div class="empty">Primero armá los grupos.</div>`;
   }
   app.innerHTML = html;
+  if (tab === 'llave' && cat.bracket) applyBrZoom(); // dimensiona el "sizer" según el zoom (el scroll queda dentro del recuadro)
 }
 
 /* ----- estado de inscripción (torneo + override por categoría) ----- */
@@ -4482,7 +4483,18 @@ function toggleGroup(cid, gi) { const k = cid + ':' + gi; if (_grpCollapsed.has(
 // Zoom de la llave (sobre todo para el celu): se aplica con CSS `zoom` al contenedor de la llave,
 // así el scroll del contenedor sigue funcionando. Se guarda el nivel para sobrevivir a un re-render.
 let _brZoom = 1;
-function applyBrZoom() { const el = document.getElementById('brkt'); if (el) el.style.zoom = _brZoom; const l = document.getElementById('brzLvl'); if (l) l.textContent = Math.round(_brZoom * 100) + '%'; }
+// Zoom con transform:scale (NO con `zoom`, que rompía el overflow y dejaba scrollear la página al vacío).
+// El "sizer" reserva el tamaño escalado para que el scroll quede DENTRO del recuadro de la llave.
+function applyBrZoom() {
+  const el = document.getElementById('brkt'); if (!el) return;
+  const sizer = document.getElementById('brSizer');
+  el.style.transform = 'none';                       // medir el tamaño natural (sin escalar)
+  const w = el.offsetWidth, h = el.offsetHeight;
+  el.style.transformOrigin = 'top left';
+  el.style.transform = 'scale(' + _brZoom + ')';
+  if (sizer) { sizer.style.width = Math.ceil(w * _brZoom) + 'px'; sizer.style.height = Math.ceil(h * _brZoom) + 'px'; }
+  const l = document.getElementById('brzLvl'); if (l) l.textContent = Math.round(_brZoom * 100) + '%';
+}
 function brZoom(dir) { _brZoom = Math.min(1.8, Math.max(0.5, +(_brZoom + dir * 0.2).toFixed(2))); applyBrZoom(); }
 function brZoomReset() { _brZoom = 1; applyBrZoom(); }
 function groupCardHtml(cat, gi) {
@@ -4620,7 +4632,7 @@ function bracketHtml(cat) {
       </div>
       <span class="brz-hint">${meInBracket ? '⭐ Tus partidos están resaltados · ' : ''}↔ deslizá para ver toda la llave ${infoTip(BYE_HELP)}</span>
     </div>`;
-  return `${tools}<div class="bracket-scroll"><div class="bracket" id="brkt" style="zoom:${_brZoom}">${cols}${extra}</div></div>${champHtml}${awardedHtml(cat)}`;
+  return `${tools}<div class="bracket-scroll"><div class="bracket-sizer" id="brSizer"><div class="bracket" id="brkt" style="transform-origin:top left;transform:scale(${_brZoom})">${cols}${extra}</div></div></div>${champHtml}${awardedHtml(cat)}`;
 }
 function awardedHtml(cat) {
   if (!cat.awarded || !Object.keys(cat.awarded).length) return '';
