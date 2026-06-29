@@ -2766,6 +2766,14 @@ function podiumOf(cat) {
   const nameAt = n => { const hit = Object.entries(map).find(([, pl]) => pl === n); return hit ? entName(cat, hit[0]) : null; };
   return { first: nameAt(1), second: nameAt(2), third: nameAt(3) };
 }
+// ¿La categoría ya terminó de jugarse? (campeón definido y, si corresponde, el 3er puesto resuelto).
+// OJO: "terminada" ≠ "cerrada": una categoría puede estar terminada pero todavía sin otorgar puntos (cat.closed).
+function catFinished(cat) {
+  if (!cat || !cat.bracket) return false;
+  const champ = brWinner(cat, cat.bracket.length - 1, 0);
+  if (!champ || champ === 'BYE') return false;
+  return !thirdPlayable(cat) || matchDone(cat.thirdPlace, cat);
+}
 // Bloque de podios del torneo (una línea por categoría que ya tiene campeón). Vacío si no hay resultados.
 function podiumHtml(t) {
   return t.categorias.map(c => {
@@ -3961,9 +3969,10 @@ function renderTournament(app, tid) {
   if (!t.published && !canEditT(t)) { app.innerHTML = `<button class="btn btn-ghost btn-sm" onclick="go('torneos')">← Volver</button><div class="empty" style="margin-top:16px">Este torneo todavía no está disponible.</div>`; return; }
   const cards = t.categorias.map(c => {
     c._tid = t.id;
-    const champ = c.bracket ? brWinner(c, c.bracket.length - 1, 0) : null;
-    const st = c.closed ? '✅ Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : enrollmentStatus(c).label;
-    const stCls = c.closed ? 'done' : (c.bracket || c.groups) ? 'live' : (enrollmentStatus(c).open ? 'open' : 'closed');
+    const finished = catFinished(c);
+    // "Finalizada" cuando ya hay campeón (con o sin puntos otorgados); "En llave" solo mientras se juega.
+    const st = (c.closed || finished) ? '🏁 Finalizada' : c.bracket ? '🏆 En llave' : c.groups ? '🎲 Grupos' : enrollmentStatus(c).label;
+    const stCls = (c.closed || finished) ? 'done' : (c.bracket || c.groups) ? 'live' : (enrollmentStatus(c).open ? 'open' : 'closed');
     const meta = [ruleLabel(c.rule), catSetsFmt(c).label, `🥇 ${c.championPoints}`,
       `${c.entrants.length} ${c.format === 'double' ? 'parejas' : 'jug.'}`,
       c.gender && c.gender !== 'any' ? GENDER_RULE_LABEL[c.gender] : null,
@@ -3986,7 +3995,14 @@ function renderTournament(app, tid) {
       </summary>
       <div class="cat-card-body">
         <div class="cat-card-meta">${esc(meta)}</div>
-        ${champ && champ !== 'BYE' ? `<div class="champ">🏆 ${entLink(c, champ)}</div>` : ''}
+        ${(() => { // podio (1º/2º/3º) cuando ya hay campeón; si no, nada
+          if (!c.bracket) return '';
+          const champ = brWinner(c, c.bracket.length - 1, 0);
+          if (!champ || champ === 'BYE') return '';
+          const map = placements(c), idAt = n => { const hit = Object.entries(map).find(([, pl]) => pl === n); return hit ? hit[0] : null; };
+          const line = (medal, id) => id ? `<div class="podium-line">${medal} ${entLink(c, id)}</div>` : '';
+          return `<div class="podium-card">${line('🥇', idAt(1))}${line('🥈', idAt(2))}${line('🥉', idAt(3))}</div>`;
+        })()}
         ${pay}
         <div class="cat-card-actions">
           <button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
@@ -4002,10 +4018,15 @@ function renderTournament(app, tid) {
     + (live.length
       ? `<div class="live-list">` + live.map(L => {
           const isZone = L.kind === 'zone';
+          // En las zonas destacamos la CATEGORÍA y, a su lado pero atenuada, la zona; el "N partidos pendientes" baja a la línea chica.
+          const players = isZone
+            ? `${esc(L.catName)} <span style="font-weight:500;color:var(--muted)">· ${esc(L.label)}</span> <span class="live-caret">▸</span>`
+            : esc(L.label);
+          const cat = isZone ? esc(L.sub) : `${esc(L.catName)} · ${esc(L.sub)}`;
           return `<div class="live-row${isZone ? ' zone' : ''}"${isZone ? ' onclick="toggleLiveZone(this)"' : ''}>
           <span class="live-mesa">🏓 Mesa ${L.table}</span>
-          <span class="live-players">${esc(L.label)}${isZone ? ' <span class="live-caret">▸</span>' : ''}</span>
-          <span class="live-cat">${esc(L.catName)} · ${esc(L.sub)}</span>
+          <span class="live-players">${players}</span>
+          <span class="live-cat">${cat}</span>
           ${isZone ? `<div class="live-pending">${L.pending.map(p => `<div class="live-pending-row">🏓 ${esc(p)}</div>`).join('')}</div>` : ''}</div>`;
         }).join('') + `</div>`
       : `<p class="muted slim-empty">Sin partidos en juego. Asigná una mesa a un partido para verlo acá.</p>`);
@@ -4235,13 +4256,18 @@ function renderCategoria(app, tid, cid) {
     const started = catStarted(cat);            // ya se largó/jugó algún partido
     const canToggle = !cat.groups && !cat.closed;
     const preStart = !started && !cat.closed;   // anotar / armar grupos: solo antes de empezar
+    const canAward = finalDone && thirdReady && !cat.closed && canAwardPoints(t);
+    // Cuando la categoría ya terminó de jugarse, el cierre/otorgar puntos NO va escondido dentro de "Acciones":
+    // se muestra como un llamado a la acción bien visible (es el paso que falta para cerrar la categoría).
+    if (canAward) html += `<div class="banner ok" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>🏁 <b>Categoría terminada.</b> Otorgá los puntos al ranking para cerrarla.</span>
+      <button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>${infoTip(AWARD_HELP)}</div>`;
     html += `<details class="cat-actions" ${_openDetails.has('ca:' + cid) ? 'open' : ''} ontoggle="detToggle('ca:${cid}',this)"><summary>⋯ Acciones</summary><div class="cat-actions-body">
       ${preStart ? `<button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>` : ''}
       <button class="btn btn-ghost" onclick="categoryTimeModal('${tid}','${cid}')">🕒 ${cat.startAt ? 'Horario' : 'Poner horario'}</button>
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
       ${preStart ? `<button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>` : ''}
-      ${finalDone && thirdReady && !cat.closed && canAwardPoints(t) ? `<button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>${infoTip(AWARD_HELP)}` : ''}
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
   } else {
