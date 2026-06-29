@@ -381,11 +381,13 @@ ul.awarded li:last-child{border-bottom:0}
 .setting-desc{font-size:13px; color:var(--muted); margin-top:4px; line-height:1.5}
 /* tooltip de ayuda (ℹ️) */
 .info-tip{position:relative; cursor:help; font-size:13px; margin-left:5px; outline:none; user-select:none}
-.info-bubble{position:absolute; left:0; top:150%; z-index:50; width:320px; max-width:80vw; max-height:62vh; overflow:auto;
+/* display:none cuando está oculta — NO visibility:hidden: un elemento con visibility:hidden + position:absolute
+   IGUAL ocupa lugar en el ancho scrolleable de la página (cada burbuja de 320px empujaba la página y dejaba
+   scrollear a una franja en blanco). Con display:none no aporta layout hasta que se abre. */
+.info-bubble{display:none; position:absolute; left:0; top:150%; z-index:50; width:320px; max-width:86vw; max-height:62vh; overflow:auto;
   background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 30px rgba(16,32,24,.22);
-  padding:12px 14px; font-size:12.5px; font-weight:500; line-height:1.5; white-space:normal; text-align:left;
-  opacity:0; visibility:hidden; transform:translateY(-4px); transition:opacity .12s, transform .12s}
-.info-tip:hover .info-bubble, .info-tip:focus .info-bubble, .info-tip:focus-within .info-bubble{opacity:1; visibility:visible; transform:none}
+  padding:12px 14px; font-size:12.5px; font-weight:500; line-height:1.5; white-space:normal; text-align:left}
+.info-tip:hover .info-bubble, .info-tip:focus .info-bubble, .info-tip:focus-within .info-bubble{display:block}
 .info-bubble b{color:var(--table-dark)}
 .info-bubble ol, .info-bubble ul{margin:6px 0 6px 18px; padding:0}
 .info-bubble li{margin:2px 0}
