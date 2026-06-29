@@ -253,9 +253,11 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .brz-reset{font-size:15px}
 .brz-lvl{min-width:42px; text-align:center; font-weight:800; font-size:12px; color:var(--muted)}
 .brz-hint{font-size:11.5px; color:var(--muted); font-weight:600}
-.bracket-scroll{overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg,#fbfdfc,#f4f7f5); padding:4px}
-.bracket{display:flex; gap:26px; padding:10px 6px 16px; align-items:center; width:max-content; min-width:100%}
-.br-col{display:flex; flex-direction:column; justify-content:space-around; gap:14px; min-width:200px}
+.bracket-scroll{overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg,#fbfdfc,#f4f7f5); padding:4px; max-height:78vh}
+/* alineadas ARRIBA: las rondas con pocos partidos (semi/final) NO quedan flotando en el medio con un mar de
+   blanco; cada columna empieza arriba, así se llega al partido y a su botón de mesa sin scrollear al vacío. */
+.bracket{display:flex; gap:26px; padding:10px 6px 16px; align-items:flex-start; width:max-content; min-width:100%}
+.br-col{display:flex; flex-direction:column; justify-content:flex-start; gap:14px; min-width:200px}
 .br-rtitle{align-self:flex-start; font-weight:800; color:var(--table); font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; margin-bottom:2px; background:#e7f1ea; border:1px solid #cfe6d8; padding:3px 9px; border-radius:999px}
 .br-col-3rd .br-rtitle{background:#fff3e0; border-color:#ffd8a8; color:#8a5400}
 .br-match{position:relative; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:var(--shadow); overflow:hidden; transition:box-shadow .15s,transform .15s}
