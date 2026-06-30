@@ -3168,7 +3168,7 @@ function openTablePopover(ev, tid, cid, kind, gidx, r, m) {
   const t = tById(tid), max = tableCountOf(t);
   const occ = occupiedTablesOf(t, mm);               // mesas tomadas por otros partidos en curso (de cualquier categoría)
   const cur = mm && mm.table != null ? mm.table : null;
-  const useRefModal = setting('refMode') && (kind === 'bracket' || kind === 'third'); // designar árbitro en partidos de llave
+  const useRefModal = refModeOn(t) && (kind === 'bracket' || kind === 'third'); // designar árbitro en partidos de llave
   const top = Math.max(max, cur || 0);
   let cells = '';
   for (let i = 1; i <= top; i++) {
@@ -3394,6 +3394,14 @@ function zonePendingPlayers(cat, gi) {
 const matchPlayers = (cat, a, b) => { const s = new Set(); [a, b].forEach(id => { const e = entById(cat, id); if (e) e.players.forEach(p => s.add(p)); }); return s; };
 
 /* ---------- árbitros (Modo árbitro) ---------- */
+// ¿El Modo árbitro está activo para la ESCUELA que ORGANIZA este torneo? Importa el torneo, no quién mira:
+// un árbitro puede ser de otra escuela (o invitado), y aun así debe poder cargar su partido. DB.settings es
+// de lectura pública (app/settings), así que cualquier cuenta puede resolverlo.
+function refModeOn(t) {
+  if (!t) return false;
+  const b = settingsBag('school', t.schoolId);
+  return !!(b && 'refMode' in b ? b.refMode : defaultSetting('refMode'));
+}
 // Jugadores que están JUGANDO ahora (unidad con mesa y partidos pendientes).
 function refPlayingNow(t) {
   const s = new Set();
@@ -3418,7 +3426,7 @@ function refTournamentPool(t) {
 // Candidatos a árbitro de un partido de LLAVE: inscriptos en categorías no terminadas, que no juegan ni
 // arbitran otra mesa, que no son colaboradores del torneo, ni los dos que están por jugar este partido.
 function refCandidates(t, cat, a, b) {
-  if (!setting('refMode')) return [];
+  if (!refModeOn(t)) return [];
   const playing = refPlayingNow(t), judging = refJudgingNow(t), collab = new Set(t.collaborators || []);
   const inMatch = matchPlayers(cat, a, b), out = [];
   refTournamentPool(t).forEach(pid => {
@@ -3430,13 +3438,13 @@ function refCandidates(t, cat, a, b) {
 }
 // ¿El usuario logueado es el ÁRBITRO designado de este partido? (le habilita cargar SU resultado).
 function isMatchRef(cat, mm) {
-  if (!setting('refMode') || !mm || !mm.ref) return false;
+  if (!mm || !mm.ref || !refModeOn(tById(cat && cat._tid))) return false;
   const u = currentUser();
   return !!(u && u.playerId && u.playerId === mm.ref);
 }
 // Etiqueta con el árbitro designado de un partido (si hay y el modo está activo).
 function refLabel(cat, mm) {
-  if (!setting('refMode') || !mm || !mm.ref) return '';
+  if (!mm || !mm.ref || !refModeOn(tById(cat && cat._tid))) return '';
   const p = playerById(mm.ref); if (!p) return '';
   const me = (currentUser() || {}).playerId === mm.ref;
   return `<span class="ref-tag" title="Árbitro del partido">🧑‍⚖️ ${esc(fullName(p))}${me ? ' (vos)' : ''}</span>`;
@@ -3444,7 +3452,7 @@ function refLabel(cat, mm) {
 // Al largar una zona, asigna el árbitro de cada partido pendiente: uno de los OTROS jugadores de la zona,
 // repartido lo más parejo posible. No piso los que ya tengan árbitro (p. ej. al mover la zona de mesa).
 function autoAssignZoneRefs(cat, gi) {
-  if (!setting('refMode')) return;
+  if (!refModeOn(tById(cat._tid))) return;
   const members = cat.groups[gi] || [];
   const count = {}; members.forEach(eid => { const e = entById(cat, eid); if (e && e.players[0]) count[e.players[0]] = 0; });
   (cat.matches || []).filter(m => m.g === gi && m.ref).forEach(m => { if (count[m.ref] != null) count[m.ref]++; });
@@ -3510,7 +3518,7 @@ function suggestPanelHtml(t) {
   if (!plan.length) return `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
     <p class="muted" style="margin:0">Hay ${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}, pero no hay zonas o llaves listas para largar (o sus jugadores ya están jugando en otra mesa).</p></div>`;
   // En Modo árbitro, largar un partido de llave abre antes el selector de árbitro (las zonas asignan árbitro solas).
-  const row = (table, u) => { const act = (setting('refMode') && u.refAction) ? u.refAction : u.action;
+  const row = (table, u) => { const act = (refModeOn(t) && u.refAction) ? u.refAction : u.action;
     return `<div class="suggest-row">
       <div class="suggest-info"><b>Mesa ${table}</b> → ${esc(u.cat.name)} · ${esc(u.label)}
         <span class="muted">(${CLASS_LABELS[u.prio]}${u.cat.startAt ? ` · 🕒 ${fmtStartAt(u.cat.startAt)}` : ''})</span>
@@ -4941,7 +4949,7 @@ function resultModal(tid, cid, kind, gidx, r, m) {
       <button class="btn btn-primary" onclick="saveResult('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'})">Guardar</button></div>`);
 }
 function saveResult(tid, cid, kind, gidx, r, m) {
-  const cat = getCat(tid, cid), e = $('#rerr');
+  const cat = getCat(tid, cid), e = $('#rerr'); if (cat) cat._tid = tid; // _tid: lo usa isMatchRef para resolver el torneo
   const as = [...$('#modalCard').querySelectorAll('.set-a')], bs = [...$('#modalCard').querySelectorAll('.set-b')];
   const sets = [];
   for (let i = 0; i < as.length; i++) {
