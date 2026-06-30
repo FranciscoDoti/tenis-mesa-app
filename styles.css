@@ -316,8 +316,11 @@ details.awarded-card[open]>summary::before{content:'▾ '}
 details.awarded-card[open]>summary{margin-bottom:8px}
 .setrow{display:flex; align-items:center; gap:10px; margin:6px 0}
 .setrow>span{width:52px; color:var(--muted); font-size:13px; font-weight:600}
-.setrow input{width:72px; text-align:center}
+.setrow input{width:72px; text-align:center; font-size:18px; font-weight:700}
 .setrow b{color:var(--muted)}
+/* set bloqueado: el partido ya está definido, no se cargan más sets (se desbloquea editando/borrando uno) */
+.setrow.locked{opacity:.4}
+.setrow input:disabled{background:#eef1f5; color:#aeb6c0; cursor:not-allowed}
 ul.awarded{list-style:none; margin:0; padding:0}
 ul.awarded li{display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line)}
 ul.awarded li:last-child{border-bottom:0}

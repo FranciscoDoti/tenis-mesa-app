@@ -4942,73 +4942,90 @@ function locateMatch(cat, kind, gidx, r, m) {
   if (kind === 'third') { return { mm: cat.thirdPlace, a: semiLoser(cat, 0), b: semiLoser(cat, 1) }; }
   const mm = cat.bracket[r][m]; return { mm, a: brContender(cat, r, m, 'a'), b: brContender(cat, r, m, 'b') };
 }
-// Carga RÁPIDA de resultado (a taps): por cada set se toca el ganador y los puntos del perdedor; se
-// auto-avanza al siguiente set. Permite GUARDAR PARCIAL (sin terminar el partido). Mismas reglas (a 11, dif. 2).
-let _qr = null;
+// Carga de resultado: modal clásico por sets, pero RÁPIDO — solo números, el foco salta solo al siguiente
+// casillero, y cuando el resultado ya define al ganador se grisean/bloquean los sets de más (se desbloquean
+// si editás/borrás un set). Permite GUARDAR PARCIAL (sin terminar el partido). Mismas reglas (a 11, dif. 2).
+let _res = null;
 function resultModal(tid, cid, kind, gidx, r, m) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm, a, b } = locateMatch(cat, kind, gidx, r, m);
   if (!a || !b || a === 'BYE' || b === 'BYE') { alert('Faltan definir los dos participantes.'); return; }
-  const N = bestOfOf(mm, cat);
-  const sets = (mm.sets || []).map(s => [Number(s[0]) || 0, Number(s[1]) || 0]);
-  _qr = { tid, cid, kind, gidx, r, m, N, nWin: Math.ceil(N / 2), na: entName(cat, a), nb: entName(cat, b), sets, side: null, deuce: null };
-  openModal(qrBody());
-}
-function qrRender() { const c = $('#modalCard'); if (c) c.innerHTML = `<button class="close-x" onclick="closeModal()">✕</button>` + qrBody(); }
-function qrTally(sets) { let wa = 0, wb = 0; sets.forEach(s => { const w = setWinner(s); if (w === 'a') wa++; else if (w === 'b') wb++; }); return { wa, wb }; }
-function qrBody() {
-  const q = _qr, { wa, wb } = qrTally(q.sets);
-  const decided = wa === q.nWin || wb === q.nWin;
-  const full = decided || q.sets.length >= q.N;
-  const chips = q.sets.map((s, i) => `<button class="qr-chip ${setWinner(s) === 'a' ? 'wa' : 'wb'}" onclick="qrEdit(${i})" title="Corregir desde este set">${s[0]}-${s[1]}</button>`).join('');
-  let entry = '';
-  if (!full) {
-    const k = q.sets.length;
-    if (q.side == null) {
-      entry = `<div class="qr-ask">¿Quién ganó el <b>Set ${k + 1}</b>?</div>
-        <div class="qr-sides"><button class="qr-side qr-a" onclick="qrWin('a')">${esc(q.na)}</button>
-        <button class="qr-side qr-b" onclick="qrWin('b')">${esc(q.nb)}</button></div>`;
-    } else if (q.deuce != null) {
-      entry = `<div class="qr-ask">Set ${k + 1} en <b>deuce</b> (gana por 2):</div>
-        <div class="qr-deuce-row"><button class="qr-step" onclick="qrDeuceAdj(-1)">−</button>
-          <span class="qr-deuce-sc">${q.deuce + 2}-${q.deuce}</span>
-          <button class="qr-step" onclick="qrDeuceAdj(1)">+</button>
-          <button class="btn btn-primary btn-sm" onclick="qrDeuceOk()">Confirmar</button></div>
-        <button class="btn btn-ghost btn-sm" onclick="qrBack()">↩︎ Volver</button>`;
-    } else {
-      const winName = q.side === 'a' ? q.na : q.nb, loseName = q.side === 'a' ? q.nb : q.na;
-      let pts = ''; for (let p = 0; p <= 9; p++) pts += `<button class="qr-pt" onclick="qrPts(${p})">${p}</button>`;
-      entry = `<div class="qr-ask">Ganó <b>${esc(winName)}</b>. Puntos de <b>${esc(loseName)}</b>:</div>
-        <div class="qr-pts">${pts}<button class="qr-pt qr-deuce-btn" onclick="qrDeuce()">10+</button></div>
-        <button class="btn btn-ghost btn-sm" onclick="qrBack()">↩︎ Otro ganador</button>`;
-    }
+  const N = bestOfOf(mm, cat), nWin = Math.ceil(N / 2);
+  _res = { tid, cid, kind, gidx, r, m, N, nWin };
+  let rows = '';
+  for (let i = 0; i < N; i++) {
+    const s = (mm.sets && mm.sets[i]) || ['', ''];
+    rows += `<div class="setrow" data-row="${i}"><span>Set ${i + 1}</span>
+      <input class="set-a" data-i="${i}" data-s="a" type="text" inputmode="numeric" maxlength="2" value="${s[0]}"/><b>–</b>
+      <input class="set-b" data-i="${i}" data-s="b" type="text" inputmode="numeric" maxlength="2" value="${s[1]}"/></div>`;
   }
-  const status = decided
-    ? `<div class="qr-status done">🏆 Ganó <b>${esc(wa > wb ? q.na : q.nb)}</b> · ${Math.max(wa, wb)}-${Math.min(wa, wb)}</div>`
-    : `<div class="qr-status">Parcial <b>${wa}-${wb}</b> <span class="muted">· al mejor de ${q.N}</span></div>`;
-  const canSave = q.sets.length >= 1;
-  const saveLbl = decided ? `Guardar ${Math.max(wa, wb)}-${Math.min(wa, wb)}` : (canSave ? `Guardar parcial ${wa}-${wb}` : 'Guardar');
-  return `<h3>Cargar resultado</h3>
-    <div class="qr-players"><span>${esc(q.na)}</span><span class="muted">vs</span><span>${esc(q.nb)}</span></div>
-    <p class="muted" style="margin:2px 0 8px;font-size:12px">Tocá el ganador de cada set y los puntos del rival. Podés <b>guardar parcial</b>.</p>
-    ${chips ? `<div class="qr-chips">${chips}</div>` : ''}
-    ${status}${entry}
-    <div id="rerr" class="banner" hidden></div>
+  openModal(`<h3>Cargar resultado</h3>
+    <div class="row spread" style="font-weight:700;margin:6px 0"><span>${esc(entName(cat, a))}</span><span>${esc(entName(cat, b))}</span></div>
+    <p class="muted" style="margin:0 0 8px">Al mejor de ${N} (gana quien llega a ${nWin}). A 11, diferencia de 2. Podés guardar parcial.</p>
+    ${rows}<div id="rerr" class="banner" hidden></div>
     <div class="row spread" style="margin-top:14px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" ${canSave ? '' : 'disabled'} onclick="qrSave()">✅ ${saveLbl}</button></div>`;
+      <button class="btn btn-primary" id="resSave" onclick="saveResultA()">✅ Guardar</button></div>`);
+  resWire();
 }
-function qrWin(side) { _qr.side = side; _qr.deuce = null; qrRender(); }
-function qrBack() { _qr.side = null; _qr.deuce = null; qrRender(); }
-function qrDeuce() { _qr.deuce = 10; qrRender(); }
-function qrDeuceAdj(d) { _qr.deuce = Math.max(10, _qr.deuce + d); qrRender(); }
-function qrDeuceOk() { qrPts(_qr.deuce); }
-function qrPts(loserPts) {
-  const q = _qr, win = loserPts <= 9 ? 11 : loserPts + 2;
-  q.sets.push(q.side === 'a' ? [win, loserPts] : [loserPts, win]);
-  q.side = null; q.deuce = null; qrRender();
+function resInputs() { return [...$('#modalCard').querySelectorAll('.set-a, .set-b')]; }
+function resInp(i, s) { return $('#modalCard').querySelector(`.set-${s}[data-i="${i}"]`); }
+function resWire() {
+  resInputs().forEach(inp => {
+    inp.addEventListener('focus', () => inp.select());
+    inp.addEventListener('input', () => resOnInput(inp));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const nx = resNextEnabled(inp); if (nx) nx.focus(); else saveResultA(); } });
+  });
+  resLock();
+  const first = resInputs().find(x => !x.disabled); if (first) setTimeout(() => first.focus(), 40);
 }
-function qrEdit(i) { _qr.sets = _qr.sets.slice(0, i); _qr.side = null; _qr.deuce = null; qrRender(); }
-function qrSave() { const q = _qr; commitResult(q.tid, q.cid, q.kind, q.gidx, q.r, q.m, q.sets.slice()); }
+function resOnInput(inp) {
+  inp.value = inp.value.replace(/[^0-9]/g, '').slice(0, 2); // SOLO números, máx 2 dígitos
+  resLock();
+  const v = inp.value;
+  // Auto-avance: con 2 dígitos, o con 1 dígito que no sea "1" (el 1 puede ser 10/11/12/13 → espera el 2º).
+  if (v.length === 2 || (v.length === 1 && v !== '1')) {
+    const nx = resNextEnabled(inp); if (nx) nx.focus(); else { const g = $('#resSave'); if (g) g.focus(); }
+  }
+}
+function resNextEnabled(inp) { const all = resInputs(), i = all.indexOf(inp); for (let j = i + 1; j < all.length; j++) if (!all[j].disabled) return all[j]; return null; }
+// Índice del set que DEFINE el partido (alguien llega a nWin), recorriendo sets válidos consecutivos. -1 si no.
+function resDecidedRow() {
+  let wa = 0, wb = 0;
+  for (let i = 0; i < _res.N; i++) {
+    const a = resInp(i, 'a').value, b = resInp(i, 'b').value;
+    if (a === '' || b === '') break;
+    const w = setWinner([+a, +b]); if (!w) break;
+    w === 'a' ? wa++ : wb++;
+    if (wa === _res.nWin || wb === _res.nWin) return i;
+  }
+  return -1;
+}
+// Grisea/bloquea los sets POSTERIORES al que define el partido (y limpia su contenido). Se reactivan si al
+// editar/borrar un set ya no hay ganador. Además actualiza la etiqueta del botón Guardar.
+function resLock() {
+  const d = resDecidedRow();
+  for (let i = 0; i < _res.N; i++) {
+    const lock = d >= 0 && i > d, row = $('#modalCard').querySelector(`.setrow[data-row="${i}"]`);
+    [resInp(i, 'a'), resInp(i, 'b')].forEach(inp => { if (lock && inp.value !== '') inp.value = ''; inp.disabled = lock; });
+    if (row) row.classList.toggle('locked', lock);
+  }
+  const g = $('#resSave'); if (!g) return;
+  let wa = 0, wb = 0, any = false;
+  for (let i = 0; i < _res.N; i++) { const a = resInp(i, 'a').value, b = resInp(i, 'b').value; if (a === '' || b === '') break; const w = setWinner([+a, +b]); if (!w) break; w === 'a' ? wa++ : wb++; any = true; }
+  g.textContent = d >= 0 ? `✅ Guardar ${Math.max(wa, wb)}-${Math.min(wa, wb)}` : (any ? `✅ Guardar parcial ${wa}-${wb}` : '✅ Guardar');
+}
+function saveResultA() {
+  const sets = []; let ended = false;
+  for (let i = 0; i < _res.N; i++) {
+    const a = resInp(i, 'a').value.trim(), b = resInp(i, 'b').value.trim();
+    if (a === '' && b === '') { ended = true; continue; }
+    if (ended) { resErr('Cargá los sets en orden, sin huecos.'); return; }
+    if (a === '' || b === '') { resErr(`Set ${i + 1}: cargá ambos puntajes.`); return; }
+    sets.push([+a, +b]);
+  }
+  commitResult(_res.tid, _res.cid, _res.kind, _res.gidx, _res.r, _res.m, sets);
+}
+function resErr(msg) { const e = $('#rerr'); if (e) { e.hidden = false; e.textContent = msg; } }
 // Valida y persiste un resultado (parcial o completo). Mismas reglas; permite guardar sin terminar el partido.
 function commitResult(tid, cid, kind, gidx, r, m, sets) {
   const cat = getCat(tid, cid); if (cat) cat._tid = tid; // _tid: lo usa isMatchRef para resolver el torneo
