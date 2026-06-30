@@ -194,9 +194,14 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 /* árbitro designado de un partido (Modo árbitro) */
 .ref-tag{flex:0 0 auto; font-size:10.5px; font-weight:700; color:#5b3da8; background:#efeaff; border:1px solid #d6caff; border-radius:6px; padding:1px 7px; white-space:nowrap}
 .br-ref{margin-top:2px}
-.pop-ref{margin-top:10px; border-top:1px solid var(--line); padding-top:10px}
-.pop-ref label{display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:4px}
-.pop-ref select{width:100%}
+/* selector de árbitro (modal): lista de jugadores como botones */
+.ref-list-title{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:4px 0 6px}
+.ref-list{display:flex; flex-direction:column; gap:6px; max-height:42vh; overflow:auto}
+.ref-opt{display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:#fff; cursor:pointer; font-size:14px}
+.ref-opt:hover{background:#f3f6fb; border-color:var(--table)}
+.ref-opt .avatar{width:30px; height:30px; flex:0 0 auto; font-size:13px}
+.ref-opt-name{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600}
+.ref-opt-meta{flex:0 0 auto; font-size:10.5px; font-weight:700; color:#8a5400; background:#fff3e0; border:1px solid #ffd8a8; border-radius:6px; padding:1px 6px}
 .group-card ul{list-style:none; margin:0; padding:6px}
 .group-card li{display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px}
 .group-card li:nth-child(odd){background:#f7f9fb}

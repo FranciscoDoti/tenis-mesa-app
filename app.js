@@ -3168,36 +3168,77 @@ function openTablePopover(ev, tid, cid, kind, gidx, r, m) {
   const t = tById(tid), max = tableCountOf(t);
   const occ = occupiedTablesOf(t, mm);               // mesas tomadas por otros partidos en curso (de cualquier categoría)
   const cur = mm && mm.table != null ? mm.table : null;
+  const useRefModal = setting('refMode') && (kind === 'bracket' || kind === 'third'); // designar árbitro en partidos de llave
   const top = Math.max(max, cur || 0);
   let cells = '';
   for (let i = 1; i <= top; i++) {
     const busy = occ.has(i), isCur = cur === i;
     const tag = busy ? '<small>ocupada</small>' : isCur ? '<small>actual</small>' : '';
     const args = `'${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},${i}`;
-    cells += `<button class="table-opt${isCur ? ' current' : ''}${busy ? ' busy' : ''}" ${busy ? 'disabled' : ''} onclick="assignTableFromPopover(${args})">🏓<span>Mesa ${i}</span>${tag}</button>`;
+    // Modo árbitro + partido de llave SIN empezar: tras elegir la mesa, se abre el selector de árbitro.
+    const onTable = (useRefModal && cur == null) ? `refStart(${args})` : `assignTableFromPopover(${args})`;
+    cells += `<button class="table-opt${isCur ? ' current' : ''}${busy ? ' busy' : ''}" ${busy ? 'disabled' : ''} onclick="${onTable}">🏓<span>Mesa ${i}</span>${tag}</button>`;
   }
-  // Modo árbitro: en partidos de LLAVE (no zona) se puede designar un árbitro al iniciar/mover.
-  let refSel = '';
-  if (setting('refMode') && (kind === 'bracket' || kind === 'third')) {
-    const cands = refCandidates(t, cat, a, b);
-    const opts = `<option value="">Sin árbitro</option>` + cands.map(p => `<option value="${p.id}" ${mm.ref === p.id ? 'selected' : ''}>${esc(fullName(p))}</option>`).join('');
-    refSel = `<div class="pop-ref"><label>🧑‍⚖️ Árbitro</label><select id="refSel">${opts}</select>
-      ${cands.length ? '' : '<div class="pop-sub" style="margin-top:4px">No hay jugadores libres para arbitrar ahora.</div>'}</div>`;
-  }
+  // Modo árbitro: cuando el partido de llave YA tiene mesa, botón para designar/cambiar el árbitro.
+  const refBtn = (useRefModal && cur != null)
+    ? `<button class="btn btn-ghost btn-sm pop-free" onclick="refStart('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},${cur})">🧑‍⚖️ ${mm.ref ? 'Cambiar árbitro' : 'Designar árbitro'}</button>`
+    : '';
   const liberar = cur != null
     ? `<button class="btn btn-ghost btn-sm pop-free" onclick="assignTableFromPopover('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},0)">⏹️ Liberar mesa (detener partido)</button>`
     : '';
   const html = `<h4>${cur != null ? 'Mover de mesa' : 'Iniciar partido'}</h4>
     <div class="pop-sub">Elegí una de las ${max} mesa${max === 1 ? '' : 's'} del torneo. Las ocupadas por otro partido en curso no se pueden elegir.</div>
-    <div class="table-grid">${cells}</div>${refSel}${liberar}`;
+    <div class="table-grid">${cells}</div>${refBtn}${liberar}`;
   showPopover(ev.currentTarget, html);
 }
 function assignTableFromPopover(tid, cid, kind, gidx, r, m, tableNum) {
-  const refEl = document.getElementById('refSel');           // árbitro elegido en el popover (si aplica)
-  const ref = refEl ? refEl.value : undefined;
   closePopover();
-  setMatchTable(tid, cid, kind, gidx, r, m, tableNum > 0 ? String(tableNum) : '', ref);
+  setMatchTable(tid, cid, kind, gidx, r, m, tableNum > 0 ? String(tableNum) : '');
 }
+// Tras elegir la mesa en el popover (modo árbitro, partido de llave): abre el selector de árbitro.
+function refStart(tid, cid, kind, gidx, r, m, tableNum) { closePopover(); refPickerModal(tid, cid, kind, gidx, r, m, tableNum); }
+// Selector de árbitro para un partido de LLAVE: muestra los disponibles, permite "sin árbitro" y, con un
+// buscador, designar a CUALQUIER otro jugador (aunque no esté disponible). Al elegir, larga el partido.
+let _refCtx = null;
+function refPickerModal(tid, cid, kind, gidx, r, m, tableNum) {
+  const cat = getCat(tid, cid); cat._tid = tid;
+  const { mm, a, b } = locateMatch(cat, kind, gidx, r, m);
+  const t = tById(tid);
+  const cands = refCandidates(t, cat, a, b);
+  const inMatch = matchPlayers(cat, a, b);
+  // Pool para el buscador: cualquier jugador (activo) de la organización, menos los dos que juegan el partido.
+  const all = (DB.players || []).filter(p => isActivePlayer(p) && p.orgId === t.orgId && !inMatch.has(p.id)).sort((x, y) => fullName(x).localeCompare(fullName(y)));
+  _refCtx = { tid, cid, kind, gidx, r, m, tableNum, all };
+  const opt = p => `<button class="ref-opt" onclick="pickRef('${p.id}')">${avatar(p)}<span class="ref-opt-name">${esc(fullName(p))}</span>${refOptMeta(t, p) ? `<span class="ref-opt-meta">${refOptMeta(t, p)}</span>` : ''}</button>`;
+  const avail = cands.length ? cands.map(opt).join('') : `<div class="muted" style="padding:8px 4px">No hay jugadores libres ahora. Usá <b>🔍 Buscar otro jugador</b>.</div>`;
+  openModal(`<h3>🧑‍⚖️ Designar árbitro</h3>
+    <p class="muted" style="margin-top:0">${esc(entName(cat, a))} vs ${esc(entName(cat, b))} · 🏓 Mesa ${tableNum}</p>
+    <button class="btn btn-ghost" style="width:100%;margin-bottom:10px" onclick="pickRef('')">🚫 Largar sin árbitro</button>
+    <div class="ref-list-title">Disponibles ${cands.length ? `<span class="muted">(${cands.length})</span>` : ''}</div>
+    <div class="ref-list">${avail}</div>
+    <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="refShowSearch()">🔍 Buscar otro jugador</button>
+    <div id="refSearchWrap" hidden style="margin-top:10px">
+      <input id="refSearch" placeholder="Buscar por nombre…" oninput="refFilter(this.value)" autocomplete="off"/>
+      <div id="refSearchList" class="ref-list" style="margin-top:8px"></div>
+    </div>`);
+}
+// Etiqueta de por qué un jugador no está "disponible" (para el buscador): colaborador / jugando / arbitrando.
+function refOptMeta(t, p) {
+  if ((t.collaborators || []).includes(p.id)) return 'colaborador';
+  if (refPlayingNow(t).has(p.id)) return 'jugando';
+  if (refJudgingNow(t).has(p.id)) return 'arbitrando';
+  return '';
+}
+function refShowSearch() { const w = document.getElementById('refSearchWrap'); if (!w) return; w.hidden = false; const i = document.getElementById('refSearch'); if (i) i.focus(); refFilter(''); }
+function refFilter(q) {
+  const c = _refCtx; if (!c) return; const ql = (q || '').toLowerCase().trim();
+  const t = tById(c.tid);
+  const list = c.all.filter(p => !ql || fullName(p).toLowerCase().includes(ql)).slice(0, 40);
+  const el = document.getElementById('refSearchList'); if (!el) return;
+  el.innerHTML = list.length ? list.map(p => `<button class="ref-opt" onclick="pickRef('${p.id}')">${avatar(p)}<span class="ref-opt-name">${esc(fullName(p))}</span>${refOptMeta(t, p) ? `<span class="ref-opt-meta">${refOptMeta(t, p)}</span>` : ''}</button>`).join('') : '<div class="muted" style="padding:8px 4px">Sin resultados.</div>';
+}
+// Confirma el árbitro elegido (pid o '' = sin árbitro) y larga el partido en la mesa elegida.
+function pickRef(pid) { const c = _refCtx; if (!c) return; _refCtx = null; closeModal(); setMatchTable(c.tid, c.cid, c.kind, c.gidx, c.r, c.m, String(c.tableNum), pid || ''); }
 function setMatchTable(tid, cid, kind, gidx, r, m, val, ref) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm } = locateMatch(cat, kind, gidx, r, m);
@@ -3431,9 +3472,9 @@ function tournamentUnits(t) {
     if (cat.bracket) cat.bracket.forEach((round, r) => round.forEach((mm, mi) => {
       const a = brContender(cat, r, mi, 'a'), b = brContender(cat, r, mi, 'b');
       if (!(isRealEnt(cat, a) && isRealEnt(cat, b))) return;
-      units.push({ kind: 'bracket', cat, m: mm, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')` });
+      units.push({ kind: 'bracket', cat, m: mm, table: mm.table != null ? mm.table : null, pending: matchDone(mm, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: brRoundName(cat, r), action: `setMatchTable('${t.id}','${cat.id}','bracket',null,${r},${mi},'__T__')`, refAction: `refPickerModal('${t.id}','${cat.id}','bracket',null,${r},${mi},__T__)` });
     }));
-    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (isRealEnt(cat, a) && isRealEnt(cat, b)) units.push({ kind: 'bracket', cat, m: cat.thirdPlace, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')` }); }
+    if (cat.thirdPlace) { const a = semiLoser(cat, 0), b = semiLoser(cat, 1); if (isRealEnt(cat, a) && isRealEnt(cat, b)) units.push({ kind: 'bracket', cat, m: cat.thirdPlace, table: cat.thirdPlace.table != null ? cat.thirdPlace.table : null, pending: matchDone(cat.thirdPlace, cat) ? 0 : 1, players: matchPlayers(cat, a, b), who: `${entName(cat, a)} vs ${entName(cat, b)}`, prio, startMs, label: '3er puesto', action: `setMatchTable('${t.id}','${cat.id}','third',null,null,null,'__T__')`, refAction: `refPickerModal('${t.id}','${cat.id}','third',null,null,null,__T__)` }); }
     (cat.matches || []).forEach((m, idx) => { if (!m.postponed || matchDone(m, cat)) return; units.push({ kind: 'bracket', cat, m, table: m.table != null ? m.table : null, pending: 1, players: matchPlayers(cat, m.a, m.b), who: `${entName(cat, m.a)} vs ${entName(cat, m.b)}`, prio, startMs, label: 'Grupo ' + String.fromCharCode(65 + m.g) + ' (aplazado)', action: `setMatchTable('${t.id}','${cat.id}','group',${idx},null,null,'__T__')` }); });
   });
   return units;
@@ -3468,11 +3509,13 @@ function suggestPanelHtml(t) {
   if (!free.length) return '';
   if (!plan.length) return `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
     <p class="muted" style="margin:0">Hay ${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}, pero no hay zonas o llaves listas para largar (o sus jugadores ya están jugando en otra mesa).</p></div>`;
-  const row = (table, u) => `<div class="suggest-row">
+  // En Modo árbitro, largar un partido de llave abre antes el selector de árbitro (las zonas asignan árbitro solas).
+  const row = (table, u) => { const act = (setting('refMode') && u.refAction) ? u.refAction : u.action;
+    return `<div class="suggest-row">
       <div class="suggest-info"><b>Mesa ${table}</b> → ${esc(u.cat.name)} · ${esc(u.label)}
         <span class="muted">(${CLASS_LABELS[u.prio]}${u.cat.startAt ? ` · 🕒 ${fmtStartAt(u.cat.startAt)}` : ''})</span>
         ${u.who ? `<div class="suggest-who">👥 ${esc(u.who)}</div>` : ''}</div>
-      <button class="btn btn-primary btn-sm" onclick="${u.action.replace('__T__', table)}">▶️ Largar en Mesa ${table}</button></div>`;
+      <button class="btn btn-primary btn-sm" onclick="${act.replace('__T__', table)}">▶️ Largar en Mesa ${table}</button></div>`; };
   let html = `<div class="card suggest-card"><h3 style="margin:0 0 4px">💡 Sugerencias de largado</h3>
     <p class="muted" style="margin:0 0 10px">${free.length} mesa${free.length === 1 ? '' : 's'} libre${free.length === 1 ? '' : 's'}. Sugerencias por prioridad (Sub, Maxi, niveles…), horario y sin superponer jugadores. Tocá para largar.</p>`;
   html += plan.map(p => row(p.table, p.unit)).join('');
