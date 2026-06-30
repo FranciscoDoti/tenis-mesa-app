@@ -1002,7 +1002,16 @@ function readPhoneField(sel) {
 
 /* ---------- login / registro ---------- */
 function renderSplash(app) {
-  app.innerHTML = `<div class="login-wrap"><div class="big-logo">🏓</div><p class="page-sub" style="margin-top:10px">Cargando…</p></div>`;
+  // Pantalla de carga: dos jugadores peloteando (animación CSS) + "Cargando…".
+  app.innerHTML = `<div class="pp-loader">
+    <div class="pp-stage" aria-hidden="true">
+      <div class="pp-player pp-l"><div class="pp-head"></div><div class="pp-torso"></div><div class="pp-arm"><i class="pp-paddle"></i></div></div>
+      <div class="pp-player pp-r"><div class="pp-head"></div><div class="pp-torso"></div><div class="pp-arm"><i class="pp-paddle"></i></div></div>
+      <div class="pp-table"><i class="pp-net"></i></div>
+      <div class="pp-ball"></div>
+    </div>
+    <p class="pp-text">Cargando<b>.</b><b>.</b><b>.</b></p>
+  </div>`;
 }
 // Campo de contraseña con ojito para mostrar/ocultar.
 function pwFieldHtml(id, autocomplete, placeholder) {
@@ -4933,45 +4942,87 @@ function locateMatch(cat, kind, gidx, r, m) {
   if (kind === 'third') { return { mm: cat.thirdPlace, a: semiLoser(cat, 0), b: semiLoser(cat, 1) }; }
   const mm = cat.bracket[r][m]; return { mm, a: brContender(cat, r, m, 'a'), b: brContender(cat, r, m, 'b') };
 }
+// Carga RÁPIDA de resultado (a taps): por cada set se toca el ganador y los puntos del perdedor; se
+// auto-avanza al siguiente set. Permite GUARDAR PARCIAL (sin terminar el partido). Mismas reglas (a 11, dif. 2).
+let _qr = null;
 function resultModal(tid, cid, kind, gidx, r, m) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm, a, b } = locateMatch(cat, kind, gidx, r, m);
   if (!a || !b || a === 'BYE' || b === 'BYE') { alert('Faltan definir los dos participantes.'); return; }
-  const N = bestOfOf(mm, cat), nWin = Math.ceil(N / 2);
-  let rows = '';
-  for (let i = 0; i < N; i++) { const s = (mm.sets && mm.sets[i]) || ['', '']; rows += `<div class="setrow"><span>Set ${i + 1}</span>
-    <input class="set-a" type="number" min="0" value="${s[0]}"/><b>–</b><input class="set-b" type="number" min="0" value="${s[1]}"/></div>`; }
-  openModal(`<h3>Cargar resultado</h3>
-    <div class="row spread" style="font-weight:700;margin:6px 0"><span>${esc(entName(cat, a))}</span><span>${esc(entName(cat, b))}</span></div>
-    <p class="muted" style="margin:0 0 8px">Al mejor de ${N} sets (gana quien llega a ${nWin}). Cada set a 11, diferencia de 2.</p>
-    ${rows}<div id="rerr" class="banner" hidden></div>
-    <div class="row spread" style="margin-top:14px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveResult('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'})">Guardar</button></div>`);
+  const N = bestOfOf(mm, cat);
+  const sets = (mm.sets || []).map(s => [Number(s[0]) || 0, Number(s[1]) || 0]);
+  _qr = { tid, cid, kind, gidx, r, m, N, nWin: Math.ceil(N / 2), na: entName(cat, a), nb: entName(cat, b), sets, side: null, deuce: null };
+  openModal(qrBody());
 }
-function saveResult(tid, cid, kind, gidx, r, m) {
-  const cat = getCat(tid, cid), e = $('#rerr'); if (cat) cat._tid = tid; // _tid: lo usa isMatchRef para resolver el torneo
-  const as = [...$('#modalCard').querySelectorAll('.set-a')], bs = [...$('#modalCard').querySelectorAll('.set-b')];
-  const sets = [];
-  for (let i = 0; i < as.length; i++) {
-    const av = as[i].value.trim(), bv = bs[i].value.trim();
-    if (av === '' && bv === '') continue;
-    if (av === '' || bv === '') { e.hidden = false; e.textContent = `Set ${i + 1}: cargá ambos puntajes.`; return; }
-    const a = parseInt(av, 10), b = parseInt(bv, 10);
-    if (!setWinner([a, b])) { e.hidden = false; e.textContent = `Set ${i + 1} inválido (a 11, diferencia de 2). Ej: 11-9, 14-12.`; return; }
-    sets.push([a, b]);
+function qrRender() { const c = $('#modalCard'); if (c) c.innerHTML = `<button class="close-x" onclick="closeModal()">✕</button>` + qrBody(); }
+function qrTally(sets) { let wa = 0, wb = 0; sets.forEach(s => { const w = setWinner(s); if (w === 'a') wa++; else if (w === 'b') wb++; }); return { wa, wb }; }
+function qrBody() {
+  const q = _qr, { wa, wb } = qrTally(q.sets);
+  const decided = wa === q.nWin || wb === q.nWin;
+  const full = decided || q.sets.length >= q.N;
+  const chips = q.sets.map((s, i) => `<button class="qr-chip ${setWinner(s) === 'a' ? 'wa' : 'wb'}" onclick="qrEdit(${i})" title="Corregir desde este set">${s[0]}-${s[1]}</button>`).join('');
+  let entry = '';
+  if (!full) {
+    const k = q.sets.length;
+    if (q.side == null) {
+      entry = `<div class="qr-ask">¿Quién ganó el <b>Set ${k + 1}</b>?</div>
+        <div class="qr-sides"><button class="qr-side qr-a" onclick="qrWin('a')">${esc(q.na)}</button>
+        <button class="qr-side qr-b" onclick="qrWin('b')">${esc(q.nb)}</button></div>`;
+    } else if (q.deuce != null) {
+      entry = `<div class="qr-ask">Set ${k + 1} en <b>deuce</b> (gana por 2):</div>
+        <div class="qr-deuce-row"><button class="qr-step" onclick="qrDeuceAdj(-1)">−</button>
+          <span class="qr-deuce-sc">${q.deuce + 2}-${q.deuce}</span>
+          <button class="qr-step" onclick="qrDeuceAdj(1)">+</button>
+          <button class="btn btn-primary btn-sm" onclick="qrDeuceOk()">Confirmar</button></div>
+        <button class="btn btn-ghost btn-sm" onclick="qrBack()">↩︎ Volver</button>`;
+    } else {
+      const winName = q.side === 'a' ? q.na : q.nb, loseName = q.side === 'a' ? q.nb : q.na;
+      let pts = ''; for (let p = 0; p <= 9; p++) pts += `<button class="qr-pt" onclick="qrPts(${p})">${p}</button>`;
+      entry = `<div class="qr-ask">Ganó <b>${esc(winName)}</b>. Puntos de <b>${esc(loseName)}</b>:</div>
+        <div class="qr-pts">${pts}<button class="qr-pt qr-deuce-btn" onclick="qrDeuce()">10+</button></div>
+        <button class="btn btn-ghost btn-sm" onclick="qrBack()">↩︎ Otro ganador</button>`;
+    }
   }
+  const status = decided
+    ? `<div class="qr-status done">🏆 Ganó <b>${esc(wa > wb ? q.na : q.nb)}</b> · ${Math.max(wa, wb)}-${Math.min(wa, wb)}</div>`
+    : `<div class="qr-status">Parcial <b>${wa}-${wb}</b> <span class="muted">· al mejor de ${q.N}</span></div>`;
+  const canSave = q.sets.length >= 1;
+  const saveLbl = decided ? `Guardar ${Math.max(wa, wb)}-${Math.min(wa, wb)}` : (canSave ? `Guardar parcial ${wa}-${wb}` : 'Guardar');
+  return `<h3>Cargar resultado</h3>
+    <div class="qr-players"><span>${esc(q.na)}</span><span class="muted">vs</span><span>${esc(q.nb)}</span></div>
+    <p class="muted" style="margin:2px 0 8px;font-size:12px">Tocá el ganador de cada set y los puntos del rival. Podés <b>guardar parcial</b>.</p>
+    ${chips ? `<div class="qr-chips">${chips}</div>` : ''}
+    ${status}${entry}
+    <div id="rerr" class="banner" hidden></div>
+    <div class="row spread" style="margin-top:14px"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" ${canSave ? '' : 'disabled'} onclick="qrSave()">✅ ${saveLbl}</button></div>`;
+}
+function qrWin(side) { _qr.side = side; _qr.deuce = null; qrRender(); }
+function qrBack() { _qr.side = null; _qr.deuce = null; qrRender(); }
+function qrDeuce() { _qr.deuce = 10; qrRender(); }
+function qrDeuceAdj(d) { _qr.deuce = Math.max(10, _qr.deuce + d); qrRender(); }
+function qrDeuceOk() { qrPts(_qr.deuce); }
+function qrPts(loserPts) {
+  const q = _qr, win = loserPts <= 9 ? 11 : loserPts + 2;
+  q.sets.push(q.side === 'a' ? [win, loserPts] : [loserPts, win]);
+  q.side = null; q.deuce = null; qrRender();
+}
+function qrEdit(i) { _qr.sets = _qr.sets.slice(0, i); _qr.side = null; _qr.deuce = null; qrRender(); }
+function qrSave() { const q = _qr; commitResult(q.tid, q.cid, q.kind, q.gidx, q.r, q.m, q.sets.slice()); }
+// Valida y persiste un resultado (parcial o completo). Mismas reglas; permite guardar sin terminar el partido.
+function commitResult(tid, cid, kind, gidx, r, m, sets) {
+  const cat = getCat(tid, cid); if (cat) cat._tid = tid; // _tid: lo usa isMatchRef para resolver el torneo
+  const e = $('#rerr');
   const { mm } = locateMatch(cat, kind, gidx, r, m);
   const n = Math.ceil(bestOfOf(mm, cat) / 2);
-  // Recorre en orden: el partido termina cuando alguien llega a n sets; no se pueden cargar sets de más.
   let wa = 0, wb = 0, decided = -1;
   for (let i = 0; i < sets.length; i++) {
-    setWinner(sets[i]) === 'a' ? wa++ : wb++;
-    if (decided < 0 && (wa === n || wb === n)) decided = i;
+    const sw = setWinner(sets[i]); if (!sw) { if (e) { e.hidden = false; e.textContent = `Set ${i + 1} inválido (a 11, diferencia de 2).`; } return; }
+    sw === 'a' ? wa++ : wb++; if (decided < 0 && (wa === n || wb === n)) decided = i;
   }
-  if (decided < 0) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
-  if (decided < sets.length - 1) { e.hidden = false; e.textContent = `Cargaste sets de más: el partido termina cuando alguien llega a ${n} sets (no puede ganar por más de ${n}).`; return; }
-  // Árbitro (no admin/colaborador) en Firebase: NO puede escribir el doc del torneo (reglas) → lo persiste el worker,
-  // que valida que sea el árbitro designado de ESTE partido. En modo local escribe directo como cualquiera.
+  if (decided >= 0 && decided < sets.length - 1) { if (e) { e.hidden = false; e.textContent = `Hay sets de más: el partido termina al llegar a ${n}.`; } return; }
+  // Parciales permitidos: NO se exige que el partido esté definido (decided puede ser -1).
+  // Árbitro (no admin/colaborador) en Firebase: NO puede escribir el torneo (reglas) → lo persiste el worker.
   if (FB() && !canEditCat(cat) && isMatchRef(cat, mm)) { refResultViaWorker(tid, cid, kind, gidx, r, m, sets); return; }
   mm.sets = sets; if (mm.walkover) delete mm.walkover;
   syncBracket(cat); // resuelve en la llave los cruces de los grupos que con este resultado quedaron completos

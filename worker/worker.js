@@ -413,7 +413,7 @@ async function matchResult(req, env) {
   if (!mm) return json({ error: 'partido no encontrado' }, 404);
   if (mm.ref !== me.playerId) return json({ error: 'no sos el árbitro de este partido' }, 403);
   if (wMatchDone(mm, cat)) return json({ error: 'el partido ya tiene resultado; pedile al organizador que lo corrija' }, 400);
-  // Validar los sets: cada uno válido (a 11, dif. 2) y el partido decidido SIN sets de más.
+  // Validar los sets: cada uno válido (a 11, dif. 2) y sin sets de más. Se permite PARCIAL (sin definir aún).
   const n = Math.ceil(wBestOf(mm, cat) / 2);
   let wa = 0, wb = 0, decided = -1;
   for (let i = 0; i < sets.length; i++) {
@@ -421,8 +421,7 @@ async function matchResult(req, env) {
     sw === 'a' ? wa++ : wb++;
     if (decided < 0 && (wa === n || wb === n)) decided = i;
   }
-  if (decided < 0) return json({ error: 'faltan sets para definir el partido' }, 400);
-  if (decided < sets.length - 1) return json({ error: 'cargaste sets de más' }, 400);
+  if (decided >= 0 && decided < sets.length - 1) return json({ error: 'cargaste sets de más' }, 400);
   mm.sets = sets.map(s => [Number(s[0]) || 0, Number(s[1]) || 0]);
   if (mm.walkover) delete mm.walkover;
   if (kind === 'group') wResolveBracketSlots(cat); // completar una zona puede definir clasificados de la llave

@@ -1001,3 +1001,50 @@ textarea:focus{outline:2px solid var(--table); outline-offset:0; border-color:va
 .scope-tag{display:inline-block; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; vertical-align:middle; letter-spacing:.2px}
 .scope-school{background:#e7f0ff; color:#2a6fdb}
 .scope-org{background:#fde9d2; color:#b5630e}
+
+/* ---------- carga rápida de resultado (a taps) ---------- */
+.qr-players{display:flex; align-items:center; justify-content:space-between; gap:10px; font-weight:800; font-size:15px; margin:6px 0}
+.qr-players .muted{font-weight:600; font-size:12px}
+.qr-chips{display:flex; flex-wrap:wrap; gap:6px; margin:6px 0}
+.qr-chip{font-weight:800; font-size:13px; padding:4px 10px; border-radius:8px; border:1px solid var(--line); cursor:pointer; background:#fff}
+.qr-chip.wa{color:#0f6038; border-color:#bfe6cf; background:#f0fbf4}
+.qr-chip.wb{color:#143f86; border-color:#cfe0ff; background:#f1f6ff}
+.qr-status{margin:8px 0; font-weight:700; color:var(--muted); font-size:14px}
+.qr-status.done{color:#8a5400; background:linear-gradient(120deg,#fff6e6,#ffe9c7); border:1px solid #ffd8a8; border-radius:10px; padding:8px 12px}
+.qr-ask{font-size:13px; color:var(--ink); margin:10px 0 8px}
+.qr-sides{display:flex; gap:10px}
+.qr-side{flex:1 1 0; min-width:0; padding:16px 10px; border-radius:14px; border:2px solid var(--line); background:#fff; font-weight:800; font-size:15px; cursor:pointer; line-height:1.15; overflow-wrap:anywhere}
+.qr-side.qr-a:hover,.qr-side.qr-a:active{border-color:#22a566; background:#f0fbf4}
+.qr-side.qr-b:hover,.qr-side.qr-b:active{border-color:#2a6fdb; background:#f1f6ff}
+.qr-pts{display:flex; flex-wrap:wrap; gap:8px}
+.qr-pt{width:46px; height:46px; border-radius:12px; border:1px solid var(--line); background:#fff; font-weight:800; font-size:17px; cursor:pointer}
+.qr-pt:hover,.qr-pt:active{border-color:var(--table); background:#eef4f0}
+.qr-pt.qr-deuce-btn{width:auto; padding:0 12px; font-size:14px; color:var(--paddle)}
+.qr-deuce-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0}
+.qr-step{width:42px; height:42px; border-radius:10px; border:1px solid var(--line); background:#fff; font-size:20px; font-weight:800; cursor:pointer}
+.qr-deuce-sc{font-weight:800; font-size:18px; min-width:62px; text-align:center}
+
+/* ---------- pantalla de carga: dos jugadores peloteando ---------- */
+.pp-loader{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; min-height:62vh; padding:24px}
+.pp-stage{position:relative; width:240px; height:140px}
+.pp-table{position:absolute; left:50%; bottom:16px; transform:translateX(-50%); width:152px; height:10px; background:linear-gradient(#1e6b3a,#155029); border-radius:3px; box-shadow:0 10px 16px rgba(0,0,0,.14)}
+.pp-table .pp-net{position:absolute; left:50%; top:-9px; width:2px; height:13px; background:#fff; opacity:.85; transform:translateX(-50%)}
+.pp-player{position:absolute; bottom:22px; width:34px; height:62px; animation:pp-bob .9s ease-in-out infinite}
+.pp-l{left:8px} .pp-r{right:8px}
+.pp-head{position:absolute; top:0; left:50%; transform:translateX(-50%); width:16px; height:16px; border-radius:50%; background:#f1c27d}
+.pp-torso{position:absolute; top:14px; left:50%; transform:translateX(-50%); width:20px; height:32px; border-radius:11px 11px 6px 6px; background:#c1121f}
+.pp-arm{position:absolute; top:18px; width:6px; height:20px; background:#f1c27d; border-radius:4px; transform-origin:top center}
+.pp-l .pp-arm{right:3px; animation:pp-arm-l .9s ease-in-out infinite}
+.pp-r .pp-arm{left:3px; animation:pp-arm-r .9s ease-in-out infinite}
+.pp-paddle{position:absolute; bottom:-9px; left:-4px; width:13px; height:13px; border-radius:50%; background:#7a0c16; border:2px solid #c1121f}
+.pp-ball{position:absolute; width:11px; height:11px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#ffe1b8,#ff7a1a 72%); box-shadow:0 0 7px rgba(255,122,26,.7); animation:pp-bx .9s linear infinite, pp-by .45s ease-in-out infinite}
+@keyframes pp-bx{0%{left:24px}50%{left:205px}100%{left:24px}}
+@keyframes pp-by{0%{top:70px}50%{top:20px}100%{top:70px}}
+@keyframes pp-arm-l{0%,100%{transform:rotate(-38deg)}10%{transform:rotate(32deg)}55%{transform:rotate(-38deg)}}
+@keyframes pp-arm-r{0%,45%{transform:rotate(38deg)}62%{transform:rotate(-32deg)}100%{transform:rotate(38deg)}}
+@keyframes pp-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.pp-text{font-weight:800; color:var(--table-dark); font-size:16px; letter-spacing:.5px}
+.pp-text b{opacity:.2; animation:pp-dot 1.2s infinite}
+.pp-text b:nth-of-type(2){animation-delay:.2s} .pp-text b:nth-of-type(3){animation-delay:.4s}
+@keyframes pp-dot{0%,80%,100%{opacity:.2}40%{opacity:1}}
+@media (prefers-reduced-motion: reduce){.pp-stage *{animation:none!important}}
