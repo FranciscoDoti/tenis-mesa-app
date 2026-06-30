@@ -4,10 +4,10 @@
 
 
 - [x] implementar lo de los cabezas de serie por ranking
-- [] implementar lo del modo Arbitro para el tema de la planilla
+- [x] implementar lo del modo Arbitro para el tema de la planilla
 - [x] implementar lo de que las zonas se cruzan por ejemplo, los segudnos y los primeros de cada zona van por lados distintos de la llave así no se cruzan hasta la final.
 - [x] que se pueda cambiar las reglas del torneo cuando ya se definieron los grupos pero no arracnaron todavía los partidos
-- [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
+- [x] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
 - [x] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
 - [x] Implementar el sistema que sugiera qué mesas y zonas largar .
   - [x] agregar un link en la setting para una página o un tooltip donde explique cómo funciona esta funcionalidad
