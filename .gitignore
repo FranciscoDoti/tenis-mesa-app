@@ -13,3 +13,19 @@ serviceAccountKey.json
 cloudflare_token.json
 cf-token.txt
 *cloudflare*token*
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+
+# clave de servicio para backfill puntual (NO commitear)
+sa-key.json
+
+# tests / cobertura
+coverage/
+playwright-report/
+test-results/
+.vitest/
