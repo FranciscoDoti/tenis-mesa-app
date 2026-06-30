@@ -4350,7 +4350,10 @@ function saveCategoryTime(tid, cid, clear) {
 /* ---------- categoría: inscripción, grupos, resultados, llave ---------- */
 // Lista de inscriptos de la categoría (visible para admin y jugadores).
 function entrantsListHtml(cat) {
-  if (!cat.entrants.length) return `<div class="empty">Todavía no hay ${cat.format === 'double' ? 'parejas' : 'jugadores'} inscriptos.</div>`;
+  if (!cat.entrants.length) {
+    const canEnroll = canEditCat(cat) && !catStarted(cat) && !cat.closed; // mismo criterio que "Anotar" en Acciones
+    return `<div class="empty">Todavía no hay ${cat.format === 'double' ? 'parejas' : 'jugadores'} inscriptos.${canEnroll ? `<div style="margin-top:12px"><button class="btn btn-accent" onclick="enrollModal('${cat._tid}','${cat.id}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button></div>` : ''}</div>`;
+  }
   const u = currentUser(), myId = u && u.playerId;
   const cost = catCost(cat), canPay = canEditCat(cat);
   const t = tById(cat._tid), online = onlinePayReady(t, cat); // ¿el jugador puede pagar online desde acá?
