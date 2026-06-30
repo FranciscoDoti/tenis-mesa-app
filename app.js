@@ -4044,7 +4044,7 @@ function renderTournament(app, tid) {
         ${pay}
         <div class="cat-card-actions">
           <button class="btn btn-accent btn-sm" onclick="go('cat:${t.id}:${c.id}')">👁️ Ver</button>
-          ${canEditT(t) && !c.groups ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
+          ${canEditT(t) && !catStarted(c) && !c.closed ? `<button class="btn btn-ghost btn-sm" onclick="categoriaForm('${t.id}','${c.id}')">✏️ Reglas</button>` : ''}
           ${canEditT(t) ? `<button class="btn btn-ghost btn-sm icon-btn" title="Eliminar" onclick="delCategoria('${t.id}','${c.id}')">🗑️</button>` : ''}
         </div>
       </div>
@@ -4161,9 +4161,11 @@ function saveCategoria(tid, cid) {
   const cost = Math.max(0, parseInt($('#c_cost').value, 10) || 0);
   if (cid) {
     const cat = getCat(tid, cid); if (!cat) return;
-    if (cat.groups) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: los partidos ya empezaron.'; return; }
+    if (catStarted(cat) || cat.closed) { e.hidden = false; e.textContent = 'No se pueden editar las reglas: la categoría ya empezó.'; return; }
     if (cat.format !== format) cat.entrants = []; // cambia singles/dobles → se limpian inscriptos
     cat.name = name; cat.format = format; cat.gender = gender; cat.rule = catalogRule(name); cat.rules = rules; cat.setsFormat = setsFormat; cat.championPoints = championPoints; cat.cost = cost;
+    // Si ya había grupos sorteados (todavía sin empezar), las reglas nuevas los invalidan → se borran para volver a sortear.
+    if (cat.groups) { cat.groups = null; cat.matches = null; cat.bracket = null; cat.thirdPlace = null; }
   } else {
     t.categorias.push({ id: uid('c_'), name, format, gender, rule: catalogRule(name), setsFormat, rules, championPoints, cost, entrants: [], groups: null, matches: null, bracket: null, thirdPlace: null, closed: false, enrollOverride: null });
   }
@@ -4304,10 +4306,11 @@ function renderCategoria(app, tid, cid) {
       <button class="btn btn-primary" onclick="awardPoints('${tid}','${cid}')">✅ Cerrar y otorgar puntos</button>${infoTip(AWARD_HELP)}</div>`;
     html += `<details class="cat-actions" ${_openDetails.has('ca:' + cid) ? 'open' : ''} ontoggle="detToggle('ca:${cid}',this)"><summary>⋯ Acciones</summary><div class="cat-actions-body">
       ${preStart ? `<button class="btn btn-accent" onclick="enrollModal('${tid}','${cid}')">📝 Anotar ${cat.format === 'double' ? 'parejas' : 'jugadores'}</button>` : ''}
+      ${preStart ? `<button class="btn btn-ghost" onclick="categoriaForm('${tid}','${cid}')">✏️ Editar reglas</button>` : ''}
       <button class="btn btn-ghost" onclick="categoryTimeModal('${tid}','${cid}')">🕒 ${cat.startAt ? 'Horario' : 'Poner horario'}</button>
       ${canToggle ? `<button class="btn btn-ghost" onclick="toggleEnroll('${tid}','${cid}')">${enr.open ? '🔒 Cerrar inscripción' : '🔓 Abrir inscripción'} (esta categoría)</button>` : ''}
       ${canToggle && cat.enrollOverride ? `<button class="btn btn-ghost" onclick="resetEnrollOverride('${tid}','${cid}')">↩️ Seguir al torneo</button>` : ''}
-      ${preStart ? `<button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 Armar grupos</button>` : ''}
+      ${preStart ? `<button class="btn btn-primary" onclick="makeGroups('${tid}','${cid}')">🎲 ${cat.groups ? 'Volver a sortear grupos' : 'Sortear grupos'}</button>` : ''}
     </div></details>`;
     if (cat.closed) html += `<div class="banner" style="margin-top:12px">✅ Categoría cerrada — puntos otorgados al ranking.</div>`;
   } else {
@@ -4334,7 +4337,7 @@ function renderCategoria(app, tid, cid) {
   if (tab === 'inscriptos') html += entrantsListHtml(cat);
   else if (tab === 'grupos') {
     if (cat.groups && cat.groups.length) html += `<div class="groups">` + cat.groups.map((g, i) => groupCardHtml(cat, i)).join('') + `</div>`;
-    else html += `<div class="empty">Grupos sin armar.${canEditCat(cat) ? ' Anotá jugadores y usá “⋯ Acciones → Armar grupos”.' : ''}</div>`;
+    else html += `<div class="empty">Grupos sin armar.${canEditCat(cat) ? ' Anotá jugadores y usá “⋯ Acciones → Sortear grupos”.' : ''}</div>`;
   } else if (tab === 'llave') {
     if (cat.bracket) html += bracketHtml(cat);
     else if (cat.groups && cat.groups.length) html += `<div class="empty">Clasifican los 2 primeros de cada grupo. La llave se arma sola apenas se carguen <b>todos</b> los resultados de la fase de grupos.</div>`;
@@ -4530,7 +4533,18 @@ async function enrollViaWorker(tid, cid, players, errEl) {
 }
 
 /* ----- grupos ----- */
-function buildGroups(ids, min, max) {
+// Puntaje de SIEMBRA de una inscripción (para armar grupos balanceados por ranking): el del jugador en
+// singles; el PROMEDIO de la pareja en dobles. Si no se encuentra el jugador, cuenta 0.
+function entSeedPoints(cat, id) {
+  const e = entById(cat, id); if (!e) return 0;
+  const pts = (e.players || []).map(pid => { const p = playerById(pid); return p ? (p.points || 0) : 0; });
+  return pts.length ? pts.reduce((a, b) => a + b, 0) / pts.length : 0;
+}
+// Arma grupos balanceados con SIEMBRA (cabezas de serie) + sorteo. seedOf(id) = puntaje de ranking.
+// Se ordena por ranking y se reparte en "serpentina": cada grupo recibe un jugador de cada franja de fuerza
+// (los mejores como cabezas de serie, uno por grupo; los demás se reparten parejo). Dentro de cada franja
+// (bloque de `g`) se mezcla al azar → es un sorteo, pero los grupos quedan equilibrados por nivel.
+function buildGroups(ids, min, max, seedOf) {
   const n = ids.length;
   if (n < min) return { ok: false, msg: `Hacen falta al menos ${min} (hay ${n}).` };
   let g = null;
@@ -4539,19 +4553,25 @@ function buildGroups(ids, min, max) {
     if (Array.from({ length: cand }, (_, i) => base + (i < rem ? 1 : 0)).every(s => s >= min && s <= max)) { g = cand; break; }
   }
   if (!g) return { ok: false, msg: `No se pueden armar grupos de ${min} a ${max} con ${n}.` };
+  // 1) Ordenar por ranking (desc). 2) Mezclar dentro de cada "pot" (bloque de g) → sorteo, sin romper el balance.
+  const ordered = ids.slice();
+  if (seedOf) ordered.sort((a, b) => (seedOf(b) || 0) - (seedOf(a) || 0));
+  for (let s = 0; s < n; s += g) { const end = Math.min(s + g, n);
+    for (let i = end - 1; i > s; i--) { const j = s + Math.floor(Math.random() * (i - s + 1)); const tmp = ordered[i]; ordered[i] = ordered[j]; ordered[j] = tmp; } }
+  // 3) Repartir en serpentina: cada pot se distribuye uno por grupo, alternando la dirección (balancea la fuerza).
   const groups = Array.from({ length: g }, () => []); let i = 0, row = 0;
-  while (i < n) { const order = row % 2 === 0 ? [...Array(g).keys()] : [...Array(g).keys()].reverse(); for (const gi of order) if (i < n) groups[gi].push(ids[i++]); row++; }
+  while (i < n) { const order = row % 2 === 0 ? [...Array(g).keys()] : [...Array(g).keys()].reverse(); for (const gi of order) if (i < n) groups[gi].push(ordered[i++]); row++; }
   return { ok: true, groups };
 }
 function genMatches(groups, bestOf) { const m = []; groups.forEach((g, gi) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) m.push({ g: gi, a: g[i], b: g[j], sets: [], bestOf }); }); return m; }
 function makeGroups(tid, cid) {
   const cat = getCat(tid, cid);
-  // Si ya hay resultados cargados (partidos jugados, llave generada o categoría cerrada),
-  // rearmar grupos los borra. Pedimos confirmación explícita para evitar perder datos.
-  const hasResults = (cat.matches || []).some(m => matchDone(m, cat)) || cat.bracket || cat.closed;
-  if (hasResults && !confirm('⚠️ Esta categoría ya tiene resultados cargados. Si volvés a armar los grupos se borrarán todos los partidos, la llave y el cierre. ¿Continuar?')) return;
+  // Mientras NO haya empezado nada (ninguna mesa largada ni resultado cargado), re-sortear es libre.
+  // Si ya empezó (o está cerrada), volver a sortear borra todo → pedimos confirmación explícita.
+  const started = catStarted(cat) || cat.closed;
+  if (started && !confirm('⚠️ Esta categoría ya empezó (hay mesas largadas o resultados). Si volvés a sortear los grupos se borrarán todos los partidos, la llave y el cierre. ¿Continuar?')) return;
   const ids = cat.entrants.map(e => e.id);
-  const res = buildGroups(ids, cat.rules.groupMin, cat.rules.groupMax);
+  const res = buildGroups(ids, cat.rules.groupMin, cat.rules.groupMax, id => entSeedPoints(cat, id));
   if (!res.ok) { alert('⚠️ ' + res.msg); return; }
   cat.groups = res.groups; cat.matches = genMatches(res.groups, catSetsFmt(cat).groups); cat.bracket = null; cat.thirdPlace = null; cat.closed = false; cat.awarded = null;
   buildBracketStructure(cat); // la llave se arma desde ya, con "1ro/2do Grupo X" hasta que terminen los grupos
@@ -4616,8 +4636,8 @@ function groupCardHtml(cat, gi) {
     const actions = canEditCat(cat)
       ? `<div class="bmatch-actions">${resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️')}${!done ? noShowBtn(cat, 'group', idx, null, null) : ''}${ctl}</div>`
       : '';
-    return `<div class="bmatch"><span class="${w === 'a' ? 'win' : ''}">${entLink(cat, m.a)}</span>
-      <b class="score">${done ? r.wa + '-' + r.wb : '–'}</b>${wo}
+    return `<div class="bmatch${done ? ' done' : ''}"><span class="${w === 'a' ? 'win' : ''}">${entLink(cat, m.a)}</span>
+      <b class="score">${done ? r.wa + '-' + r.wb : 'vs'}</b>${wo}
       <span class="${w === 'b' ? 'win' : ''}">${entLink(cat, m.b)}</span>
       ${done ? eloLabel(cat, m, m.a, m.b) : estStartLabel(m)}
       ${actions}</div>`;
@@ -4629,7 +4649,7 @@ function groupCardHtml(cat, gi) {
   return `<div class="group-card${collapsed ? ' collapsed' : ''}${done ? ' done' : ''}">
     <h4 onclick="toggleGroup('${cat.id}',${gi},${collapsed})"><span>Grupo ${String.fromCharCode(65 + gi)} · ${cat.groups[gi].length}</span>
       <span class="grp-right">${done ? '<span class="grp-done">✓ FINALIZADO</span>' : ''}<span class="grp-caret">▾</span></span></h4>
-    <div class="group-body">${zc ? `<div class="zone-bar">${zc}</div>` : ''}<ul>${rows}</ul><div class="matches">${ms}</div></div></div>`;
+    <div class="group-body">${zc ? `<div class="zone-bar">${zc}</div>` : ''}<ul>${rows}</ul><div class="matches"><div class="matches-h">⚔️ Partidos</div>${ms}</div></div></div>`;
 }
 
 /* ----- bracket ----- */
@@ -4639,6 +4659,21 @@ function nextPow2(n) { let p = 1; while (p < n) p *= 2; return p; }
 // más bajo. Así, al rellenar con BYE los seeds que sobran (los más bajos), el BYE le toca a los
 // MEJORES seeds (los que más lo merecen por su rendimiento en la zona).
 function seedOrder(size) { let order = [1]; while (order.length < size) { const sum = order.length * 2 + 1; order = order.flatMap(s => [s, sum - s]); } return order; }
+// Reparte los clasificados (1º y 2º de cada grupo) en las hojas de la llave de modo que el 1º y el 2º de
+// un MISMO grupo queden en MITADES OPUESTAS (solo podrían volver a cruzarse en la final). Los grupos están
+// sembrados por fuerza (grupo A = más fuerte), así que sus 1ros son las cabezas de serie. Cada mitad se arma
+// como un sub-cuadro sembrado: 1ros (cabezas) primero, después 2dos de OTROS grupos, y los BYE al final.
+function seededQualSlots(g) {
+  const size = Math.max(2, nextPow2(2 * g)), half = size / 2;
+  const topW = [], botW = [];                          // ganadores repartidos alternando mitad (A↑, B↓, C↑, D↓…)
+  for (let X = 0; X < g; X++) (X % 2 === 0 ? topW : botW).push(X);
+  // El 2º de cada grupo va a la mitad OPUESTA a la de su 1º.
+  const buildHalf = (winners, runnersGroups) => {
+    const parts = winners.map(X => 'Q:' + X + ':0').concat(runnersGroups.map(X => 'Q:' + X + ':1'));
+    return seedOrder(half).map(s => s <= parts.length ? parts[s - 1] : 'BYE');
+  };
+  return buildHalf(topW, botW).concat(buildHalf(botW, topW)); // arriba: 1ros de A,C… + 2dos de B,D… (y viceversa)
+}
 function brContender(cat, r, m, side) { if (r === 0) { const mm = cat.bracket[0][m]; return side === 'a' ? mm.a : mm.b; } return brWinner(cat, r - 1, m * 2 + (side === 'a' ? 0 : 1)); }
 function brWinner(cat, r, m) {
   const a = brContender(cat, r, m, 'a'), b = brContender(cat, r, m, 'b');
@@ -4657,15 +4692,11 @@ const isQ = id => typeof id === 'string' && id.indexOf('Q:') === 0;
 const qLabel = id => { const p = id.split(':'); return (p[2] === '0' ? '1ro' : '2do') + ' Grupo ' + String.fromCharCode(65 + (+p[1])); };
 const isRealEnt = (cat, id) => !!entById(cat, id); // jugador/pareja de verdad (no BYE, no marcador "Q:")
 function groupComplete(cat, gi) { const ms = (cat.matches || []).filter(m => m.g === gi); return ms.length > 0 && ms.every(m => matchDone(m, cat)); }
-// Arma la ESTRUCTURA de la llave (función PURA): hojas sembradas por posición de grupo (1ros como cabezas de
-// serie; los BYE, si el cuadro no es potencia de 2, caen en los mejores seeds). Se llama al armar los grupos.
+// Arma la ESTRUCTURA de la llave (función PURA): siembra los clasificados con seededQualSlots, de modo que
+// el 1º y el 2º de un mismo grupo queden en mitades opuestas y los BYE caigan en las mejores cabezas de serie.
 function buildBracketStructure(cat) {
   if (!cat.groups || !cat.groups.length) return false;
-  const qualSlots = []; // primero todos los 1ros, después todos los 2dos
-  cat.groups.forEach((g, gi) => qualSlots.push('Q:' + gi + ':0'));
-  cat.groups.forEach((g, gi) => qualSlots.push('Q:' + gi + ':1'));
-  const K = qualSlots.length, size = Math.max(2, nextPow2(K));
-  const slots = seedOrder(size).map(n => n <= K ? qualSlots[n - 1] : 'BYE');
+  const slots = seededQualSlots(cat.groups.length);
   const rounds = [], r0 = []; for (let i = 0; i < slots.length; i += 2) r0.push({ a: slots[i], b: slots[i + 1], sets: [] });
   rounds.push(r0); let c = r0.length; while (c > 1) { const rr = []; for (let i = 0; i < c; i += 2) rr.push({ sets: [] }); rounds.push(rr); c = rr.length; }
   const fmt = catSetsFmt(cat);

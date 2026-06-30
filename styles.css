@@ -235,13 +235,16 @@ input:focus,select:focus{outline:2px solid var(--table); outline-offset:0; borde
 .rank-body .player-row:last-child{margin-bottom:8px}
 
 /* ---------- group matches + bracket ---------- */
-.matches{border-top:2px solid #c9cfd8; margin-top:4px}
-.bmatch{display:flex; align-items:center; gap:8px; padding:7px 10px; font-size:13px}
-.bmatch:nth-child(even){background:#f7f9fb}
-.bmatch + .bmatch{border-top:1px solid #cfd5dd}            /* divisor más oscuro entre partidos */
+/* partidos de cada grupo: cada uno en su propia "tarjeta" para que se distingan bien del fondo y entre sí */
+.matches{margin-top:12px; display:flex; flex-direction:column; gap:8px}
+.matches-h{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted)}
+.bmatch{display:flex; align-items:center; gap:10px; padding:9px 12px; font-size:13px; background:#fff; border:1px solid var(--line); border-left:3px solid #d7dde5; border-radius:10px; box-shadow:0 1px 2px rgba(16,24,40,.05)}
+.bmatch.done{border-left-color:var(--ok); background:linear-gradient(90deg,rgba(22,163,74,.06),#fff 55%)}  /* jugado: acento verde */
 .bmatch>span{flex:1 1 38%; min-width:0; overflow-wrap:anywhere; line-height:1.2}
 .bmatch>span:last-of-type{text-align:right}
-.bmatch .score{flex:0 0 auto; background:#eef4f0; border-radius:6px; padding:2px 8px; color:var(--table-dark)}
+.bmatch.done>span:not(.win){color:var(--muted)}            /* en un partido jugado, el perdedor queda atenuado */
+.bmatch .score{flex:0 0 auto; min-width:52px; text-align:center; background:#eef1f5; color:var(--muted); border-radius:8px; padding:3px 10px; font-weight:800; letter-spacing:.5px; font-size:12px}
+.bmatch.done .score{background:var(--table); color:#fff}    /* resultado cargado: chip lleno y nítido */
 .bmatch .win,.br-slot.win{font-weight:800; color:var(--table-dark)}
 .bmatch .btn-sm{flex:0 0 auto}
 /* fila de acciones del partido (Cargar / 🚷 / Aplazar / Iniciar) — juntas, no se parten en 2 líneas */
