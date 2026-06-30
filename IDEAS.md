@@ -7,6 +7,7 @@
 - [] implementar lo del modo Arbitro para el tema de la planilla
 - [] implementar lo de que las zonas se cruzan por ejemplo, los segudnos y los primeros de cada zona van por lados distintos de la llave así no se cruzan hasta la final.
 - [] que se pueda cambiar las reglas del torneo cuando ya se definieron los grupos pero no arracnaron todavía los partidos
+- [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
 - [x] Implementar el sistema de puntaje usando Torneos + Partidos entre jugadores. 
 - [x] Implementar el sistema que sugiera qué mesas y zonas largar .
   - [x] agregar un link en la setting para una página o un tooltip donde explique cómo funciona esta funcionalidad
@@ -16,13 +17,12 @@
 - [x] Impleemntar la funcionalidad de horario estimado
 - [x] Implementar un reglamento editable con opción de **publicar / despublicar**.
 - [x] Implementar una sección de **Noticias**.
-- [ ] Evaluar si conviene implementar la funcionalidad de **Árbitro**.
 - [X] Implementar un módulo de **Reportes**.
   - [X] Reporte de jugadores que no pagaron.
 - [x] que al jugador le salte un popup cuando tiene categorías que todavía no pagó y recarga la app o inicia sesión, avisandolé cuales le falta pagar, cuanto de cada una y cual es el monto total, y que esto le avise cuando inicie la categoría (es decir cuando se largue la primer mesa) 
 - [x] Que el administrador pueda agregar categorías y definir sus reglas de inscripción y edad, y a cuantos sets se juega y todo eso.
 - [x] Revisar lo de las reglas de sets y eso a nivel torneo o si se puede sobreescribir a nivel categorias. 
-- [ ] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
+- [x] Implementar un sisetma de Federaciones y Escuelas con ranking de escuelas, ranking intraescuelas y ranking general
 - [x] Implementar un sistema de ranking para Dobles
 - [x] hay distintas categorías de dobles. Entonces, hay que tener en cuenta eso para todo, para los rankings para los torneos, etc, en los jugadores vamos a tener que agregar un campo para que digan si son mujer o varon para poder usar eso para los dobles femeninos o mixtos y los rankings deberían poder mostrar por categorías de dobles (ej: dobles primera, dobles segudna, dobles mixto, dobles femenino) 
 - [x] hacer que los colaboradores puedan tener más control sobre el torneo para poder editar más cosas
