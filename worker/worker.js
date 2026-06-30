@@ -41,6 +41,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/delete-account') return await deleteAccount(req, env);
       if (req.method === 'POST' && url.pathname === '/enroll') return await enroll(req, env);
       if (req.method === 'POST' && url.pathname === '/award') return await award(req, env);
+      if (req.method === 'POST' && url.pathname === '/match-result') return await matchResult(req, env);
       if (req.method === 'POST' && url.pathname === '/webhook') return await handleWebhook(req, env, url);
       return json({ error: 'not found' }, 404);
     } catch (e) {
@@ -383,6 +384,75 @@ async function writeSettings(env, token, obj) {
     body: JSON.stringify({ fields: { j: { stringValue: JSON.stringify(obj) } } }),
   });
   return r.ok;
+}
+
+/* ---------- carga de resultado por un ÁRBITRO ----------
+   Un jugador no puede escribir el doc del torneo (reglas), así que el árbitro designado de un partido
+   manda su resultado acá. Validamos que el que llama sea EXACTAMENTE el árbitro de ESE partido (mm.ref)
+   y que el partido todavía no tenga resultado. Solo se toca ese partido. */
+async function matchResult(req, env) {
+  const { idToken, tournamentId, categoryId, kind, gidx, r, m, sets } = await req.json();
+  if (!idToken || !tournamentId || !categoryId || !kind || !Array.isArray(sets)) return json({ error: 'faltan datos' }, 400);
+  const apiKey = env.FIREBASE_API_KEY;
+  if (!apiKey) return json({ error: 'worker sin FIREBASE_API_KEY' }, 500);
+  let who; try { who = await idtPost(apiKey, 'accounts:lookup', { idToken }); } catch (e) { return json({ error: 'sesión inválida' }, 401); }
+  const uid = who.users && who.users[0] && who.users[0].localId;
+  if (!uid) return json({ error: 'sesión inválida' }, 401);
+  const token = await getAccessToken(env);
+  const me = await readUserDoc(env, token, uid);
+  if (!me || !me.playerId) return json({ error: 'no autorizado' }, 403);
+  const t = await readBlob(env, token, 'tournaments', tournamentId);
+  if (!t) return json({ error: 'torneo no encontrado' }, 404);
+  const cat = (t.categorias || []).find(c => c.id === categoryId);
+  if (!cat) return json({ error: 'categoría no encontrada' }, 404);
+  // Localizar el partido (misma convención que el cliente).
+  let mm = null;
+  if (kind === 'group') mm = (cat.matches || [])[gidx];
+  else if (kind === 'bracket') mm = cat.bracket && cat.bracket[r] && cat.bracket[r][m];
+  else if (kind === 'third') mm = cat.thirdPlace;
+  if (!mm) return json({ error: 'partido no encontrado' }, 404);
+  if (mm.ref !== me.playerId) return json({ error: 'no sos el árbitro de este partido' }, 403);
+  if (wMatchDone(mm, cat)) return json({ error: 'el partido ya tiene resultado; pedile al organizador que lo corrija' }, 400);
+  // Validar los sets: cada uno válido (a 11, dif. 2) y el partido decidido SIN sets de más.
+  const n = Math.ceil(wBestOf(mm, cat) / 2);
+  let wa = 0, wb = 0, decided = -1;
+  for (let i = 0; i < sets.length; i++) {
+    const sw = wSetWinner(sets[i]); if (!sw) return json({ error: `set ${i + 1} inválido` }, 400);
+    sw === 'a' ? wa++ : wb++;
+    if (decided < 0 && (wa === n || wb === n)) decided = i;
+  }
+  if (decided < 0) return json({ error: 'faltan sets para definir el partido' }, 400);
+  if (decided < sets.length - 1) return json({ error: 'cargaste sets de más' }, 400);
+  mm.sets = sets.map(s => [Number(s[0]) || 0, Number(s[1]) || 0]);
+  if (mm.walkover) delete mm.walkover;
+  if (kind === 'group') wResolveBracketSlots(cat); // completar una zona puede definir clasificados de la llave
+  const ok = await writeBlob(env, token, 'tournaments', tournamentId, t);
+  if (!ok) return json({ error: 'no se pudo guardar' }, 502);
+  return json({ ok: true });
+}
+// --- Helpers de partidos (mismos criterios que la app) ---
+function wSetWinner(s) { const a = Number(s[0]), b = Number(s[1]); if (a === b) return null; const w = Math.max(a, b), l = Math.min(a, b); if (w < 11) return null; if (w === 11 && l > 9) return null; if (w > 11 && w - l !== 2) return null; return a > b ? 'a' : 'b'; }
+function wMatchResult(mm) { let wa = 0, wb = 0; ((mm && mm.sets) || []).forEach(s => { const sw = wSetWinner(s); if (sw === 'a') wa++; else if (sw === 'b') wb++; }); return { wa, wb }; }
+function wBestOf(mm, cat) { return (mm && mm.bestOf) || (cat && cat.rules && cat.rules.sets) || 5; }
+function wMatchWinnerSide(mm, cat) { const { wa, wb } = wMatchResult(mm); const n = Math.ceil(wBestOf(mm, cat) / 2); return wa >= n ? 'a' : wb >= n ? 'b' : null; }
+function wMatchDone(mm, cat) { return !!wMatchWinnerSide(mm, cat); }
+function wGroupComplete(cat, gi) { const ms = (cat.matches || []).filter(x => x.g === gi); return ms.length > 0 && ms.every(x => wMatchDone(x, cat)); }
+function wGroupStandings(cat, gi) {
+  const ids = (cat.groups && cat.groups[gi]) || [];
+  const s = {}; ids.forEach(id => s[id] = { id, pg: 0, sf: 0, sc: 0, pf: 0, pc: 0 });
+  (cat.matches || []).filter(x => x.g === gi && wMatchDone(x, cat)).forEach(x => {
+    const rr = wMatchResult(x); s[x.a].sf += rr.wa; s[x.a].sc += rr.wb; s[x.b].sf += rr.wb; s[x.b].sc += rr.wa;
+    (x.sets || []).forEach(([a, b]) => { s[x.a].pf += a; s[x.a].pc += b; s[x.b].pf += b; s[x.b].pc += a; });
+    const w = wMatchWinnerSide(x, cat); if (w === 'a') s[x.a].pg++; else if (w === 'b') s[x.b].pg++;
+  });
+  return ids.map(id => s[id]).sort((x, y) => y.pg - x.pg || (y.sf - y.sc) - (x.sf - x.sc) || (y.pf - y.pc) - (x.pf - x.pc));
+}
+function wResolveBracketSlots(cat) {
+  if (!cat.bracket || !cat.groups || !cat.bracket[0]) return;
+  cat.bracket[0].forEach(mm => ['a', 'b'].forEach(side => {
+    const v = mm[side];
+    if (typeof v === 'string' && v.indexOf('Q:') === 0) { const p = v.split(':'), gi = +p[1], pos = +p[2]; if (cat.groups[gi] && wGroupComplete(cat, gi)) { const row = wGroupStandings(cat, gi)[pos]; if (row) mm[side] = row.id; } }
+  }));
 }
 
 /* ---------- Firestore REST (blobs { id, j }) ---------- */

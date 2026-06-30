@@ -398,10 +398,10 @@ const FONTS = {
   cursivegeneric: { label: 'Manuscrita (genérica)', stack: 'cursive' },
 };
 // Ajustes por defecto del sitio (se completan los que falten en applyMigrations).
-const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, mpWorkerUrl: '', matchTimeEstimates: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, gymViewAllowed: false, gymViewEnabled: false, theme: DEFAULT_THEME };
+const DEFAULT_SETTINGS = { tableSuggestion: false, paymentsAllowed: true, paymentsEnabled: false, mpWorkerUrl: '', matchTimeEstimates: false, refMode: false, news: true, reglamento: false, reglamentoText: '', reglamentoPublished: false, doublesRanking: false, schoolRanking: true, playerCard: true, gymViewAllowed: false, gymViewEnabled: false, theme: DEFAULT_THEME };
 // Ajustes con alcance por ESCUELA (los controla el admin de la escuela, afectan solo a sus miembros)
 // y por ORGANIZACIÓN (los controla el superadmin, afectan a todos los miembros de la organización).
-const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard', 'gymViewEnabled'];
+const SCHOOL_SETTING_KEYS = ['tableSuggestion', 'paymentsEnabled', 'matchTimeEstimates', 'refMode', 'news', 'reglamento', 'reglamentoText', 'reglamentoPublished', 'playerCard', 'gymViewEnabled'];
 const ORG_SETTING_KEYS = ['doublesRanking', 'schoolRanking', 'paymentsAllowed', 'gymViewAllowed'];
 // Valor heredado (top-level de DB.settings) cuando una escuela/org no tiene override propio.
 function defaultSetting(key) { const s = DB.settings || {}; return key in s ? s[key] : DEFAULT_SETTINGS[key]; }
@@ -2257,6 +2257,9 @@ function renderSettings(app) {
       ${!isSuperadmin() ? settingRow('🕒 Horarios estimados de partidos ' + schoolScope,
         'Muestra una hora aproximada de comienzo de cada partido, estimada según la hora actual, el horario de cada categoría, la duración por cantidad de sets, las mesas disponibles y cómo vienen los partidos (con un margen de seguridad). Es una estimación.',
         setting('matchTimeEstimates'), 'toggleMatchTimes') : ''}
+      ${!isSuperadmin() ? settingRow('🧑‍⚖️ Modo árbitro ' + schoolScope,
+        'Al iniciar un partido de llave podés designar un <b>árbitro</b> (un jugador inscripto en el torneo que no esté jugando ni arbitrando otra mesa). En las zonas, el árbitro de cada partido se asigna solo (uno de los otros jugadores de la zona). El árbitro designado puede <b>cargar el resultado de su partido</b> desde su propia cuenta.',
+        setting('refMode'), 'toggleRefMode') : ''}
       ${!isSuperadmin() ? settingRow('📰 Noticias ' + schoolScope,
         'Habilitar la sección de Noticias para los miembros de esta escuela. Si la apagás, desaparece del menú de esta escuela.',
         setting('news'), 'toggleNews') : ''}
@@ -2287,6 +2290,7 @@ function toggleGymView() { toggleScopedSetting('gymViewEnabled'); }
 function toggleGymViewAllowed() { if (!isSuperadmin()) return; toggleScopedSetting('gymViewAllowed'); }
 function saveMpWorkerUrl() { if (!isSuperadmin()) return; if (!DB.settings) DB.settings = Object.assign({}, DEFAULT_SETTINGS); DB.settings.mpWorkerUrl = ($('#set_wurl').value || '').trim(); save(DB); render(); }
 function toggleMatchTimes() { toggleScopedSetting('matchTimeEstimates'); }
+function toggleRefMode() { toggleScopedSetting('refMode'); }
 function toggleNews() { toggleScopedSetting('news'); }
 function toggleReglamento() { toggleScopedSetting('reglamento'); }
 function togglePlayerCard() { toggleScopedSetting('playerCard'); }
@@ -3160,7 +3164,7 @@ function resultBtn(cat, kind, gidx, r, m, mm, done, cls, editLabel) {
 function openTablePopover(ev, tid, cid, kind, gidx, r, m) {
   ev.stopPropagation();
   const cat = getCat(tid, cid); cat._tid = tid;
-  const { mm } = locateMatch(cat, kind, gidx, r, m);
+  const { mm, a, b } = locateMatch(cat, kind, gidx, r, m);
   const t = tById(tid), max = tableCountOf(t);
   const occ = occupiedTablesOf(t, mm);               // mesas tomadas por otros partidos en curso (de cualquier categoría)
   const cur = mm && mm.table != null ? mm.table : null;
@@ -3172,24 +3176,35 @@ function openTablePopover(ev, tid, cid, kind, gidx, r, m) {
     const args = `'${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},${i}`;
     cells += `<button class="table-opt${isCur ? ' current' : ''}${busy ? ' busy' : ''}" ${busy ? 'disabled' : ''} onclick="assignTableFromPopover(${args})">🏓<span>Mesa ${i}</span>${tag}</button>`;
   }
+  // Modo árbitro: en partidos de LLAVE (no zona) se puede designar un árbitro al iniciar/mover.
+  let refSel = '';
+  if (setting('refMode') && (kind === 'bracket' || kind === 'third')) {
+    const cands = refCandidates(t, cat, a, b);
+    const opts = `<option value="">Sin árbitro</option>` + cands.map(p => `<option value="${p.id}" ${mm.ref === p.id ? 'selected' : ''}>${esc(fullName(p))}</option>`).join('');
+    refSel = `<div class="pop-ref"><label>🧑‍⚖️ Árbitro</label><select id="refSel">${opts}</select>
+      ${cands.length ? '' : '<div class="pop-sub" style="margin-top:4px">No hay jugadores libres para arbitrar ahora.</div>'}</div>`;
+  }
   const liberar = cur != null
     ? `<button class="btn btn-ghost btn-sm pop-free" onclick="assignTableFromPopover('${tid}','${cid}','${kind}',${gidx ?? 'null'},${r ?? 'null'},${m ?? 'null'},0)">⏹️ Liberar mesa (detener partido)</button>`
     : '';
   const html = `<h4>${cur != null ? 'Mover de mesa' : 'Iniciar partido'}</h4>
     <div class="pop-sub">Elegí una de las ${max} mesa${max === 1 ? '' : 's'} del torneo. Las ocupadas por otro partido en curso no se pueden elegir.</div>
-    <div class="table-grid">${cells}</div>${liberar}`;
+    <div class="table-grid">${cells}</div>${refSel}${liberar}`;
   showPopover(ev.currentTarget, html);
 }
 function assignTableFromPopover(tid, cid, kind, gidx, r, m, tableNum) {
+  const refEl = document.getElementById('refSel');           // árbitro elegido en el popover (si aplica)
+  const ref = refEl ? refEl.value : undefined;
   closePopover();
-  setMatchTable(tid, cid, kind, gidx, r, m, tableNum > 0 ? String(tableNum) : '');
+  setMatchTable(tid, cid, kind, gidx, r, m, tableNum > 0 ? String(tableNum) : '', ref);
 }
-function setMatchTable(tid, cid, kind, gidx, r, m, val) {
+function setMatchTable(tid, cid, kind, gidx, r, m, val, ref) {
   const cat = getCat(tid, cid); cat._tid = tid;
   const { mm } = locateMatch(cat, kind, gidx, r, m);
   const num = val ? parseInt(val, 10) : null;
   if (num != null && occupiedTablesOf(tById(tid), mm).has(num)) { alert(`La mesa ${num} ya está ocupada por otro partido en curso. Esperá a que se libere.`); render(); return; }
   mm.table = num;
+  if (ref !== undefined) { if (ref) mm.ref = ref; else delete mm.ref; } // designar / quitar árbitro (solo si vino del popover)
   save(DB); render();
 }
 
@@ -3255,7 +3270,9 @@ function assignZoneTable(tid, cid, gi, tableNum, force) {
   if (occ.has(num)) { alert(`La mesa ${num} ya está ocupada. Esperá a que se libere.`); render(); return; }
   // Aviso: ¿hay jugadores de esta zona jugando activamente en otra mesa? Damos la opción de largar igual.
   if (!force) { const conflicts = zoneLaunchConflicts(t, cat, gi); if (conflicts.length) { showZoneConflictModal(tid, cid, gi, num, conflicts); return; } }
-  cat.zoneTable[gi] = num; save(DB); render();
+  cat.zoneTable[gi] = num;
+  autoAssignZoneRefs(cat, gi); // Modo árbitro: cada partido de la zona queda con un árbitro (otro jugador de la zona)
+  save(DB); render();
 }
 // Aplazar un partido de grupo: lo saca de la mesa de la zona (libera la mesa para ese partido) y pasa a largado individual.
 function postponeMatch(tid, cid, idx) { const cat = getCat(tid, cid); const m = cat.matches && cat.matches[idx]; if (!m) return; m.postponed = true; m.table = null; save(DB); render(); }
@@ -3334,6 +3351,69 @@ function zonePendingPlayers(cat, gi) {
   return s;
 }
 const matchPlayers = (cat, a, b) => { const s = new Set(); [a, b].forEach(id => { const e = entById(cat, id); if (e) e.players.forEach(p => s.add(p)); }); return s; };
+
+/* ---------- árbitros (Modo árbitro) ---------- */
+// Jugadores que están JUGANDO ahora (unidad con mesa y partidos pendientes).
+function refPlayingNow(t) {
+  const s = new Set();
+  tournamentUnits(t).forEach(u => { if (u.table != null && u.pending > 0) (u.kind === 'zone' ? zonePendingPlayers(u.cat, u.gi) : u.players).forEach(p => s.add(p)); });
+  return s;
+}
+// Jugadores que están ARBITRANDO ahora (árbitro de un partido con mesa y sin terminar).
+function refJudgingNow(t) {
+  const s = new Set();
+  t.categorias.forEach(cat => { cat._tid = t.id;
+    catIndividualMatches(cat).forEach(m => { if (m && m.ref && m.table != null && !matchDone(m, cat)) s.add(m.ref); });
+    (cat.matches || []).forEach(m => { if (m.ref && isZoneMatch(m) && matchTableOf(cat, m) != null && !matchDone(m, cat)) s.add(m.ref); });
+  });
+  return s;
+}
+// Jugadores inscriptos en alguna categoría del torneo que TODAVÍA no terminó (probablemente siguen en el club).
+function refTournamentPool(t) {
+  const s = new Set();
+  t.categorias.forEach(cat => { if (cat.closed || catFinished(cat)) return; (cat.entrants || []).forEach(e => (e.players || []).forEach(p => s.add(p))); });
+  return s;
+}
+// Candidatos a árbitro de un partido de LLAVE: inscriptos en categorías no terminadas, que no juegan ni
+// arbitran otra mesa, que no son colaboradores del torneo, ni los dos que están por jugar este partido.
+function refCandidates(t, cat, a, b) {
+  if (!setting('refMode')) return [];
+  const playing = refPlayingNow(t), judging = refJudgingNow(t), collab = new Set(t.collaborators || []);
+  const inMatch = matchPlayers(cat, a, b), out = [];
+  refTournamentPool(t).forEach(pid => {
+    if (inMatch.has(pid) || collab.has(pid) || playing.has(pid) || judging.has(pid)) return;
+    const p = playerById(pid); if (!p || isDeleted(p)) return;
+    out.push(p);
+  });
+  return out.sort((x, y) => fullName(x).localeCompare(fullName(y)));
+}
+// ¿El usuario logueado es el ÁRBITRO designado de este partido? (le habilita cargar SU resultado).
+function isMatchRef(cat, mm) {
+  if (!setting('refMode') || !mm || !mm.ref) return false;
+  const u = currentUser();
+  return !!(u && u.playerId && u.playerId === mm.ref);
+}
+// Etiqueta con el árbitro designado de un partido (si hay y el modo está activo).
+function refLabel(cat, mm) {
+  if (!setting('refMode') || !mm || !mm.ref) return '';
+  const p = playerById(mm.ref); if (!p) return '';
+  const me = (currentUser() || {}).playerId === mm.ref;
+  return `<span class="ref-tag" title="Árbitro del partido">🧑‍⚖️ ${esc(fullName(p))}${me ? ' (vos)' : ''}</span>`;
+}
+// Al largar una zona, asigna el árbitro de cada partido pendiente: uno de los OTROS jugadores de la zona,
+// repartido lo más parejo posible. No piso los que ya tengan árbitro (p. ej. al mover la zona de mesa).
+function autoAssignZoneRefs(cat, gi) {
+  if (!setting('refMode')) return;
+  const members = cat.groups[gi] || [];
+  const count = {}; members.forEach(eid => { const e = entById(cat, eid); if (e && e.players[0]) count[e.players[0]] = 0; });
+  (cat.matches || []).filter(m => m.g === gi && m.ref).forEach(m => { if (count[m.ref] != null) count[m.ref]++; });
+  (cat.matches || []).filter(m => m.g === gi && !m.ref && !matchDone(m, cat)).forEach(m => {
+    const cands = members.filter(eid => eid !== m.a && eid !== m.b).map(eid => { const e = entById(cat, eid); return e && e.players[0]; }).filter(Boolean);
+    if (!cands.length) return;                                  // zona de 2 → no hay un tercero que arbitre
+    cands.sort((x, y) => (count[x] || 0) - (count[y] || 0));     // el que menos arbitró hasta ahora
+    m.ref = cands[0]; count[cands[0]] = (count[cands[0]] || 0) + 1;
+  });
+}
 function brRoundName(cat, r) { const T = cat.bracket.length, fe = T - 1 - r; return fe === 0 ? 'Final' : fe === 1 ? 'Semifinal' : fe === 2 ? 'Cuartos' : fe === 3 ? 'Octavos' : 'Ronda ' + (r + 1); }
 // Todas las "unidades" largables/en curso del torneo (zonas de grupo y partidos individuales de llave).
 function tournamentUnits(t) {
@@ -4633,13 +4713,14 @@ function groupCardHtml(cat, gi) {
       else if (zoneStarted) ctl = `<button class="btn btn-ghost btn-sm" onclick="postponeMatch('${cat._tid}','${cat.id}',${idx})" title="Aplazar: saca este partido de la mesa de la zona">⏸ Aplazar</button>`;
     }
     // Todos los controles (Cargar / 🚷 / Aplazar / Iniciar) van juntos en una sola fila, así no se parten en dos líneas.
+    // Si el usuario es el ÁRBITRO designado de este partido (y no es admin/colaborador), puede cargar SOLO su resultado.
     const actions = canEditCat(cat)
       ? `<div class="bmatch-actions">${resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-ghost btn-sm', '✏️')}${!done ? noShowBtn(cat, 'group', idx, null, null) : ''}${ctl}</div>`
-      : '';
+      : (isMatchRef(cat, m) && !done ? `<div class="bmatch-actions">${resultBtn(cat, 'group', idx, null, null, m, done, 'btn btn-primary btn-sm', 'Cargar')}</div>` : '');
     return `<div class="bmatch${done ? ' done' : ''}"><span class="${w === 'a' ? 'win' : ''}">${entLink(cat, m.a)}</span>
       <b class="score">${done ? r.wa + '-' + r.wb : 'vs'}</b>${wo}
       <span class="${w === 'b' ? 'win' : ''}">${entLink(cat, m.b)}</span>
-      ${done ? eloLabel(cat, m, m.a, m.b) : estStartLabel(m)}
+      ${done ? eloLabel(cat, m, m.a, m.b) : estStartLabel(m)}${refLabel(cat, m)}
       ${actions}</div>`;
   }).join('');
   const zc = zoneControl(cat, gi);
@@ -4738,10 +4819,12 @@ function bracketHtml(cat) {
       const isFinal = r === T - 1;
       const medA = (isFinal && done) ? (w === a ? '🏆' : isRealEnt(cat, a) ? '🥈' : '') : '';
       const medB = (isFinal && done) ? (w === b ? '🏆' : isRealEnt(cat, b) ? '🥈' : '') : '';
+      const refCan = playable && !done && isMatchRef(cat, mm); // árbitro designado puede cargar SU resultado
       return `<div class="${matchCls(a, b, done)}">${slot(a, w && w === a, done ? res.wa : '', medA)}${slot(b, w && w === b, done ? res.wb : '', medB)}
         ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, mm, a, b)}</div>` : (playable && !done && estStartLabel(mm) ? `<div class="br-est">${estStartLabel(mm)}</div>` : '')}
+        ${refLabel(cat, mm) ? `<div class="br-ref">${refLabel(cat, mm)}</div>` : ''}
         ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
-        ${can ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}
+        ${(can || refCan) ? resultBtn(cat, 'bracket', null, r, m, mm, done, 'btn br-edit', '✏️ editar') : ''}
         ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','bracket',null,${r},${m})" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div>`;
     }).join('') + `</div>`).join('');
   let extra = '';
@@ -4757,11 +4840,13 @@ function bracketHtml(cat) {
     const playable = isRealEnt(cat, a) && isRealEnt(cat, b);
     const can = canEditCat(cat) && playable;
     const mesa = (playable && !done) ? startControl(cat, 'third', null, null, null, cat.thirdPlace) : '';
+    const refCan = playable && !done && isMatchRef(cat, cat.thirdPlace);
     extra = `<div class="br-col br-col-3rd"><div class="br-rtitle">🥉 3er puesto</div><div class="${matchCls(a, b, done)}">
       ${slot(a, w === 'a', done ? res.wa : '', done && w === 'a' ? '🥉' : '')}${slot(b, w === 'b', done ? res.wb : '', done && w === 'b' ? '🥉' : '')}
       ${done && catScores(cat) ? `<div class="br-elo">${eloLabel(cat, cat.thirdPlace, a, b)}</div>` : (playable && !done && estStartLabel(cat.thirdPlace) ? `<div class="br-est">${estStartLabel(cat.thirdPlace)}</div>` : '')}
+      ${refLabel(cat, cat.thirdPlace) ? `<div class="br-ref">${refLabel(cat, cat.thirdPlace)}</div>` : ''}
       ${mesa ? `<div class="br-mesa">${mesa}</div>` : ''}
-      ${can ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}
+      ${(can || refCan) ? resultBtn(cat, 'third', null, null, null, cat.thirdPlace, done, 'btn br-edit', '✏️ editar') : ''}
       ${can && !done ? `<button class="btn br-edit" onclick="noShowModal('${cat._tid}','${cat.id}','third',null,null,null)" title="Cargar como no presentado">🚷 No se presentó</button>` : ''}</div></div>`;
   }
   const champ = brWinner(cat, T - 1, 0);
@@ -4834,9 +4919,30 @@ function saveResult(tid, cid, kind, gidx, r, m) {
   }
   if (decided < 0) { e.hidden = false; e.textContent = `Faltan sets: alguien tiene que llegar a ${n} sets ganados.`; return; }
   if (decided < sets.length - 1) { e.hidden = false; e.textContent = `Cargaste sets de más: el partido termina cuando alguien llega a ${n} sets (no puede ganar por más de ${n}).`; return; }
+  // Árbitro (no admin/colaborador) en Firebase: NO puede escribir el doc del torneo (reglas) → lo persiste el worker,
+  // que valida que sea el árbitro designado de ESTE partido. En modo local escribe directo como cualquiera.
+  if (FB() && !canEditCat(cat) && isMatchRef(cat, mm)) { refResultViaWorker(tid, cid, kind, gidx, r, m, sets); return; }
   mm.sets = sets; if (mm.walkover) delete mm.walkover;
   syncBracket(cat); // resuelve en la llave los cruces de los grupos que con este resultado quedaron completos
   save(DB); closeModal(); render();
+}
+// Persiste el resultado cargado por un ÁRBITRO vía worker (el jugador no puede escribir el torneo por reglas).
+async function refResultViaWorker(tid, cid, kind, gidx, r, m, sets) {
+  const wurl = ((DB.settings && DB.settings.mpWorkerUrl) || '').trim().replace(/\/+$/, '');
+  const err = $('#rerr');
+  const fail = msg => { if (err) { err.hidden = false; err.textContent = msg; } else alert(msg); };
+  if (!wurl) { fail('No se puede guardar ahora (falta configurar el servidor). Avisale al organizador.'); return; }
+  const btn = $('#modalCard .btn-primary'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    const idToken = await window.STORE.idToken();
+    const res = await fetch(wurl + '/match-result', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, tournamentId: tid, categoryId: cid, kind, gidx, r, m, sets }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; } fail(d.error ? '⛔ ' + d.error : 'No se pudo guardar, probá de nuevo.'); return; }
+    // Optimista: reflejamos el resultado ya; el live-sync trae la versión autoritativa y reconcilia.
+    const cat = getCat(tid, cid); if (cat) { cat._tid = tid; const { mm } = locateMatch(cat, kind, gidx, r, m); if (mm) { mm.sets = sets; if (mm.walkover) delete mm.walkover; syncBracket(cat); } }
+    closeModal(); render();
+  } catch (ex) { if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; } fail('No se pudo guardar: ' + (ex && ex.message || ex)); }
 }
 
 /* ----- puntos al ranking ----- */
